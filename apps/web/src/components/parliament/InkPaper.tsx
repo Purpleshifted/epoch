@@ -16,7 +16,7 @@
 import { useEffect, useMemo } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { LongExposure } from "./longExposure";
+import { LongExposure, setExposureWeight } from "./longExposure";
 import { EXPOSE_GLSL, EXPOSURE_LAYER } from "./paperLook";
 export { EXPOSURE_LAYER };
 
@@ -35,9 +35,16 @@ export interface InkPaperLook {
   grain: number;
   /** The highlights' soft roll-off (0 = none). */
   rolloff: number;
+  /** The hand-held shake while the exposure is open (% of the screen's height, vertical; across, 30 % of it): only the
+   *  exposed layer (the people) is shaken, so they drag into vertical streaks as in the references while the world stays. */
+  shake: number;
+  /** Halation: how much of a blurred copy of the exposure is mixed in (0 … 1) — the white bleeds into the bodies' edges. */
+  halo: number;
+  /** Overexposure: the accumulated density raised to this power (1 = as it is; > 1 lifts the mid-tones, blacks stay). */
+  burn: number;
 }
 
-export const DEFAULT_INK: InkPaperLook = { narrow: 1.2, wide: 6, decay: 0.94, gain: 0.5, density: 0.92, fade: 0.25, grain: 0.01, rolloff: 0.5 };
+export const DEFAULT_INK: InkPaperLook = { narrow: 1.2, wide: 6, decay: 0.965, gain: 0.5, density: 0.97, fade: 0.25, grain: 0.01, rolloff: 0.5, shake: 1.5, halo: 0.5, burn: 1.4 };
 
 
 
@@ -64,6 +71,9 @@ uniform sampler2D uScene;
 uniform sampler2D uNear;
 uniform sampler2D uWide;
 uniform sampler2D uFeed;
+uniform sampler2D uFeedSoft;
+uniform float uHalo;
+uniform float uBurn;
 uniform sampler2D uDepth;
 uniform vec2 uRes;
 uniform float uCamNear;
@@ -89,7 +99,10 @@ void main() {
   vec3 col = mix(mix(sc, bn, 0.35), bw, smoothstep(0.1, 0.85, d));
   col = mix(col, vec3(1.0), uFade * d * 0.5);
   // the exposure: what accumulated darkens the frame (a standing body dense, a walking one thin — by time, not by drawing)
-  col = exposeOnWhite(col, texture2D(uFeed, vUv).r, uDensity);
+  // overexposed: the white bleeds into the edges (a soft copy mixed in) and the mid-tones lift (a power), blacks stay
+  vec3 feed = mix(texture2D(uFeed, vUv).rgb, texture2D(uFeedSoft, vUv).rgb, uHalo);
+  feed = pow(clamp(feed, 0.0, 1.0), vec3(uBurn));
+  col = exposeOnWhite(col, feed, uDensity);
   // an overexposed photograph: the highlights roll off softly; a fine living grain and a dither
   col = exposeTone(col, uRolloff);
   col += filmGrain(vUv * uRes, uTime, uGrain);
@@ -105,6 +118,18 @@ function setBackground(sc: { background: THREE.Color | THREE.Texture | THREE.Cub
 /** The renderer's auto-clear is switched through this (a plain function on the object). */
 function setAutoClear(r: { autoClear: boolean }, v: boolean): void {
   r.autoClear = v;
+}
+
+/** A lens shift of the projection (NDC units), for the exposed layer's shake: set, render, set back (0, 0 = the saved). */
+function shiftProjection(m: THREE.Matrix4, saved: [number, number], dx: number, dy: number): void {
+  m.elements[8] = saved[0] - dx;
+  m.elements[9] = saved[1] - dy;
+}
+
+/** Three sines out of step (Hz 1.3 · 2.1 · 0.7): a hand's shake that never rests at its ends, slow enough that the
+ *  frames' copies run together into a drag rather than stand as steps; −1 … 1. */
+function handShake(t: number, phase: number): number {
+  return 0.5 * Math.sin(Math.PI * 2 * 1.3 * t + phase) + 0.3 * Math.sin(Math.PI * 2 * 2.1 * t + 1.3 + phase) + 0.2 * Math.sin(Math.PI * 2 * 0.7 * t + 2.1 + phase);
 }
 
 function setUniforms(u: Record<string, THREE.IUniform>, values: Record<string, unknown>): void {
@@ -128,7 +153,8 @@ export function InkPaper({ look = DEFAULT_INK, fogFar }: { look?: InkPaperLook; 
     const sceneRT = target(w, h, true);
     const nA = target(w >> 1, h >> 1), nB = target(w >> 1, h >> 1);
     const wA = target(w >> 2, h >> 2), wB = target(w >> 2, h >> 2);
-    return { sceneRT, nA, nB, wA, wB };
+    const fA = target(w >> 2, h >> 2), fB = target(w >> 2, h >> 2);
+    return { sceneRT, nA, nB, wA, wB, fA, fB };
   }, [w, h]);
   // the exposure (half size): the feedback that keeps the last frame × decay and takes the exposed layer on top
   const exposure = useMemo(() => new LongExposure(w >> 1, h >> 1), [w, h]);
@@ -142,6 +168,9 @@ export function InkPaper({ look = DEFAULT_INK, fogFar }: { look?: InkPaperLook; 
         uNear: { value: null },
         uWide: { value: null },
         uFeed: { value: null },
+        uFeedSoft: { value: null },
+        uHalo: { value: 0.5 },
+        uBurn: { value: 1.4 },
         uDepth: { value: null },
         uRes: { value: new THREE.Vector2() },
         uCamNear: { value: 0.1 },
@@ -182,21 +211,31 @@ export function InkPaper({ look = DEFAULT_INK, fogFar }: { look?: InkPaperLook; 
   );
 
   useFrame((state, delta) => {
-    const { sceneRT, nA, nB, wA, wB } = rts;
+    const { sceneRT, nA, nB, wA, wB, fA, fB } = rts;
     // 1. the scene, without the exposed layer
     camera.layers.set(0);
     gl.setRenderTarget(sceneRT);
     gl.clear();
     gl.render(scene, camera);
     // 2. the exposure: the last frame kept × decay (rate-independent), then the exposed layer added on top
-    exposure.decayInto(gl, look.decay, Math.min(4, delta * 60));
+    const dtFrames = Math.min(4, delta * 60);
+    exposure.decayInto(gl, look.decay, dtFrames);
+    setExposureWeight(look.decay, dtFrames);
     // (the exposed layer alone — three would paint the scene's background too, and it would accumulate into a fog of its own)
     camera.layers.set(EXPOSURE_LAYER);
     const bg = scene.background;
     setBackground(scene, null);
     const auto = gl.autoClear;
     setAutoClear(gl, false);
+    // the hand's shake, for the exposed layer only (NDC: the screen's height is 2)
+    const pm = camera.projectionMatrix;
+    const saved: [number, number] = [pm.elements[8], pm.elements[9]];
+    if (look.shake > 0) {
+      const t = state.clock.elapsedTime, a = look.shake * 0.02;
+      shiftProjection(pm, saved, 0.3 * a * handShake(t, 0.7), a * handShake(t, 0));
+    }
     gl.render(scene, camera);
+    shiftProjection(pm, saved, 0, 0);
     setAutoClear(gl, auto);
     setBackground(scene, bg);
     camera.layers.set(0);
@@ -214,11 +253,16 @@ export function InkPaper({ look = DEFAULT_INK, fogFar }: { look?: InkPaperLook; 
     pass(wA.texture, wB, 0, 1, rW);
     pass(wB.texture, wA, 1, 0, rW);
     pass(wA.texture, wB, 0, 1, rW);
+    // the halation's soft copy of the exposure (quarter size, ~12 px of the frame)
+    if (look.halo > 0) {
+      pass(exposure.texture, fA, 1, 0, 2.5);
+      pass(fA.texture, fB, 0, 1, 2.5);
+    }
     // 4. the frame
     const u = quad.compose.uniforms;
     (u.uRes.value as THREE.Vector2).set(w, h);
     const pc = camera as THREE.PerspectiveCamera;
-    setUniforms(u, { uScene: sceneRT.texture, uNear: nB.texture, uWide: wB.texture, uFeed: exposure.texture, uDepth: sceneRT.depthTexture, uCamNear: pc.near, uCamFar: pc.far, uFogFar: fogFar, uTime: state.clock.elapsedTime, uDensity: look.density, uFade: look.fade, uGrain: look.grain, uRolloff: look.rolloff });
+    setUniforms(u, { uScene: sceneRT.texture, uNear: nB.texture, uWide: wB.texture, uFeed: exposure.texture, uFeedSoft: look.halo > 0 ? fB.texture : exposure.texture, uHalo: look.halo, uBurn: look.burn, uDepth: sceneRT.depthTexture, uCamNear: pc.near, uCamFar: pc.far, uFogFar: fogFar, uTime: state.clock.elapsedTime, uDensity: look.density, uFade: look.fade, uGrain: look.grain, uRolloff: look.rolloff });
     gl.setRenderTarget(null);
     gl.render(quad.sCompose, quad.cam);
   }, 1);

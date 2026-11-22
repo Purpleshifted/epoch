@@ -22,6 +22,8 @@ import * as THREE from "three";
 import { DEFAULT_WITNESS, glyphOf, nearestImage, rhythmOf, stepAt, type Other } from "@/lib/parliament";
 import { Glyph } from "./Glyph";
 import { DEFAULT_BODY, DEFAULT_MOTION, WALK_CYCLES, WALK_STYLES, WAVE_STYLE, bakeWalk, jointsAt, jointsOfCycle, stepPerson, strideLength, type MotionConfig, type PersonMotion } from "@/lib/parliament/pointPeople";
+import { BodyPoses, cycleOf, makeBodyGeometry, makeBodyMaterial, personCode, poseOf } from "./bodySheet";
+import { exposureRate } from "./longExposure";
 import { streetGaze } from "./streetLook";
 import { EXPOSURE_LAYER } from "./InkPaper";
 import { onLifeEvent } from "./lifeEvents";
@@ -87,6 +89,8 @@ export interface PeopleLook {
   variety: number;
   /** The walks: captured (CMU, four real gaits) or the sine skeleton. */
   gait: "mocap" | "sine";
+  /** 흰 바탕: the clothes' colour (0 = grey, 1 = the palette; bodySheet.ts). */
+  colour: number;
   /** The legs never cycle faster than this (strides/s). */
   maxCadence: number;
   /** The faint standing plate behind each body, and its opacity. */
@@ -112,7 +116,7 @@ export interface PeopleLook {
   meRest: number;
 }
 
-export const DEFAULT_PEOPLE: PeopleLook = { mode: "boxes", gait: "mocap", paper: false, ink: 0.9, blur: 3, fadeDist: 12, labelDist: 4, flicker: true, stretchGain: 1, shake: 2, blotDist: 8, bubble: true, aspectMin: 0.5, aspectMax: 1.3, tailSec: 1.6, exposure: 0.5, frame: 1, askTurn: true, ripple: true, paperVariety: 1, boxAspect: 0.55, boxRest: 0.22, cue: true, points: 480, pointsPhone: 200, scale: 2.5, dot: 0.07, maxPx: 6, grey: 0.78, height: 1.7, variety: 1, maxCadence: 2.2, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3, meBody: false, meRest: 0.4 };
+export const DEFAULT_PEOPLE: PeopleLook = { mode: "boxes", gait: "mocap", colour: 1, paper: false, ink: 1, blur: 3, fadeDist: 12, labelDist: 4, flicker: true, stretchGain: 1, shake: 2, blotDist: 8, bubble: true, aspectMin: 0.5, aspectMax: 1.3, tailSec: 1.6, exposure: 0.5, frame: 1, askTurn: true, ripple: true, paperVariety: 1, boxAspect: 0.55, boxRest: 0.22, cue: true, points: 480, pointsPhone: 200, scale: 2.5, dot: 0.07, maxPx: 6, grey: 0.78, height: 1.7, variety: 1, maxCadence: 2.2, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3, meBody: false, meRest: 0.4 };
 
 /** The visitor, for their own body: where they stand and look (the controller's yaw), and their melody. */
 export interface MeInput {
@@ -150,7 +154,21 @@ interface Person extends PersonMotion {
   sdz: number;
   sampleAt: number;
   shakeUntil: number;
+  /** 흰 바탕: the 3D body walks on its own, eased towards the samples (the window flickers; the body does not), its stride
+   *  the captured cycle's length. */
+  body: PersonMotion;
+  bodyMotion: MotionConfig;
 }
+
+/** A test scene (`?crowd=N` on the address, a dev aid for the side-by-side with the references): N people walking away
+ *  round the visitor, mostly, some across, some standing — fed in as if the record had them. */
+interface Walker {
+  x: number;
+  z: number;
+  vx: number;
+  vz: number;
+}
+const CROWD_PARAM = typeof window === "undefined" ? 0 : Math.max(0, Math.min(80, Number(new URLSearchParams(window.location.search).get("crowd")) || 0));
 
 /** The server's samples come about this often (s): the window's stretch lives this long, and a stride step is one sample. */
 const SAMPLE_SEC = 0.5;
@@ -268,6 +286,7 @@ uniform float uPaper;
 uniform float uInk;
 uniform float uFrame;
 uniform float uGain;
+uniform float uBody3D;
 varying vec2 vUv;
 varying vec2 vLocal;
 varying float vLit;
@@ -283,12 +302,13 @@ void main() {
     // THE EXPOSURE (the long exposure, not ink): this writes a DENSITY, additively, into the feedback buffer — the body as
     // a sharp silhouette (time softens it, not a brush), the plate as an acetate film whose edges melt and which breathes
     // with the melody, deeper for the asker; a ripple (cue 2) is a film alone. Standing accumulates, walking smears.
-    float body = vCue > 1.5 ? 0.0 : mix(texture2D(uSheet, vUv).a, texture2D(uSheetSoft, vUv).a, vSoft * 0.5) * uInk * vInkK;
+    float body = (vCue > 1.5 || uBody3D > 0.5) ? 0.0 : mix(texture2D(uSheet, vUv).a, texture2D(uSheetSoft, vUv).a, vSoft * 0.5) * uInk * vInkK;
     float bx = min(vLocal.x, 1.0 - vLocal.x), by = min(vLocal.y, 1.0 - vLocal.y);
     // (the film is faint and its edges wide: the window is a frame of record, and on the white ground it must not read as a
     // drawn rectangle)
     float edge = smoothstep(0.0, 0.2, bx) * smoothstep(0.0, 0.14, by);
-    float film = edge * (0.02 + 0.015 * vLit + 0.05 * step(0.5, vCue)) * uFrame;
+    // (with the 3D body the window's film is a third as dense: forty of them stood as one grey band behind a crowd)
+    float film = edge * (0.02 + 0.015 * vLit + 0.05 * step(0.5, vCue)) * uFrame * (uBody3D > 0.5 ? 0.35 : 1.0);
     if (vCue > 1.5) film = edge * 0.05;
     float dens = max(body, film) * vAlpha * uGain;
     if (dens < 0.002) discard;
@@ -367,6 +387,28 @@ void main() {
 }`;
 
 /** The instanced draw's count and the uniforms are set through these (plain functions on the objects, every frame). */
+/** A small seeded random (the crowd test scene is the same every time). */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** A crowd walker round `me` (world; k = world units a metre): most walk away from the visitor, some across, some stand. */
+function spawnWalker(rnd: () => number, me: { x: number; z: number }, k: number, first: boolean): Walker {
+  const a = rnd() * Math.PI * 2;
+  const r = (first ? 4 + rnd() * 12 : 4 + rnd() * 3) * k;
+  const kind = rnd();
+  const speed = (1 + rnd() * 0.6) * k;
+  const dir = kind < 0.15 ? null : kind < 0.4 ? a + (rnd() < 0.5 ? 1 : -1) * Math.PI * 0.5 : a + (rnd() - 0.5) * 0.9;
+  return { x: me.x + Math.sin(a) * r, z: me.z + Math.cos(a) * r, vx: dir === null ? 0 : Math.sin(dir) * speed, vz: dir === null ? 0 : Math.cos(dir) * speed };
+}
+
 function setInstanceCount(g: THREE.InstancedBufferGeometry, n: number): void {
   g.instanceCount = n;
 }
@@ -450,7 +492,7 @@ export function PointPeople({
   const boxMat = useMemo(
     () =>
       new THREE.ShaderMaterial({
-        uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uSheet: { value: null }, uSheetSoft: { value: null }, uFrames: { value: SHEET_FRAMES }, uRows: { value: SHEET_ROWS }, uAspect: { value: 0.55 }, uRest: { value: 0.22 }, uPaper: { value: 0 }, uInk: { value: 0.9 }, uFrame: { value: 1 }, uGain: { value: 0.5 } }]),
+        uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uSheet: { value: null }, uSheetSoft: { value: null }, uFrames: { value: SHEET_FRAMES }, uRows: { value: SHEET_ROWS }, uAspect: { value: 0.55 }, uRest: { value: 0.22 }, uPaper: { value: 0 }, uInk: { value: 0.9 }, uFrame: { value: 1 }, uGain: { value: 0.5 }, uBody3D: { value: 0 } }]),
         vertexShader: BOX_VERT,
         fragmentShader: BOX_FRAG,
         transparent: true,
@@ -525,12 +567,34 @@ export function PointPeople({
 
   const people = useRef(new Map<string, Person>());
   const lastList = useRef<readonly Other[] | null>(null);
+  // 흰 바탕: the 3D bodies (bodySheet.ts) — one box a person, ray-marched, exposed into the feedback
+  const poses = useMemo(() => new BodyPoses(MAX_PEOPLE), []);
+  const bodyGeom = useMemo(() => makeBodyGeometry(MAX_PEOPLE), []);
+  const bodyMat = useMemo(() => makeBodyMaterial(poses, "exposure"), [poses]);
+  useEffect(
+    () => () => {
+      poses.dispose();
+      bodyGeom.dispose();
+      bodyMat.dispose();
+    },
+    [poses, bodyGeom, bodyMat],
+  );
+  const bodyMesh = useRef<THREE.Mesh>(null);
+  // the crowd test scene
+  const crowd = useRef<{ walkers: Walker[]; at: number; list: Other[]; real: readonly Other[] | null | undefined; both: Other[] }>({ walkers: [], at: -1, list: [], real: null, both: [] });
   const motion = useMemo<MotionConfig>(() => ({ ...DEFAULT_MOTION, maxSpeed: look.maxSpeed, stride: strideLength(heightU), maxCadence: look.maxCadence }), [look.maxSpeed, heightU, look.maxCadence]);
   /** This body's own motion: its pace and its stride follow its height and pace factors. */
   const motionOf = (hash: number): MotionConfig => {
     const hs = heightFactor(hash, look.variety), pace = paceFactor(hash, look.variety);
     return { ...motion, maxSpeed: motion.maxSpeed * pace, accel: motion.accel * pace, stride: motion.stride * hs, turnRate: motion.turnRate * (0.8 + 0.4 * frac(hash * 5.3)) };
   };
+  // the 3D body's own way of moving: the captured cycle's stride (metres → world), a walking cadence, a slower ease
+  const bodyMotionOf = (hash: number): MotionConfig => {
+    const m = motionOf(hash);
+    const strideM = (look.gait === "mocap" ? cycleOf(hash)?.strideM : undefined) ?? 1.4;
+    return { ...m, stride: strideM * k * heightFactor(hash, look.variety) * (look.height / 1.7), reachSec: 0.6, maxCadence: Math.min(m.maxCadence, 1.6) };
+  };
+  const crowdRnd = useRef<(() => number) | null>(null);
   // the visitor's own body (look.meBody): its stride runs with their speed; its points blink their melody
   const self = useRef({ phase: 0, breathe: 0 });
 
@@ -540,7 +604,32 @@ export function PointPeople({
     const me = playerPosRef.current;
     const P = people.current;
     // the record's latest places (a new list after every fold)
-    const list = getOthers();
+    let list = getOthers();
+    // the crowd test scene (?crowd=N): walkers round the visitor, sampled as the record would be, before the record's own
+    if (CROWD_PARAM > 0) {
+      const C = crowd.current;
+      if (!C.walkers.length) {
+        const rnd = mulberry32(20261123);
+        for (let i = 0; i < CROWD_PARAM; i++) C.walkers.push(spawnWalker(rnd, me, k, true));
+        crowdRnd.current = rnd;
+      }
+      const rnd = crowdRnd.current ?? Math.random;
+      for (let i = 0; i < C.walkers.length; i++) {
+        const w = C.walkers[i];
+        w.x += w.vx * dt;
+        w.z += w.vz * dt;
+        if (Math.hypot(w.x - me.x, w.z - me.z) > 18 * k) C.walkers[i] = spawnWalker(rnd, me, k, false);
+      }
+      if (now - C.at >= SAMPLE_SEC || list !== C.real) {
+        if (now - C.at >= SAMPLE_SEC) {
+          C.at = now;
+          C.list = C.walkers.map((w, i) => ({ o: `crowd-${i}`, r: "worker", x: w.x, z: w.z, dist: Math.hypot(w.x - me.x, w.z - me.z), bearing: "", moving: w.vx !== 0 || w.vz !== 0, ageSec: 0 }) as Other);
+        }
+        C.real = list;
+        C.both = C.list.concat(list ?? []);
+      }
+      list = C.both;
+    }
     if (list && list !== lastList.current) {
       lastList.current = list;
       for (const o of list) {
@@ -550,7 +639,7 @@ export function PointPeople({
         if (!p) {
           if (P.size >= MAX_PEOPLE) continue;
           const h = idHash(o.o);
-          P.set(o.o, { x: tx, z: tz, vx: 0, vz: 0, heading: h * Math.PI * 2, phase: h, tx, tz, seen: now, bright, alpha: 0, trail: [], lastTrailAt: now, hash: h, hs: heightFactor(h, look.variety), ws: buildFactor(h, look.variety), motion: motionOf(h), flip: 0, sdx: 0, sdz: 0, sampleAt: now, shakeUntil: 0 });
+          P.set(o.o, { x: tx, z: tz, vx: 0, vz: 0, heading: h * Math.PI * 2, phase: h, tx, tz, seen: now, bright, alpha: 0, trail: [], lastTrailAt: now, hash: h, hs: heightFactor(h, look.variety), ws: buildFactor(h, look.variety), motion: motionOf(h), flip: 0, sdx: 0, sdz: 0, sampleAt: now, shakeUntil: 0, body: { x: tx, z: tz, vx: 0, vz: 0, heading: h * Math.PI * 2, phase: h, tx, tz }, bodyMotion: bodyMotionOf(h) });
         } else {
           // the record's place is drawn where it lies round the walker (the world wraps): a far jump is the wrap, not a walk
           const dx = tx - p.tx, dz = tz - p.tz;
@@ -594,7 +683,10 @@ export function PointPeople({
     const pv = look.paperVariety;
     const paper = look.paper;
     const fadeU = Math.max(0.5, look.fadeDist);
-    let n = 0, nb = 0;
+    let n = 0, nb = 0, nbody = 0;
+    const iBodyA = bodyGeom.getAttribute("iBody") as THREE.InstancedBufferAttribute;
+    const iBodyB = bodyGeom.getAttribute("iBody2") as THREE.InstancedBufferAttribute;
+    const BB = iBodyA.array as Float32Array, BB2 = iBodyB.array as Float32Array;
     const plates = plateMesh.current;
     let np = 0;
     const smearEvery = copies > 0 ? look.smearSec / copies : Infinity;
@@ -620,6 +712,10 @@ export function PointPeople({
         p.vx *= decay;
         p.vz *= decay;
       } else stepPerson(p, dt, p.motion);
+      // the 3D body walks on towards the latest sample (the window flickers with the samples; the body eases)
+      p.body.tx = p.tx;
+      p.body.tz = p.tz;
+      stepPerson(p.body, dt, p.bodyMotion);
       // standing near someone, the body turns to face the nearest of them (slowly): a group, not a row
       if (look.faceEach && Math.hypot(p.vx, p.vz) < motion.standBelow) {
         let best: Person | null = null, bd = look.faceRadius * k;
@@ -705,6 +801,23 @@ export function PointPeople({
           BW[nb * 4 + 3] = row;
           const baseNb = nb;
           nb++;
+          // 흰 바탕: the 3D body (bodySheet.ts) where the eased body is, seen from wherever the visitor stands; the asker
+          // turns to the visitor and waves
+          if (paper && nbody < MAX_PEOPLE) {
+            const b = p.body;
+            const stand = 1 - Math.min(1, Math.hypot(b.vx, b.vz) / motion.standBelow);
+            const J = cue ? poseOf(undefined, p.phase, 0, true) : look.gait === "mocap" ? poseOf(cycleOf(p.hash), b.phase, stand) : jointsAt(b.phase, WALK_STYLES[Math.floor(frac(p.hash * 29.7) * WALK_STYLES.length)]);
+            poses.write(nbody, J, p.ws, personCode(p.hash));
+            BB[nbody * 4] = b.x;
+            BB[nbody * 4 + 1] = b.z;
+            BB[nbody * 4 + 2] = cue ? Math.atan2(me.x - b.x, me.z - b.z) : b.heading;
+            BB[nbody * 4 + 3] = (k * p.hs * look.height) / 1.7;
+            BB2[nbody * 4] = nbody;
+            BB2[nbody * 4 + 1] = p.alpha * cut;
+            BB2[nbody * 4 + 2] = BW[baseNb * 4 + 1];
+            BB2[nbody * 4 + 3] = 0;
+            nbody++;
+          }
           // the asker: the wave runs on its own time; square ripples spread from the window on the bar; the eye turns
           if (cue) {
             p.phase = (p.phase + dt * 0.9) % 1;
@@ -821,6 +934,15 @@ export function PointPeople({
     iPos.needsUpdate = true;
     iAnim.needsUpdate = true;
     setInstanceCount(boxGeom, nb);
+    setInstanceCount(bodyGeom, paper && boxes ? nbody : 0);
+    iBodyA.addUpdateRange(0, nbody * 4);
+    iBodyB.addUpdateRange(0, nbody * 4);
+    iBodyA.needsUpdate = true;
+    iBodyB.needsUpdate = true;
+    if (nbody) poses.commit();
+    // the exposure's gain: the frame's weight in the feedback's average (longExposure.exposureRate) × the knob (0.5 = × 1)
+    setUniforms(bodyMat.uniforms, { uGain: look.exposure * 2 * exposureRate.weight, uInk: look.ink, uColour: look.colour });
+    if (bodyMesh.current) bodyMesh.current.layers.set(EXPOSURE_LAYER);
     iBox.addUpdateRange(0, nb * 4);
     iBoxAnim.addUpdateRange(0, nb * 4);
     iBox2.addUpdateRange(0, nb * 4);
@@ -829,7 +951,7 @@ export function PointPeople({
     iBoxAnim.needsUpdate = true;
     iBox2.needsUpdate = true;
     iBox3.needsUpdate = true;
-    setUniforms(boxMat.uniforms, { uSheet: sheet, uSheetSoft: sheetSoft, uAspect: look.boxAspect, uRest: look.boxRest, uPaper: paper ? 1 : 0, uInk: look.ink, uFrame: look.frame, uGain: look.exposure });
+    setUniforms(boxMat.uniforms, { uSheet: sheet, uSheetSoft: sheetSoft, uAspect: look.boxAspect, uRest: look.boxRest, uPaper: paper ? 1 : 0, uInk: look.ink, uFrame: look.frame, uGain: look.exposure, uBody3D: paper ? 1 : 0 });
     // on paper the boxes stand on the exposure layer (InkPaper draws it into the feedback); otherwise in the scene
     if (boxMesh.current) boxMesh.current.layers.set(paper ? EXPOSURE_LAYER : 0);
     // the paper's labels, a few times a second: the nearest three within labelDist
@@ -867,12 +989,13 @@ export function PointPeople({
       const d = Math.hypot(p.x - me.x, p.z - me.z);
       if (!nearest || d < nearest.d) nearest = { d: +d.toFixed(1), x: +p.x.toFixed(1), z: +p.z.toFixed(1), speed: +Math.hypot(p.vx, p.vz).toFixed(2) };
     }
-    (window as unknown as { __street?: unknown }).__street = { mode: look.mode, people: P.size, instances: boxes ? nb : n, points, copies, nearest, me: { x: +me.x.toFixed(1), z: +me.z.toFixed(1) } };
+    (window as unknown as { __street?: unknown }).__street = { mode: look.mode, people: P.size, bodies: nbody, crowd: CROWD_PARAM, instances: boxes ? nb : n, points, copies, nearest, me: { x: +me.x.toFixed(1), z: +me.z.toFixed(1) } };
   });
 
   return (
     <>
       {look.mode === "boxes" ? <mesh ref={boxMesh} geometry={boxGeom} material={boxMat} frustumCulled={false} renderOrder={9} /> : <points geometry={geom} material={mat} frustumCulled={false} renderOrder={9} />}
+      {look.mode === "boxes" && <mesh ref={bodyMesh} geometry={bodyGeom} material={bodyMat} frustumCulled={false} renderOrder={10} />}
       {/* 흰 바탕: the record device's labels — the being's number and a leader line, by the nearest few */}
       {look.paper &&
         labels.map((l) => (
