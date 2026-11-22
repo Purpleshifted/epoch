@@ -132,6 +132,36 @@ export interface FuturePresenceVisual extends PresenceConfig {
   frameBody: number;
   /** Paper (dark ink on white) or the black ground (light ink): auto = as the street look's white ground says. */
   framePaper: "auto" | "paper" | "black";
+  /** The plates' look, for the artist to turn over (2026-11-22 night: "레바 추가해서 어떤 게 좋나 보자. 디스토션이 있어도 좋을
+   *  것 같고"): one tone for the whole picture or none (the plants green), how the picture is bent and how much, how soft
+   *  the sheet's edge (of its width), the rush's curve (1 = even, higher = faster first), and how often the place is read
+   *  again while the frames stand (s; 0 = once) — the living future. */
+  frameTone: "grey" | "sepia" | "blue" | "none";
+  frameDistort: "none" | "stretch" | "slit" | "glitch" | "glass";
+  frameDistortAmt: number;
+  frameEdge: number;
+  frameCurve: number;
+  frameReread: number;
+  /** THE WINDOWS (the artist, 2026-11-22 night: "미래 관찰자 창을 더 크게 해서 미래 관찰자가 지나간 자리에 남고, 일정 범위
+   *  이상 가까우면 현재에 겹쳐서 내 화면이 꽉 차게 그 시야각을 보여주도록" — futureWindows.ts): the observer is a large
+   *  window onto the future; it leaves windows where it has passed; near one, the future fills the screen over the
+   *  present. Takes the frames' picture knobs (ink, smudge, tone, bend, ground). */
+  windows: boolean;
+  /** The piece of the future shown (radius, world); how far off the observer and its windows are seen (world). */
+  winR: number;
+  winSeeR: number;
+  /** A window's height (world), its shape, how far the observer walks between two it leaves (world), how long one
+   *  stays (s), how many at once (≤ 12). */
+  winH: number;
+  winShape: "body" | "sheet";
+  winGap: number;
+  winStay: number;
+  winMax: number;
+  /** The screen fills from this distance to a window (world), is full at this one; how opaque then; how it comes. */
+  winFillR: number;
+  winFillFull: number;
+  winFillAlpha: number;
+  winFillHow: "fade" | "scan";
 }
 
 /** The peek (mode "peek"): held while F is down, or the phone's button. Read every frame by the drawers. */
@@ -201,9 +231,32 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
         },
         { collapsed: true },
       ),
+      "창 (미래 관찰자가 큰 창 · 지나간 자리에 창이 남음 · 가까이 가면 화면을 채움)": folder(
+        {
+          windows: { value: false, label: "창으로 보기 (주소 ?future=window · 켜면 프레임·스캔·꿈 대신)", render: v2 },
+          winH: { value: 2.4, min: 0.5, max: 8, step: 0.1, label: "창의 키 (월드 · 관찰자의 몸)", render: v2 },
+          winShape: { options: { "걷는 몸 모양": "body", "사각 창": "sheet" }, value: "body", label: "창의 모양", render: v2 },
+          winGap: { value: 2, min: 0.3, max: 6, step: 0.1, label: "이만큼 걸을 때마다 창 하나를 남김 (월드)", render: v2 },
+          winStay: { value: 20, min: 2, max: 120, step: 1, label: "남은 창이 머무는 시간 (s · 끝에 옅어짐)", render: v2 },
+          winMax: { value: 10, min: 2, max: 12, step: 1, label: "한 번에 서 있는 창 (최대 12)", render: v2 },
+          winSeeR: { value: 16, min: 4, max: 40, step: 1, label: "관찰자와 창이 보이는 거리 (월드 · 마주친 뒤)", render: v2 },
+          winR: { value: 14, min: 4, max: 24, step: 0.5, label: "창에 비치는 미래의 반경 (월드 · 내 둘레)", render: v2 },
+          winFillR: { value: 4, min: 0.5, max: 15, step: 0.25, label: "창에 이만큼 가까우면 화면에 미래가 겹치기 시작 (월드)", render: v2 },
+          winFillFull: { value: 1.5, min: 0, max: 10, step: 0.25, label: "이만큼 가까우면 화면이 꽉 참 (월드)", render: v2 },
+          winFillAlpha: { value: 0.85, min: 0.1, max: 1, step: 0.05, label: "꽉 찼을 때 미래의 불투명도 (현재 위에 겹침)", render: v2 },
+          winFillHow: { options: { "서서히 짙어짐": "fade", "흰 스캔 선이 위에서 쓸고 내려옴": "scan" }, value: "fade", label: "화면을 채우는 방식", render: v2 },
+        },
+        { collapsed: true },
+      ),
       "프레임 (닥쳐오는 2D 프레임 · 발굴자에게서 나와 나를 지나가는 반투명 판)": folder(
         {
-          frames: { value: false, label: "프레임으로 보기 (주소 ?future=frames · 켜면 스캔·꿈 대신)", render: v2 },
+          frames: { value: false, label: "프레임으로 보기 (주소 ?future=frames · 켜면 스캔·꿈 대신 — 판이 날아옴)", render: v2 },
+          frameTone: { options: { "회색": "grey", "세피아": "sepia", "청회색": "blue", "없음 — 식생은 초록, 내 칸은 따로": "none" }, value: "grey", label: "판의 톤", render: v2 },
+          frameDistort: { options: { "없음": "none", "세로 늘림": "stretch", "슬릿 띠": "slit", "글리치 블록": "glitch", "굴절 · 유리": "glass" }, value: "none", label: "판의 왜곡", render: v2 },
+          frameDistortAmt: { value: 0.5, min: 0, max: 1, step: 0.05, label: "왜곡의 세기", render: v2 },
+          frameEdge: { value: 0.1, min: 0, max: 0.45, step: 0.01, label: "판 가장자리의 부드러움 (판 폭 대비)", render: v2 },
+          frameCurve: { value: 2.5, min: 1, max: 6, step: 0.1, label: "닥쳐오는 속도 곡선 (1 = 고르게 · 클수록 처음에 빠름)", render: v2 },
+          frameReread: { value: 3, min: 0, max: 20, step: 0.5, label: "서 있는 동안 미래를 다시 읽는 간격 (s · 0 = 한 번만 · 내 행동이 다음 판에 담김)", render: v2 },
           frameR: { value: 10, min: 3, max: 24, step: 0.5, label: "그림에 담기는 미래의 반경 (월드)", render: v2 },
           frameEvery: { value: 0.5, min: 0.2, max: 2, step: 0.05, label: "새 장을 찍는 간격 (s)", render: v2 },
           frameTurn: { value: 15, min: 2, max: 60, step: 1, label: "이만큼 돌아보면 바로 새 장 (도)", render: v2 },
@@ -220,7 +273,7 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
           frameJitter: { value: 0.25, min: 0, max: 1.5, step: 0.05, label: "판끼리 어긋남 (월드 · 자리와 기울기)", render: v2 },
           frameArriveSec: { value: 2.5, min: 0.3, max: 10, step: 0.1, label: "닥쳐오는 시간 (s · 처음 빠르고 닿으며 느려짐)", render: v2 },
           frameRest: { value: 3, min: 0.5, max: 10, step: 0.25, label: "이만큼 앞에서 느려짐 (월드)", render: v2 },
-          framePass: { value: 1, min: 0, max: 4, step: 0.1, label: "그 뒤 나를 지나가는 속도 (월드/s)", render: v2 },
+          framePass: { value: 0.5, min: 0, max: 4, step: 0.1, label: "그 뒤 나에게 다가오는 속도 (월드/s · 나를 지나면 바로 사라짐)", render: v2 },
           frameRevealSec: { value: 1, min: 0.1, max: 4, step: 0.1, label: "흰 스캔 선이 위에서 아래로 쓰는 시간 (s)", render: v2 },
           frameOut: { options: { "세로로 흘러내림": "melt", "점 꺼짐": "dots", "스캔 선 되돌아감": "line" }, value: "melt", label: "사라지는 방식 (발굴자가 멀어지면)", render: v2 },
           frameBody: { value: 1, min: 0.3, max: 4, step: 0.05, label: "발굴자의 몸 = 창 (키 · 월드)", render: v2 },
@@ -248,7 +301,7 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
     { collapsed: true, order: 1.2, render: v2 },
   );
   return useMemo<FuturePresenceVisual>(() => {
-    const urlMode = url === "dream" || url === "scan" || url === "frames" ? "encounter" : url && (Object.values(MODES) as string[]).includes(url) ? (url as PresenceMode) : null;
+    const urlMode = url === "dream" || url === "scan" || url === "frames" || url === "window" ? "encounter" : url && (Object.values(MODES) as string[]).includes(url) ? (url as PresenceMode) : null;
     const mode = (urlMode ?? k.mode) as PresenceMode;
     return {
       on: url ? url !== "0" : k.on,
@@ -284,10 +337,10 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
       cooldownSec: k.cooldownSec,
       darkPresent: k.darkPresent,
       fxLevel: k.fxLevel,
-      dream: url === "dream" ? true : url === "frames" ? false : k.dream,
+      dream: url === "dream" ? true : url === "frames" || url === "window" ? false : k.dream,
       dreamR: k.dreamR,
       dreamPx: k.dreamPx,
-      scan: url === "scan" ? true : url === "dream" || url === "frames" ? false : k.scan && !k.frames,
+      scan: url === "scan" ? true : url ? false : k.scan && !k.frames && !k.windows,
       scanR: k.scanR,
       scanPix: k.scanPix,
       scanFrames: k.scanFrames,
@@ -305,7 +358,19 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
       scanArriveDist: k.scanArriveDist,
       scanArriveSec: k.scanArriveSec,
       scanFlow: k.scanFlow,
-      frames: url === "frames" ? true : url === "scan" || url === "dream" ? false : k.frames,
+      frames: url === "frames" ? true : url ? false : k.frames && !k.windows,
+      windows: url === "window" ? true : url ? false : k.windows,
+      winR: k.winR,
+      winSeeR: k.winSeeR,
+      winH: k.winH,
+      winShape: k.winShape as FuturePresenceVisual["winShape"],
+      winGap: k.winGap,
+      winStay: k.winStay,
+      winMax: Math.round(k.winMax),
+      winFillR: k.winFillR,
+      winFillFull: k.winFillFull,
+      winFillAlpha: k.winFillAlpha,
+      winFillHow: k.winFillHow as FuturePresenceVisual["winFillHow"],
       frameR: k.frameR,
       frameEvery: k.frameEvery,
       frameTurn: k.frameTurn,
@@ -327,8 +392,14 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
       frameBody: k.frameBody,
       frameOut: k.frameOut as FuturePresenceVisual["frameOut"],
       framePaper: k.framePaper as FuturePresenceVisual["framePaper"],
+      frameTone: k.frameTone as FuturePresenceVisual["frameTone"],
+      frameDistort: k.frameDistort as FuturePresenceVisual["frameDistort"],
+      frameDistortAmt: k.frameDistortAmt,
+      frameEdge: k.frameEdge,
+      frameCurve: k.frameCurve,
+      frameReread: k.frameReread,
     };
-  }, [url, k.on, k.mode, k.radius, k.everySec, k.readLatest, k.unit, k.band, k.ruin, k.maxBuildings, k.strip, k.lastSteel, k.lastPile, k.showTraces, k.showRemains, k.showPlants, k.showDeposits, k.edgeColor, k.plantColor, k.excCount, k.excRoam, k.excLegSec, k.meetR, k.cloudR, k.pointSize, k.surface, k.wild, k.inSec, k.holdSec, k.outSec, k.cooldownSec, k.darkPresent, k.fxLevel, k.dream, k.dreamR, k.dreamPx, k.scan, k.scanR, k.scanPix, k.scanFrames, k.scanTurn, k.scanStill, k.scanBase, k.scanGain, k.scanNew, k.scanPx, k.scanGlow, k.scanSplat, k.scanHold, k.scanDark, k.scanArrive, k.scanArriveDist, k.scanArriveSec, k.scanFlow, k.frames, k.frameR, k.frameEvery, k.frameTurn, k.frameMove, k.frameMax, k.frameHold, k.frameLife, k.frameH, k.frameAlpha, k.frameFilm, k.frameInk, k.frameSplat, k.frameSmear, k.frameJitter, k.frameArriveSec, k.frameRest, k.framePass, k.frameRevealSec, k.frameBody, k.frameOut, k.framePaper]);
+  }, [url, k.on, k.mode, k.radius, k.everySec, k.readLatest, k.unit, k.band, k.ruin, k.maxBuildings, k.strip, k.lastSteel, k.lastPile, k.showTraces, k.showRemains, k.showPlants, k.showDeposits, k.edgeColor, k.plantColor, k.excCount, k.excRoam, k.excLegSec, k.meetR, k.cloudR, k.pointSize, k.surface, k.wild, k.inSec, k.holdSec, k.outSec, k.cooldownSec, k.darkPresent, k.fxLevel, k.dream, k.dreamR, k.dreamPx, k.scan, k.scanR, k.scanPix, k.scanFrames, k.scanTurn, k.scanStill, k.scanBase, k.scanGain, k.scanNew, k.scanPx, k.scanGlow, k.scanSplat, k.scanHold, k.scanDark, k.scanArrive, k.scanArriveDist, k.scanArriveSec, k.scanFlow, k.frames, k.frameR, k.frameEvery, k.frameTurn, k.frameMove, k.frameMax, k.frameHold, k.frameLife, k.frameH, k.frameAlpha, k.frameFilm, k.frameInk, k.frameSplat, k.frameSmear, k.frameJitter, k.frameArriveSec, k.frameRest, k.framePass, k.frameRevealSec, k.frameBody, k.frameOut, k.framePaper, k.frameTone, k.frameDistort, k.frameDistortAmt, k.frameEdge, k.frameCurve, k.frameReread, k.windows, k.winR, k.winSeeR, k.winH, k.winShape, k.winGap, k.winStay, k.winMax, k.winFillR, k.winFillFull, k.winFillAlpha, k.winFillHow]);
 }
 
 const MAX_EDGE_VERTS = 120000;

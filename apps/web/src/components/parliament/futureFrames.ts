@@ -11,7 +11,8 @@
  * ② STOOD: each picture is a translucent plate in the world, facing the gaze it was taken with, its edges soft (acetate),
  *   a little off in place and tilt.
  * ③ COMES: born at the archaeologist — the size of its body — it rushes to where the eye was, growing, slowing as it
- *   arrives, and drifts on through the visitor and away behind. A row of them: the layers' parallax is the depth.
+ *   arrives, and drifts on to the visitor; once it has passed them it is gone (nothing piles up behind). A row of them:
+ *   the layers' parallax is the depth.
  * ④ APPEARS under a white scan line, top to bottom.
  * ⑤ GOES when the archaeologist is out of reach: the picture runs down its columns (pixel-sorted), or its cells go out,
  *   or the scan line returns.
@@ -31,7 +32,7 @@ export const FRAMES_MAX = 12;
 /** The skirt under a plate (of its height): where the picture runs down to as it goes. */
 const SKIRT = 0.45;
 
-const CAPTURE_VERT = `
+export const CAPTURE_VERT = `
 attribute vec3 color;
 attribute vec4 aSeed;
 uniform float uScale, uSplat, uR;
@@ -63,7 +64,7 @@ void main() {
   vInk *= (px * px) / (cl * cl);
   gl_PointSize = cl;
 }`;
-const CAPTURE_FRAG = `
+export const CAPTURE_FRAG = `
 varying vec3 vInk;
 void main() {
   vec2 c = gl_PointCoord * 2.0 - 1.0;
@@ -80,11 +81,33 @@ void main() {
 }`;
 const PLATE_FRAG = `
 uniform sampler2D uTex;
-uniform float uAlpha, uFilm, uDens, uReveal, uOut, uOutMode, uSeed, uFade, uSmear, uEdge, uLineW;
+uniform float uAlpha, uFilm, uDens, uReveal, uOut, uOutMode, uSeed, uFade, uSmear, uEdge, uLineW, uMono, uDistort, uDistAmt, uTime;
 uniform vec3 uInk, uPlant, uOwn, uFilmColor, uLine;
 varying vec2 vUv;
 float h1(float x) { return fract(sin(x * 127.1 + uSeed * 311.7) * 43758.5453); }
 float h2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7)) + uSeed * 74.7) * 43758.5453); }
+// THE PICTURE BENT (the artist, 2026-11-22 night: "디스토션이 있어도 좋을 것 같고… 이터레이션을 많이 돌려봐야 알 것 같아"):
+// where a pixel of the plate reads the picture — 1 each column drawn out from a level of its own · 2 bands slid sideways
+// (a slit camera's) · 3 blocks thrown out of place, a few at a time · 4 seen through rippled glass
+vec2 warp(vec2 uv) {
+  if (uDistort < 0.5) return uv;
+  if (uDistort < 1.5) {
+    float n = h1(floor(uv.x * 60.0) + 7.0), n2 = h1(floor(uv.x * 9.0) + 3.0);
+    float y0 = 0.25 + 0.5 * n2;
+    return vec2(uv.x, y0 + (uv.y - y0) * (1.0 - uDistAmt * 0.85 * mix(n, n2, 0.6)));
+  }
+  if (uDistort < 2.5) {
+    float b = floor(uv.y * 28.0);
+    return vec2(uv.x + uDistAmt * 0.18 * (h1(b + 11.0) - 0.5) * (0.6 + 0.4 * sin(uTime * (0.5 + h1(b)) + b)), uv.y);
+  }
+  if (uDistort < 3.5) {
+    vec2 cell = floor(uv * vec2(6.0, 10.0));
+    float tk = floor(uTime * 4.0);
+    float on = step(0.9 - 0.35 * uDistAmt, h2(cell + tk));
+    return uv + on * (vec2(h2(cell + tk + 3.1), h2(cell + tk + 7.7)) - 0.5) * vec2(0.3, 0.08);
+  }
+  return uv + uDistAmt * 0.035 * vec2(sin(uv.y * 38.0 + uSeed * 6.0 + uTime * 0.7) + sin(uv.y * 91.0 + uSeed), cos(uv.x * 33.0 + uSeed * 4.0) * 0.6);
+}
 void main() {
   vec2 uv = vUv;
   float show = 1.0, line = 0.0, streak = 0.0, gone = 0.0;
@@ -117,15 +140,17 @@ void main() {
   float ex = e.x, edge = e.x * e.y * inY;
   // the picture: a long exposure's sideways smear, and (going) the streak of what was above
   vec3 s = vec3(0.0);
+  vec2 wuv = warp(uv);
   for (int i = 0; i < TAPS; i++) {
     float t = float(i) / float(TAPS - 1);
-    vec2 q = uv + vec2((t - 0.5) * uSmear, t * streak);
+    vec2 q = wuv + vec2((t - 0.5) * uSmear, t * streak);
     s += texture2D(uTex, clamp(q, 0.0, 1.0)).rgb * step(0.0, q.y) * step(q.y, 1.0);
   }
   s /= float(TAPS);
   vec3 ink = 1.0 - exp(-uDens * s);
   float a = 1.0 - (1.0 - ink.r) * (1.0 - ink.g) * (1.0 - ink.b);
-  vec3 c = (uInk * ink.r + uPlant * ink.g + uOwn * ink.b) / max(1e-3, ink.r + ink.g + ink.b);
+  // (one tone for all of it, or the plants' green and the visitor's own cells told apart)
+  vec3 c = uMono > 0.5 ? uInk : (uInk * ink.r + uPlant * ink.g + uOwn * ink.b) / max(1e-3, ink.r + ink.g + ink.b);
   float aImg = a * uAlpha * (streak > 0.0 ? ex * smoothstep(-${SKIRT.toFixed(2)}, -${(SKIRT * 0.6).toFixed(2)}, vUv.y) : edge);
   float aFilm = uFilm * edge * (1.0 - uOut);
   float A = aFilm + (1.0 - aFilm) * aImg;
@@ -152,7 +177,7 @@ void main() {
 const WINDOW_FRAG = `
 uniform sampler2D uTex;
 uniform mat4 uVP;
-uniform float uHas, uA, uT, uWalk, uDens;
+uniform float uHas, uA, uT, uWalk, uDens, uMono;
 uniform vec3 uInk, uPlant, uOwn, uBack;
 varying vec2 vUv;
 varying vec3 vWorld;
@@ -174,7 +199,7 @@ void main() {
   if (uHas > 0.5 && clip.w > 0.0 && q.x >= 0.0 && q.x <= 1.0 && q.y >= 0.0 && q.y <= 1.0) {
     vec3 ink = 1.0 - exp(-uDens * 2.0 * texture2D(uTex, q).rgb);
     float a = 1.0 - (1.0 - ink.r) * (1.0 - ink.g) * (1.0 - ink.b);
-    vec3 c = (uInk * ink.r + uPlant * ink.g + uOwn * ink.b) / max(1e-3, ink.r + ink.g + ink.b);
+    vec3 c = uMono > 0.5 ? uInk : (uInk * ink.r + uPlant * ink.g + uOwn * ink.b) / max(1e-3, ink.r + ink.g + ink.b);
     col = mix(col, c, a);
   }
   gl_FragColor = vec4(col, m * uA);
@@ -281,7 +306,7 @@ export class FutureFrames {
       transparent: true,
       depthWrite: false,
       side: THREE.DoubleSide,
-      uniforms: { uTex: { value: null }, uVP: { value: new THREE.Matrix4() }, uHas: { value: 0 }, uA: { value: 0 }, uT: { value: 0 }, uWalk: { value: 0 }, uDens: { value: 0.03 }, uInk: { value: this.tones.ink }, uPlant: { value: this.tones.plant }, uOwn: { value: this.tones.own }, uBack: { value: this.tones.back } },
+      uniforms: { uTex: { value: null }, uVP: { value: new THREE.Matrix4() }, uHas: { value: 0 }, uA: { value: 0 }, uT: { value: 0 }, uWalk: { value: 0 }, uDens: { value: 0.03 }, uMono: { value: 1 }, uInk: { value: this.tones.ink }, uPlant: { value: this.tones.plant }, uOwn: { value: this.tones.own }, uBack: { value: this.tones.back } },
     });
     this.win = new THREE.Mesh(this.winGeom, this.winMat);
     this.win.frustumCulled = false;
@@ -312,7 +337,7 @@ export class FutureFrames {
         transparent: true,
         depthWrite: false,
         side: THREE.DoubleSide,
-        uniforms: { uTex: { value: rt.texture }, uAlpha: { value: 0.45 }, uFilm: { value: 0.05 }, uDens: { value: 0.03 }, uReveal: { value: 0 }, uOut: { value: 0 }, uOutMode: { value: 0 }, uSeed: { value: i * 0.37 + 0.11 }, uFade: { value: 1 }, uSmear: { value: 0.012 }, uEdge: { value: 0.1 }, uLineW: { value: 0.012 }, uInk: { value: this.tones.ink }, uPlant: { value: this.tones.plant }, uOwn: { value: this.tones.own }, uFilmColor: { value: this.tones.film }, uLine: { value: this.tones.line } },
+        uniforms: { uTex: { value: rt.texture }, uAlpha: { value: 0.45 }, uFilm: { value: 0.05 }, uDens: { value: 0.03 }, uReveal: { value: 0 }, uOut: { value: 0 }, uOutMode: { value: 0 }, uSeed: { value: i * 0.37 + 0.11 }, uFade: { value: 1 }, uSmear: { value: 0.012 }, uEdge: { value: 0.1 }, uLineW: { value: 0.012 }, uMono: { value: 1 }, uDistort: { value: 0 }, uDistAmt: { value: 0.5 }, uTime: { value: 0 }, uInk: { value: this.tones.ink }, uPlant: { value: this.tones.plant }, uOwn: { value: this.tones.own }, uFilmColor: { value: this.tones.film }, uLine: { value: this.tones.line } },
       });
       const mesh = new THREE.Mesh(this.plateGeom, mat);
       mesh.frustumCulled = false;
@@ -360,6 +385,12 @@ export class FutureFrames {
     }
     Object.assign(this, { next: 0, newest: -1, n: 0, lastAt: -Infinity, walk: 0 });
     this.winMat.uniforms.uHas.value = 0;
+  }
+
+  /** The place read again (the living future): where its piece is now. */
+  place(origin: { x: number; z: number }, R: number): void {
+    this.capMat.uniforms.uOrigin.value.set(origin.x, 0, origin.z);
+    this.capMat.uniforms.uR.value = R;
   }
 
   end(): void {
@@ -435,14 +466,16 @@ export class FutureFrames {
     // ⑦ on paper, dark ink; on the black ground, light
     const paper = cfg.framePaper === "paper" || (cfg.framePaper === "auto" && paperLook.on);
     const T = this.tones;
+    // (the tone: one ink for the whole picture — grey, sepia, blue-grey — or none: the plants' green and one's own cells apart)
+    const tone = cfg.frameTone, mono = tone === "none" ? 0 : 1;
     if (paper) {
-      shown(T.ink, paperLook.ink);
+      shown(T.ink, tone === "sepia" ? "#4b3421" : tone === "blue" ? "#26364a" : paperLook.ink);
       shown(T.own, "#000000");
       shown(T.film, paperLook.paper, 0.84);
       shown(T.back, paperLook.paper, 0.82);
       T.plant.copy(this.plant).convertLinearToSRGB().lerp(clearTmp.setRGB(0.62, 0.7, 0.6), 0.25);
     } else {
-      shown(T.ink, "#e4e4e4");
+      shown(T.ink, tone === "sepia" ? "#ead7b4" : tone === "blue" ? "#c2d3e8" : "#e4e4e4");
       shown(T.own, "#ffffff");
       shown(T.film, "#303030");
       shown(T.back, "#2a2a2a");
@@ -463,6 +496,7 @@ export class FutureFrames {
     W.uT.value = now;
     W.uWalk.value = this.walk;
     W.uDens.value = dens;
+    W.uMono.value = mono;
     // ① another picture: every `frameEvery`, sooner when the eye has turned or moved (never so soon that a plate still
     // standing is taken for it)
     const life = Math.max(1, cfg.frameLife);
@@ -490,16 +524,28 @@ export class FutureFrames {
       live++;
       const rest = Math.min(cfg.frameRest, pl.dist * 0.6), approach = pl.dist - rest;
       const u = Math.min(1, age / Math.max(0.1, cfg.frameArriveSec));
-      const come = 1 - Math.pow(1 - u, 2.5);
+      const come = 1 - Math.pow(1 - u, Math.max(1, cfg.frameCurve));
       const grown = Math.pow(come, 0.7);
       pl.mesh.position.copy(pl.from).addScaledVector(pl.dir, approach * come + cfg.framePass * age).addScaledVector(pl.off, grown);
       const sc = (pl.s0 + (1 - pl.s0) * grown) * cfg.frameH;
       pl.mesh.scale.set((sc * this.W) / this.H, sc, 1);
       pl.mesh.visible = true;
       const U = pl.mat.uniforms;
-      // (soft where it passes through the eye; fading over the last fifth of its time)
-      const near = Math.min(1, Math.max(0, (pl.mesh.position.distanceTo(eye) - 0.08) / 0.6));
-      U.uFade.value = near * Math.min(1, (life - age) / (life * 0.2));
+      // IT HAS PASSED THE VISITOR: gone at once, nothing piles up behind (the artist, 2026-11-22 night) — it thins over
+      // the last stretch before the eye, and is no more once through
+      const before = -v1.copy(pl.mesh.position).sub(eye).dot(pl.dir);
+      if (before <= 0) {
+        pl.alive = false;
+        pl.mesh.visible = false;
+        live--;
+        continue;
+      }
+      U.uFade.value = Math.min(1, before / 0.7) * Math.min(1, (life - age) / (life * 0.2));
+      U.uMono.value = mono;
+      U.uDistort.value = cfg.frameDistort === "stretch" ? 1 : cfg.frameDistort === "slit" ? 2 : cfg.frameDistort === "glitch" ? 3 : cfg.frameDistort === "glass" ? 4 : 0;
+      U.uDistAmt.value = cfg.frameDistortAmt;
+      U.uTime.value = now % 1000;
+      U.uEdge.value = Math.max(0.005, cfg.frameEdge);
       U.uReveal.value = Math.min(1, age / Math.max(0.05, cfg.frameRevealSec));
       U.uOut.value = melt;
       U.uOutMode.value = cfg.frameOut === "dots" ? 1 : cfg.frameOut === "line" ? 2 : 0;

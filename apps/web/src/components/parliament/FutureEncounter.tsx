@@ -22,6 +22,7 @@ import { DEFAULT_BOXES, DEFAULT_DENSITY, DEFAULT_PATH, DEFAULT_VARIETY, DensityF
 import { excavatorsAt } from "@/lib/parliament/excavators";
 import { futurePresence, waterDistance } from "@/lib/parliament/futurePresence";
 import { FutureFrames } from "./futureFrames";
+import { FutureWindows } from "./futureWindows";
 import { paperLook } from "./paperLook";
 import { playFuturePassing } from "./futureSound";
 import type { SoundSetup } from "./useSound";
@@ -330,7 +331,7 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
   const field = useRef<{ f: DensityField; key: string; fed: number; drops: number } | null>(null);
   // (the scan's place: where it came from (arrive: a direction × a distance), how far the visitor's walking has drawn it
   // (flow), and where it is now (shift = the two))
-  const st = useRef({ active: false, t0: 0, ex: -1, cool: new Map<number, number>(), outAt: 0, scan: false, frames: false, arrive: new THREE.Vector3(), flow: new THREE.Vector3(), shift: new THREE.Vector3() });
+  const st = useRef({ active: false, t0: 0, ex: -1, cool: new Map<number, number>(), outAt: 0, scan: false, frames: false, windows: false, readAt: 0, seed: 0, arrive: new THREE.Vector3(), flow: new THREE.Vector3(), shift: new THREE.Vector3() });
   const geom = useMemo(() => {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(CAP * 3), 3));
@@ -422,6 +423,11 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
    *  the black ground) put away while the frames stand, so they are seen as they will be on paper. A trial's hook only. */
   const paperTrial = useRef(false);
   useEffect(() => () => frames.dispose(), [frames]);
+  // THE WINDOWS (futureWindows.ts): the observer a large window onto the future, windows left where it passed, the screen
+  // filled when the visitor is near one
+  const windows = useMemo(() => new FutureWindows(geom), [geom]);
+  const windowsKey = useRef("");
+  useEffect(() => () => windows.dispose(), [windows]);
   useEffect(() => {
     futureMeet.last = null;
     futureMeet.dark = false;
@@ -566,7 +572,15 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
     const M = cfg.dream ? dreamMat : mat;
     if (points.current && points.current.material !== M) points.current.material = M;
     // (the scan: the cloud is only what the frames are taken of)
-    if (points.current) points.current.visible = !(s.active && (s.scan || s.frames));
+    if (cfg.windows) {
+      const el = state.gl.domElement, wk = `${isCoarse()}:${cfg.winMax}:${Math.round((el.width / Math.max(1, el.height)) * 50)}`;
+      if (windowsKey.current !== wk) {
+        windowsKey.current = wk;
+        windows.ensure(state.gl, isCoarse(), cfg);
+        windows.compile(state.gl, state.camera);
+      }
+    }
+    if (points.current) points.current.visible = !(s.active && (s.scan || s.frames || s.windows));
     for (const m of [mat, dreamMat]) {
       m.uniforms.uScale.value = state.gl.domElement.height / 2;
       m.uniforms.uSize.value = cfg.pointSize;
@@ -574,6 +588,174 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
     // (the dream's points are sized in pixels: small and crisp)
     dreamMat.uniforms.uSize.value = cfg.dreamPx;
     dreamMat.uniforms.uMaxPx.value = Math.max(2, cfg.dreamPx * 1.6);
+    /** THE PLACE READ: the future round the visitor as it is now (what is left, the plants, the visitor's own cells …) put
+     *  into the cloud. Once at an encounter — and, for the frames, again while it lasts: the future in the plates is the
+     *  living one, and what the visitor does (stays, is joined) is in the next pictures. `seed`: the ground's own scatter,
+     *  the same through an encounter. */
+    const readPlace = (seed: number) => {
+      const t0 = performance.now();
+      const sNow = getS();
+      const kMe = Math.floor(sNow / Math.max(1, dcfg.slotSec));
+      let K = kMe;
+      if (cfg.readLatest) {
+        let kk = -Infinity;
+        for (const sd of h.f.seeds()) if (sd.levels) for (const [k, lv] of sd.levels) if (lv >= 1 && k > kk && k <= K) kk = k;
+        if (kk !== -Infinity) K = kk;
+      }
+      const box: BoxConfig = { ...DEFAULT_BOXES, secPerUnit: Math.max(1, dcfg.slotSec), unit: cfg.unit, width: 0.8, density: 1.4, variety: DEFAULT_VARIETY, buildSlots: 0 };
+      const me = meRef.current.id;
+      // (the scan takes its frames of the dream's sampling of the place)
+      const dream = cfg.dream || cfg.scan || cfg.frames || cfg.windows, phone = isCoarse();
+      // (the dream: a narrow piece, sampled densely — the whole budget in it — so the place reads from the points' density)
+      const R = cfg.windows ? cfg.winR : cfg.frames ? cfg.frameR : cfg.scan ? cfg.scanR : dream ? cfg.dreamR : cfg.cloudR;
+      const r = futurePresence(h.f, me, K, kMe, p, { ...cfg, radius: R + 4, surface: cfg.surface * (dream ? (phone ? 4 : 14) : 1), surfaceCap: dream ? (phone ? 400 : 2000) : 160, wild: cfg.wild, traces: true }, box);
+      // FOUND: the visitor stayed in that ground (their own cells near, whenever in their life)
+      let found = false;
+      for (const c of h.f.cellsOf(me)) if (wrapDist((c.cx + 0.5) * CELL_SIZE, (c.cz + 0.5) * CELL_SIZE, p.x, p.z) <= FOUND_NEAR) {
+        found = true;
+        break;
+      }
+      // ── the cloud ──
+      const P = (geom.getAttribute("position") as THREE.BufferAttribute).array as Float32Array;
+      const C = (geom.getAttribute("color") as THREE.BufferAttribute).array as Float32Array;
+      const S = (geom.getAttribute("aSeed") as THREE.BufferAttribute).array as Float32Array;
+      const Z = (geom.getAttribute("aSize") as THREE.BufferAttribute).array as Float32Array;
+      let size = 1;
+      // (what a point is, for the scan: 0 ground · 1 remains · 2 plants · 3 trees · 4 mounds · 5 dark earth · 6 own cells)
+      let kind = 0;
+      let v = 0;
+      // (the dream: up to 90 000 points — a phone a fifth — thinner the further from the visitor; the visitor's own cells
+      // lower the threshold of what is near them: their life comes first and stays longest)
+      // (the scan's cloud is never drawn, only taken into frames: a phone gets it whole)
+      const scanOnly = cfg.scan || cfg.frames || cfg.windows;
+      const cap = dream ? Math.min(CAP, phone && !scanOnly ? 18000 : 90000) : CAP;
+      const mine: number[] = [];
+      for (let o = 0; o + 3 < r.traces.length; o += 4) mine.push(r.traces[o], r.traces[o + 1]);
+      const put = (x0: number, y: number, z0: number, r0: number, g0: number, b0: number) => {
+        if (v >= cap) return;
+        const x = nearestImage(x0, p.x), z = nearestImage(z0, p.z);
+        const d2 = (x - p.x) ** 2 + (z - p.z) ** 2;
+        if (d2 > R * R * (dream ? 1.8 : 1)) return;
+        P[v * 3] = x;
+        P[v * 3 + 1] = y;
+        P[v * 3 + 2] = z;
+        C[v * 3] = r0;
+        C[v * 3 + 1] = g0;
+        C[v * 3 + 2] = b0;
+        // (the scan reads only the place, the tone and the kind: the rest of a point is the dream's, and costed 70 – 150 ms)
+        if (scanOnly) {
+          S[v * 4 + 1] = kind;
+          v++;
+          return;
+        }
+        const a = hash(v, 17, 1) * Math.PI * 2, c = hash(v, 17, 2) * 2 - 1, q = Math.sqrt(1 - c * c);
+        S[v * 4] = Math.cos(a) * q;
+        S[v * 4 + 1] = c;
+        S[v * 4 + 2] = Math.sin(a) * q;
+        S[v * 4 + 3] = hash(v, 17, 3);
+        if (dream) {
+          S[v * 4] = hash(v, 17, 4) - 0.5;
+          S[v * 4 + 1] = kind;
+          let nearMine = false;
+          for (let m = 0; m + 1 < mine.length && !nearMine; m += 2) if ((x - nearestImage(mine[m], p.x)) ** 2 + (z - nearestImage(mine[m + 1], p.z)) ** 2 < 4) nearMine = true;
+          if (nearMine) S[v * 4 + 3] *= 0.4;
+        }
+        // (sizes: the kind's, and in the dream each its own — from a third to twice)
+        Z[v] = dream ? size * (0.75 + 0.5 * hash(v, 17, 5)) : size;
+        v++;
+      };
+      // (the dream's plants paler: only the plants carry colour)
+      const green = new THREE.Color(cfg.plantColor);
+      if (dream) green.lerp(new THREE.Color("#9aa59a"), 0.5);
+      // the parts that are left, on their surfaces
+      size = 1;
+      kind = 1;
+      for (let o = 0; o + 3 < r.surface.length; o += 4) {
+        const sh = r.surface[o + 3];
+        put(r.surface[o], r.surface[o + 1], r.surface[o + 2], sh, sh, sh);
+      }
+      // the plants: grass a low carpet, scrub a dome — each cloud a few dozen points
+      size = 0.9;
+      kind = 2;
+      let flowering = 0;
+      for (let o = 0; o + 11 < r.plantClouds.length; o += 12) {
+        const x = r.plantClouds[o], z = r.plantClouds[o + 1], rad = r.plantClouds[o + 3], tall = r.plantClouds[o + 4] * cfg.unit, kind = r.plantClouds[o + 5], own = Math.floor(r.plantClouds[o + 9] * 1e6);
+        if ((nearestImage(x, p.x) - p.x) ** 2 + (nearestImage(z, p.z) - p.z) ** 2 > (R + 2) ** 2) continue;
+        const n = Math.min(scanOnly ? 260 : dream ? 700 : 120, Math.round((20 + rad * rad * 25) * (dream ? 6 : 1)));
+        if (r.plantClouds[o + 6] > 0.3) flowering++;
+        for (let i = 0; i < n; i++) {
+          const th = hash(own, i, 1) * Math.PI * 2, rr = rad * Math.sqrt(hash(own, i, 2)), u = hash(own, i, 3);
+          const y = kind >= 1 ? tall * (1 - (rr / Math.max(1e-3, rad)) ** 2) * u : tall * u * 0.5 + 0.01;
+          const k = (kind >= 1 ? 0.55 : 0.8) + 0.45 * hash(own, i, 4);
+          put(x + Math.cos(th) * rr, y, z + Math.sin(th) * rr, green.r * k, green.g * k, green.b * k);
+        }
+      }
+      // the trees' points
+      kind = 3;
+      for (let o = 0; o + 4 < r.vegTree.length; o += 5) {
+        const k = 0.45 + r.vegTree[o + 3];
+        put(r.vegTree[o], r.vegTree[o + 1] * cfg.unit, r.vegTree[o + 2], green.r * k, green.g * k, green.b * k);
+        // (the dream: each of a tree's points a small knot of them)
+        if (dream) for (let j = 0; j < 4; j++) put(r.vegTree[o] + (hash(o, j, 41) - 0.5) * 0.16, r.vegTree[o + 1] * cfg.unit + (hash(o, j, 42) - 0.5) * 0.16, r.vegTree[o + 2] + (hash(o, j, 43) - 0.5) * 0.16, green.r * k, green.g * k, green.b * k);
+      }
+      // the mounds: domes of pale points; the dark earth: a few grey points flat on the ground
+      kind = 4;
+      for (let o = 0; o + 3 < r.mounds.length; o += 4) {
+        const x = r.mounds[o], z = r.mounds[o + 1], score = r.mounds[o + 2], sd = Math.floor(r.mounds[o + 3] * 1e6);
+        const n = Math.min(dream ? 400 : 60, Math.round((10 + score * 10) * (dream ? 6 : 1))), Rm = CELL_SIZE * 0.5 * Math.min(2, Math.sqrt(score)), H = cfg.unit * 0.3 * Math.min(1.5, score);
+        for (let i = 0; i < n; i++) {
+          const u1 = hash(sd, i, 1), th = hash(sd, i, 2) * Math.PI * 2, rr = Rm * Math.sqrt(u1), c = 0.7 + 0.25 * hash(sd, i, 3);
+          put(x + Math.cos(th) * rr, 0.02 + H * (1 - u1), z + Math.sin(th) * rr, c, c, c);
+        }
+      }
+      kind = 5;
+      for (let o = 0; o + 3 < r.stains.length; o += 4) {
+        const x = r.stains[o], z = r.stains[o + 1], sd = Math.floor(r.stains[o + 3] * 1e6);
+        for (let i = 0; i < (dream ? 60 : 8); i++) {
+          const th = hash(sd, i, 5) * Math.PI * 2, rr = CELL_SIZE * 0.45 * Math.sqrt(hash(sd, i, 6));
+          put(x + Math.cos(th) * rr, 0.015, z + Math.sin(th) * rr, 0.3, 0.3, 0.3);
+        }
+      }
+      // the visitor's own cells: a white patch each (a bright one where a building stands because of them)
+      // (the scan tells them by their size: theirs alone over 2)
+      size = 1.5;
+      kind = 6;
+      for (let o = 0; o + 3 < r.traces.length; o += 4) {
+        const x = r.traces[o], z = r.traces[o + 1], kind = r.traces[o + 3], sd = Math.floor((x * 131 + z * 71) * 100);
+        const c = kind >= 1 ? 1 : kind > 0 ? 0.8 : 0.6;
+        for (let i = 0; i < (dream ? 90 : 14); i++) put(x + (hash(sd, i, 7) - 0.5) * CELL_SIZE, 0.03, z + (hash(sd, i, 8) - 0.5) * CELL_SIZE, c, c, c);
+      }
+      // the ground of the future, scanned: a sparse floor of small dark points
+      size = dream ? 0.85 : 0.45;
+      kind = 0;
+      // (the dream: the ground fills what is left of the budget, densely, and rises over the mounds — the place's
+      // relief read from the points, as a scan's; a little lighter or darker by a slow noise of its own)
+      const groundN = dream ? Math.max(0, cap - v) : 1400;
+      const moundH = (x: number, z: number): number => {
+        let hgt = 0;
+        for (let o = 0; o + 3 < r.mounds.length; o += 4) {
+          const dx = nearestImage(r.mounds[o], p.x) - x, dz = nearestImage(r.mounds[o + 1], p.z) - z, score = r.mounds[o + 2];
+          const Rm = CELL_SIZE * 0.9 * Math.min(2, Math.sqrt(score)), q = (dx * dx + dz * dz) / (Rm * Rm);
+          if (q < 1) hgt = Math.max(hgt, cfg.unit * 0.3 * Math.min(1.5, score) * (1 - q) * (1 - q));
+        }
+        return hgt;
+      };
+      for (let i = 0; i < groundN; i++) {
+        const th = hash(i, 91, seed) * Math.PI * 2, rr = R * (dream ? 1.3 : 1) * Math.sqrt(hash(i, 92, seed));
+        const x = p.x + Math.cos(th) * rr, z = p.z + Math.sin(th) * rr;
+        if (!dream) {
+          put(x, 0.005, z, 0.2, 0.2, 0.2);
+          continue;
+        }
+        const c = 0.2 + 0.1 * Math.sin(x * 0.9 + Math.cos(z * 0.7) * 2) * Math.cos(z * 1.1 - x * 0.3) + 0.05 * hash(i, 93, 1);
+        put(x, 0.005 + moundH(x, z), z, c, c, c);
+      }
+      const fillMs = performance.now() - t0 - r.ms;
+      geom.setDrawRange(0, v);
+      M.uniforms.uR.value = R;
+      for (const name of ["position", "color", "aSeed", "aSize"]) (geom.getAttribute(name) as THREE.BufferAttribute).needsUpdate = true;
+      return { t0, sNow, K, kMe, r, v, found, flowering, fillMs, R, green, phone };
+    };
     if (s.active) {
       const t = now - s.t0;
       const ex = exs.find((e) => e.i === s.ex);
@@ -594,10 +776,30 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
       }
       const env = Math.min(1, t / Math.max(0.1, cfg.inSec)) * (1 - Math.min(1, Math.max(0, (t - s.outAt) / Math.max(0.1, outLen))));
       // (the frames' archaeologist is a window of a body's shape, not a line)
-      lineMat.opacity = s.frames ? 0 : 0.7 * env;
+      lineMat.opacity = s.frames || s.windows ? 0 : 0.7 * env;
       // (the present is dark while the future holds; it comes back as the cloud streams away — the afterimage)
       // (the frames stand in the present, translucent: it stays)
-      futureMeet.dark = s.frames ? paperTrial.current : (s.scan ? cfg.scanDark : cfg.darkPresent && !cfg.dream) && t < s.outAt;
+      futureMeet.dark = s.frames || s.windows ? paperTrial.current : (s.scan ? cfg.scanDark : cfg.darkPresent && !cfg.dream) && t < s.outAt;
+      // (the living future: the place read again while the frames stand — what the visitor does is in the next pictures)
+      if (s.frames && cfg.frameReread > 0 && t < s.outAt && now - s.readAt >= cfg.frameReread) {
+        s.readAt = now;
+        const t1 = performance.now();
+        frames.place(p, readPlace(s.seed).R);
+        markSpan("future-reread", performance.now() - t1);
+      }
+      // THE WINDOWS: they outlast the meeting — the encounter is over when the observer is out of sight and the last
+      // window it left has faded (or after a minute and a half)
+      let standing = 0;
+      if (s.windows) {
+        if (cfg.frameReread > 0 && now - s.readAt >= cfg.frameReread) {
+          s.readAt = now;
+          const t1 = performance.now();
+          windows.place(p, readPlace(s.seed).R);
+          markSpan("future-reread", performance.now() - t1);
+        }
+        standing = windows.update({ gl: state.gl, cam: state.camera, now, t, ex: ex ? { x: nearestImage(ex.x, p.x), z: nearestImage(ex.z, p.z), standing: ex.standing } : null, me: p, cfg });
+        if (t > 90) standing = 0;
+      }
       if (s.frames) frames.update({ gl: state.gl, cam: state.camera, now, t, outAt: s.outAt, outLen, ex: ex ? { x: nearestImage(ex.x, p.x), z: nearestImage(ex.z, p.z), standing: ex.standing } : null, cfg });
       if (s.scan) {
         // THE PLACE COMES (B): from far ahead it rushes in, slowing as it reaches the visitor; and (A) while it holds the
@@ -637,7 +839,7 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
         scanPoints.visible = true;
       }
       if (t >= s.outAt) futureHold.on = false;
-      if (t > s.outAt + outLen + 1) {
+      if (t > s.outAt + outLen + 1 && standing === 0) {
         s.active = false;
         futureMeet.dark = false;
         futureHold.on = false;
@@ -646,6 +848,7 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
         scanPoints.visible = false;
         scanMat.uniforms.uCount.value = 0;
         frames.end();
+        windows.end();
       }
       return;
     }
@@ -653,174 +856,16 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
     // AN ARCHAEOLOGIST CROSSES WHERE THE VISITOR STANDS
     const ex = exs.find((e) => wrapDist(e.x, e.z, p.x, p.z) <= cfg.meetR && (s.cool.get(e.i) ?? -Infinity) <= now);
     if (!ex) return;
-    const t0 = performance.now();
-    const sNow = getS();
-    const kMe = Math.floor(sNow / Math.max(1, dcfg.slotSec));
-    let K = kMe;
-    if (cfg.readLatest) {
-      let kk = -Infinity;
-      for (const sd of h.f.seeds()) if (sd.levels) for (const [k, lv] of sd.levels) if (lv >= 1 && k > kk && k <= K) kk = k;
-      if (kk !== -Infinity) K = kk;
-    }
-    const box: BoxConfig = { ...DEFAULT_BOXES, secPerUnit: Math.max(1, dcfg.slotSec), unit: cfg.unit, width: 0.8, density: 1.4, variety: DEFAULT_VARIETY, buildSlots: 0 };
-    const me = meRef.current.id;
-    // (the scan takes its frames of the dream's sampling of the place)
-    const dream = cfg.dream || cfg.scan || cfg.frames, phone = isCoarse();
-    // (the dream: a narrow piece, sampled densely — the whole budget in it — so the place reads from the points' density)
-    const R = cfg.frames ? cfg.frameR : cfg.scan ? cfg.scanR : dream ? cfg.dreamR : cfg.cloudR;
-    const r = futurePresence(h.f, me, K, kMe, p, { ...cfg, radius: R + 4, surface: cfg.surface * (dream ? (phone ? 4 : 14) : 1), surfaceCap: dream ? (phone ? 400 : 2000) : 160, wild: cfg.wild, traces: true }, box);
-    // FOUND: the visitor stayed in that ground (their own cells near, whenever in their life)
-    let found = false;
-    for (const c of h.f.cellsOf(me)) if (wrapDist((c.cx + 0.5) * CELL_SIZE, (c.cz + 0.5) * CELL_SIZE, p.x, p.z) <= FOUND_NEAR) {
-      found = true;
-      break;
-    }
+    const { t0, sNow, K, kMe, r, v, found, flowering, fillMs, R, green, phone } = readPlace(Math.round(now));
+    s.readAt = now;
+    s.seed = Math.round(now);
     futureMeet.last = { id: `${ex.i}:${Math.round(getWorldSec())}`, found };
-    // ── the cloud ──
-    const P = (geom.getAttribute("position") as THREE.BufferAttribute).array as Float32Array;
-    const C = (geom.getAttribute("color") as THREE.BufferAttribute).array as Float32Array;
-    const S = (geom.getAttribute("aSeed") as THREE.BufferAttribute).array as Float32Array;
-    const Z = (geom.getAttribute("aSize") as THREE.BufferAttribute).array as Float32Array;
-    let size = 1;
-    // (what a point is, for the scan: 0 ground · 1 remains · 2 plants · 3 trees · 4 mounds · 5 dark earth · 6 own cells)
-    let kind = 0;
-    let v = 0;
-    // (the dream: up to 90 000 points — a phone a fifth — thinner the further from the visitor; the visitor's own cells
-    // lower the threshold of what is near them: their life comes first and stays longest)
-    // (the scan's cloud is never drawn, only taken into frames: a phone gets it whole)
-    const scanOnly = cfg.scan || cfg.frames;
-    const cap = dream ? Math.min(CAP, phone && !scanOnly ? 18000 : 90000) : CAP;
-    const mine: number[] = [];
-    for (let o = 0; o + 3 < r.traces.length; o += 4) mine.push(r.traces[o], r.traces[o + 1]);
-    const put = (x0: number, y: number, z0: number, r0: number, g0: number, b0: number) => {
-      if (v >= cap) return;
-      const x = nearestImage(x0, p.x), z = nearestImage(z0, p.z);
-      const d2 = (x - p.x) ** 2 + (z - p.z) ** 2;
-      if (d2 > R * R * (dream ? 1.8 : 1)) return;
-      P[v * 3] = x;
-      P[v * 3 + 1] = y;
-      P[v * 3 + 2] = z;
-      C[v * 3] = r0;
-      C[v * 3 + 1] = g0;
-      C[v * 3 + 2] = b0;
-      // (the scan reads only the place, the tone and the kind: the rest of a point is the dream's, and costed 70 – 150 ms)
-      if (scanOnly) {
-        S[v * 4 + 1] = kind;
-        v++;
-        return;
-      }
-      const a = hash(v, 17, 1) * Math.PI * 2, c = hash(v, 17, 2) * 2 - 1, q = Math.sqrt(1 - c * c);
-      S[v * 4] = Math.cos(a) * q;
-      S[v * 4 + 1] = c;
-      S[v * 4 + 2] = Math.sin(a) * q;
-      S[v * 4 + 3] = hash(v, 17, 3);
-      if (dream) {
-        S[v * 4] = hash(v, 17, 4) - 0.5;
-        S[v * 4 + 1] = kind;
-        let nearMine = false;
-        for (let m = 0; m + 1 < mine.length && !nearMine; m += 2) if ((x - nearestImage(mine[m], p.x)) ** 2 + (z - nearestImage(mine[m + 1], p.z)) ** 2 < 4) nearMine = true;
-        if (nearMine) S[v * 4 + 3] *= 0.4;
-      }
-      // (sizes: the kind's, and in the dream each its own — from a third to twice)
-      Z[v] = dream ? size * (0.75 + 0.5 * hash(v, 17, 5)) : size;
-      v++;
-    };
-    // (the dream's plants paler: only the plants carry colour)
-    const green = new THREE.Color(cfg.plantColor);
-    if (dream) green.lerp(new THREE.Color("#9aa59a"), 0.5);
-    // the parts that are left, on their surfaces
-    size = 1;
-    kind = 1;
-    for (let o = 0; o + 3 < r.surface.length; o += 4) {
-      const sh = r.surface[o + 3];
-      put(r.surface[o], r.surface[o + 1], r.surface[o + 2], sh, sh, sh);
-    }
-    // the plants: grass a low carpet, scrub a dome — each cloud a few dozen points
-    size = 0.9;
-    kind = 2;
-    let flowering = 0;
-    for (let o = 0; o + 11 < r.plantClouds.length; o += 12) {
-      const x = r.plantClouds[o], z = r.plantClouds[o + 1], rad = r.plantClouds[o + 3], tall = r.plantClouds[o + 4] * cfg.unit, kind = r.plantClouds[o + 5], own = Math.floor(r.plantClouds[o + 9] * 1e6);
-      if ((nearestImage(x, p.x) - p.x) ** 2 + (nearestImage(z, p.z) - p.z) ** 2 > (R + 2) ** 2) continue;
-      const n = Math.min(scanOnly ? 260 : dream ? 700 : 120, Math.round((20 + rad * rad * 25) * (dream ? 6 : 1)));
-      if (r.plantClouds[o + 6] > 0.3) flowering++;
-      for (let i = 0; i < n; i++) {
-        const th = hash(own, i, 1) * Math.PI * 2, rr = rad * Math.sqrt(hash(own, i, 2)), u = hash(own, i, 3);
-        const y = kind >= 1 ? tall * (1 - (rr / Math.max(1e-3, rad)) ** 2) * u : tall * u * 0.5 + 0.01;
-        const k = (kind >= 1 ? 0.55 : 0.8) + 0.45 * hash(own, i, 4);
-        put(x + Math.cos(th) * rr, y, z + Math.sin(th) * rr, green.r * k, green.g * k, green.b * k);
-      }
-    }
-    // the trees' points
-    kind = 3;
-    for (let o = 0; o + 4 < r.vegTree.length; o += 5) {
-      const k = 0.45 + r.vegTree[o + 3];
-      put(r.vegTree[o], r.vegTree[o + 1] * cfg.unit, r.vegTree[o + 2], green.r * k, green.g * k, green.b * k);
-      // (the dream: each of a tree's points a small knot of them)
-      if (dream) for (let j = 0; j < 4; j++) put(r.vegTree[o] + (hash(o, j, 41) - 0.5) * 0.16, r.vegTree[o + 1] * cfg.unit + (hash(o, j, 42) - 0.5) * 0.16, r.vegTree[o + 2] + (hash(o, j, 43) - 0.5) * 0.16, green.r * k, green.g * k, green.b * k);
-    }
-    // the mounds: domes of pale points; the dark earth: a few grey points flat on the ground
-    kind = 4;
-    for (let o = 0; o + 3 < r.mounds.length; o += 4) {
-      const x = r.mounds[o], z = r.mounds[o + 1], score = r.mounds[o + 2], sd = Math.floor(r.mounds[o + 3] * 1e6);
-      const n = Math.min(dream ? 400 : 60, Math.round((10 + score * 10) * (dream ? 6 : 1))), Rm = CELL_SIZE * 0.5 * Math.min(2, Math.sqrt(score)), H = cfg.unit * 0.3 * Math.min(1.5, score);
-      for (let i = 0; i < n; i++) {
-        const u1 = hash(sd, i, 1), th = hash(sd, i, 2) * Math.PI * 2, rr = Rm * Math.sqrt(u1), c = 0.7 + 0.25 * hash(sd, i, 3);
-        put(x + Math.cos(th) * rr, 0.02 + H * (1 - u1), z + Math.sin(th) * rr, c, c, c);
-      }
-    }
-    kind = 5;
-    for (let o = 0; o + 3 < r.stains.length; o += 4) {
-      const x = r.stains[o], z = r.stains[o + 1], sd = Math.floor(r.stains[o + 3] * 1e6);
-      for (let i = 0; i < (dream ? 60 : 8); i++) {
-        const th = hash(sd, i, 5) * Math.PI * 2, rr = CELL_SIZE * 0.45 * Math.sqrt(hash(sd, i, 6));
-        put(x + Math.cos(th) * rr, 0.015, z + Math.sin(th) * rr, 0.3, 0.3, 0.3);
-      }
-    }
-    // the visitor's own cells: a white patch each (a bright one where a building stands because of them)
-    // (the scan tells them by their size: theirs alone over 2)
-    size = 1.5;
-    kind = 6;
-    for (let o = 0; o + 3 < r.traces.length; o += 4) {
-      const x = r.traces[o], z = r.traces[o + 1], kind = r.traces[o + 3], sd = Math.floor((x * 131 + z * 71) * 100);
-      const c = kind >= 1 ? 1 : kind > 0 ? 0.8 : 0.6;
-      for (let i = 0; i < (dream ? 90 : 14); i++) put(x + (hash(sd, i, 7) - 0.5) * CELL_SIZE, 0.03, z + (hash(sd, i, 8) - 0.5) * CELL_SIZE, c, c, c);
-    }
-    // the ground of the future, scanned: a sparse floor of small dark points
-    size = dream ? 0.85 : 0.45;
-    kind = 0;
-    // (the dream: the ground fills what is left of the budget, densely, and rises over the mounds — the place's
-    // relief read from the points, as a scan's; a little lighter or darker by a slow noise of its own)
-    const groundN = dream ? Math.max(0, cap - v) : 1400;
-    const moundH = (x: number, z: number): number => {
-      let hgt = 0;
-      for (let o = 0; o + 3 < r.mounds.length; o += 4) {
-        const dx = nearestImage(r.mounds[o], p.x) - x, dz = nearestImage(r.mounds[o + 1], p.z) - z, score = r.mounds[o + 2];
-        const Rm = CELL_SIZE * 0.9 * Math.min(2, Math.sqrt(score)), q = (dx * dx + dz * dz) / (Rm * Rm);
-        if (q < 1) hgt = Math.max(hgt, cfg.unit * 0.3 * Math.min(1.5, score) * (1 - q) * (1 - q));
-      }
-      return hgt;
-    };
-    for (let i = 0; i < groundN; i++) {
-      const th = hash(i, 91, Math.round(now)) * Math.PI * 2, rr = R * (dream ? 1.3 : 1) * Math.sqrt(hash(i, 92, Math.round(now)));
-      const x = p.x + Math.cos(th) * rr, z = p.z + Math.sin(th) * rr;
-      if (!dream) {
-        put(x, 0.005, z, 0.2, 0.2, 0.2);
-        continue;
-      }
-      const c = 0.2 + 0.1 * Math.sin(x * 0.9 + Math.cos(z * 0.7) * 2) * Math.cos(z * 1.1 - x * 0.3) + 0.05 * hash(i, 93, 1);
-      put(x, 0.005 + moundH(x, z), z, c, c, c);
-    }
-    const fillMs = performance.now() - t0 - r.ms;
-    geom.setDrawRange(0, v);
-    M.uniforms.uR.value = R;
-    for (const name of ["position", "color", "aSeed", "aSize"]) (geom.getAttribute(name) as THREE.BufferAttribute).needsUpdate = true;
     M.uniforms.uOrigin.value.set(p.x, 0, p.z);
     M.uniforms.uDir.value.set(ex.dx, ex.dz);
     M.uniforms.uIn.value = cfg.inSec;
     M.uniforms.uOut.value = cfg.outSec;
     M.uniforms.uT.value = 0;
-    if (cfg.scan && !cfg.frames) {
+    if (cfg.scan && !cfg.frames && !cfg.windows) {
       const sc = scan.current, U = scanMat.uniforms;
       ensureAtlas(state.gl, phone);
       Object.assign(sc, { count: 0, newest: -1, n: 0, lastAt: -Infinity });
@@ -847,7 +892,11 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
       frames.ensure(state.gl, phone, cfg);
       frames.begin(p, R, cfg.plantColor);
     }
-    Object.assign(s, { active: true, t0: now, ex: ex.i, outAt: cfg.inSec + (cfg.frames ? cfg.frameHold : cfg.scan ? cfg.scanHold : cfg.holdSec), scan: cfg.scan && !cfg.frames, frames: cfg.frames });
+    if (cfg.windows) {
+      windows.ensure(state.gl, phone, cfg);
+      windows.begin(p, R, cfg.plantColor);
+    }
+    Object.assign(s, { active: true, t0: now, ex: ex.i, outAt: cfg.inSec + (cfg.frames ? cfg.frameHold : cfg.scan ? cfg.scanHold : cfg.holdSec), scan: cfg.scan && !cfg.frames && !cfg.windows, frames: cfg.frames && !cfg.windows, windows: cfg.windows });
     s.cool.set(ex.i, now + cfg.cooldownSec);
     // THE PASSING, HEARD (futureSound.ts): glitter where the meadow flowers, a river where the future's water runs near,
     // from the side it comes from to the side it goes to (the listener's right: the camera's yaw)
@@ -865,6 +914,7 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
       <lineSegments geometry={line} material={lineMat} frustumCulled={false} />
       <primitive object={scanPoints} />
       <primitive object={frames.group} />
+      <primitive object={windows.group} />
     </>
   );
 }
