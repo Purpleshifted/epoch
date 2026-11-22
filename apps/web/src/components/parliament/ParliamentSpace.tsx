@@ -2691,7 +2691,8 @@ const BOT_KIND_COLOR: Record<BotKind, string> = { settle: "#2a62ff", roam: "#ff8
  * 어떻게 하면 좋을지"): the proposals of docs/me-marker.md as the 마커 folder's switches, tried on the real wall.
  *   line    the sphere with a thin line down to the ground and a ring there (as before — the default)
  *   plane   a thin horizontal ring at my time's height: my present as a water level across the block
- *   column  my cell's column, ground to the block's top, faintly lit and brightest at my height
+ *   column  a column of light from me UP to the block's top — it joins me to my future, what is stacked above me
+ *           (the artist, 2026-11-22: "내 미래랑 빛기둥으로 잇는 게 낫지 않나"; before that it stood ground to top)
  *   glyph   my name — the melody written down (glyph.ts) — floating at my place, blinking my rhythm
  *   up      the line goes UP from me to the block's top: what is stacked above me (my future), not the floor
  */
@@ -2750,7 +2751,7 @@ const COLUMN_FRAG = /* glsl */ `
   uniform float uFall;
   varying float vY;
   void main() {
-    float a = uAlpha * (0.12 + 0.88 * exp(-abs(vY - uY) / uFall));
+    float a = uAlpha * (0.2 + 0.8 * exp(-abs(vY - uY) / uFall));
     gl_FragColor = vec4(uColor, a);
   }
 `;
@@ -2794,17 +2795,19 @@ function MeMark({ m, y, look, topRef, label }: { m: Mark; y: number; look: MeLoo
     mats.sprite.opacity = base * f;
     mats.column.uniforms.uAlpha.value = (m.stale ? 0.15 : 0.3) * f;
     mats.column.uniforms.uY.value = y;
-    mats.column.uniforms.uFall.value = 6 * look.scale;
-    // the block's top as the view knows it (the newest time): the line up and the column reach it
+    // the block's top as the view knows it: the line up and the light column reach it — my future, what is stacked above me
     const top = Math.max(topRef.current, y + 1);
+    // THE LIGHT COLUMN JOINS ME TO MY FUTURE (the artist, 2026-11-22: "내 미래랑 빛기둥으로 잇는 게 낫지 않나"): from my
+    // height up to the top, full at me and still a fifth of it where it meets the layer above
+    mats.column.uniforms.uFall.value = Math.max(3, (top - y) * 0.5);
     if (up.current) {
       up.current.position.y = (y + top) / 2;
       up.current.scale.y = Math.max(top - y, 0.001);
     }
     if (cap.current) cap.current.position.y = top;
     if (column.current) {
-      column.current.position.y = top / 2;
-      column.current.scale.y = Math.max(top, 0.001);
+      column.current.position.y = (y + top) / 2;
+      column.current.scale.y = Math.max(top - y, 0.001);
     }
   });
   const dotR = look.style === "plane" ? 0.35 * k : 0.5 * k;
@@ -2847,9 +2850,15 @@ function MeMark({ m, y, look, topRef, label }: { m: Mark; y: number; look: MeLoo
         </>
       )}
       {look.style === "column" && (
-        <mesh ref={column} position={[0, y, 0]} scale={[k, 1, k]} material={mats.column}>
-          <boxGeometry args={[1.2, 1, 1.2]} />
-        </mesh>
+        <>
+          <mesh ref={column} position={[0, y, 0]} scale={[k, 1, k]} material={mats.column}>
+            <boxGeometry args={[1.2, 1, 1.2]} />
+          </mesh>
+          {/* where the light meets the layer above: a faint ring at the top */}
+          <mesh ref={cap} position={[0, y, 0]} rotation={[-Math.PI / 2, 0, 0]} scale={[k, k, 1]} material={mats.ring}>
+            <ringGeometry args={[0.6, 0.75, 32]} />
+          </mesh>
+        </>
       )}
       {look.style === "glyph" && <sprite position={[0, y, 0]} scale={[2.4 * k, 2.4 * k, 1]} material={mats.sprite} />}
       {label && (
@@ -4603,7 +4612,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       names: { value: false, label: "봇 이름 보이기" },
       byKind: { value: false, label: "성격별 색 (정착 파랑 · 유랑 주황 · 순회 초록 · 혼자 회색)" },
       // "ME" ON THE WALL — the proposals of docs/me-marker.md (the artist, 2026-11-22), tried here on the real wall
-      meStyle: { options: { "수직선 (지금)": "line", "수면 (내 시간 높이의 수평 고리)": "plane", "기둥 (내 자리의 기둥만 밝힘)": "column", "기호 (내 이름의 멜로디 · 내 박자로 깜빡임)": "glyph", "위로 (선이 내 위에 쌓인 것으로)": "up" }, value: "line" as MeStyle, label: "\"나\"의 표시" },
+      meStyle: { options: { "수직선 (지금)": "line", "수면 (내 시간 높이의 수평 고리)": "plane", "빛기둥 (나에서 내 위의 미래까지)": "column", "기호 (내 이름의 멜로디 · 내 박자로 깜빡임)": "glyph", "위로 (선이 내 위에 쌓인 것으로)": "up" }, value: "line" as MeStyle, label: "\"나\"의 표시" },
       meScale: { value: 1, min: 0.5, max: 3, step: 0.1, label: "\"나\"의 크기 (×)" },
       meColor: { options: { "주황 (지금)": "orange", "흰색 (색은 자연에만)": "white" }, value: "orange", label: "\"나\"의 색" },
       mePulse: { value: false, label: "내 박자로 깜빡임 (내 멜로디의 온셋 · 2 s 마디)" },
