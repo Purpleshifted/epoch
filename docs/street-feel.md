@@ -4,7 +4,11 @@
 풍경 같은 거 다 포함해서 **'길거리' 같다는 느낌** 말한 거였음, 걸음걸이도 있겠다만… 좀 더 포괄적인 얘기였어." → "일단 브랜치 파서
 해봐야 할 거 같은데."
 
-브랜치 `claude/street-feel-18603e`(재편 `claude/artwork-redesign-continue-385cb8` 33edd36에서), 개발 서버 `web-street` :3028.
+브랜치 `claude/street-feel-18603e`(재편 `claude/artwork-redesign-continue-385cb8` 33edd36에서; 11/22 저녁 재편 head e4f7d46 —
+future-presence의 봇 옆 출생·발굴자 마주침, me-marker, 대화 소리 — 를 합쳐 둠), 개발 서버 `web-street` :3028.
+**작가가 보는 곳**: Vercel 브랜치 프리뷰 `https://anthropocene-redesign-git-claude-st-50db43-hesse-parks-projects.vercel.app` —
+`/v2/mobile?lang=ko`에서 Leva `개인뷰 비주얼 › 길거리 (시험 · 11/22) › 켜기`를 켜고 본다(기본은 지금 룩; `/exhibition/personal`은 Leva가
+없으니 거기선 바뀐 것이 없다). 폰도 같은 주소.
 레퍼런스는 `docs/reference-study-2026-11-22.md`(브랜치 `claude/personal-impact-logic-d235cf`) §1의 5·12·13·14·15·16·3.
 
 ## 0. 한 줄
@@ -148,10 +152,15 @@
 
 같은 삶 20 s 뒤(15 m 걸어 나온 자리): 앞에 아무것도 없으면 어두운 풀과 안개뿐이다 — 좌석이 길거리를 정한다(§1.2 "아무도 없다").
 
-![after: 데스크톱 1440×900, 눈높이 + 안개, 이 자리엔 아무도 안 보임](img/street-feel/after-eye-fog-desktop-nobody.png)
+![after: 데스크톱 1440×900, 눈높이 + 안개 + 사람 (45° 돌아본 뒤)](img/street-feel/after-eye-fog-people-desktop.png)
 
-데스크톱 눈높이(봇 12명이 있었지만 이 순간 시야 87° 밖): 지평선이 화면 가운데로 내려오고 위 절반이 하늘(검정)이 된다.
-`window.__street`(콘솔)에 그리는 몸·복사본 수와 가장 가까운 몸이 나온다.
+데스크톱 눈높이, 45° 돌아본 뒤(이 탭의 봇 12명; `window.__street` = people 12 · instances 12 · nearest 5.5 m): 지평선이 화면
+가운데로 내려오고 위 절반이 하늘(검정), **5–6 m 앞에 선 두 사람이 제 키로** 보인다. 헤드리스의 터치 에뮬레이션 탓에 폰 경로(200점,
+번짐 없음)로 그려졌다 — 데스크톱에서는 480점 + 번짐.
+
+![after: 데스크톱, 눈높이 + 안개, 아무도 시야에 없을 때](img/street-feel/after-eye-fog-desktop-nobody.png)
+
+같은 조건에서 사람이 시야 87° 밖일 때: 어두운 풀과 지평선뿐. (`window.__street`(콘솔)에 그리는 몸·복사본 수와 가장 가까운 몸이 나온다.)
 
 파일: `apps/web/src/lib/parliament/pointPeople.ts`(순수: 베이크·보간), `apps/web/src/components/parliament/PointPeople.tsx`,
 `usePersonalVisuals.ts`(폴더·`street`), `ParliamentScene.tsx`(카메라 분기, 안개 조건, `<PointPeople>` 마운트). `RoleField.tsx`·
