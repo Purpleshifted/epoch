@@ -39,10 +39,16 @@ const CAP = 90000;
 /** How near (world) one's own cells must be for the future to have found one's life. */
 const FOUND_NEAR = 5;
 
+/** A number 0 … 1 of three integers — a full integer hash (lowbias32): the quicker one before it drew diagonal lines
+ *  through the dream's ground, a pattern where a scan has none. */
 const hash = (a: number, b: number, c: number) => {
-  let h = (Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263) + Math.imul(c | 0, 2147483647)) | 0;
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  let h = Math.imul(a | 0, 0x9e3779b1) ^ Math.imul((b | 0) + 0x632be5ab, 0x85ebca77) ^ Math.imul((c | 0) + 0x5bd1e995, 0xc2b2ae3d);
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x7feb352d);
+  h ^= h >>> 15;
+  h = Math.imul(h, 0x846ca68b);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
 };
 
 const VERT = `
@@ -117,20 +123,22 @@ void main() {
   // ⑤ point by point
   float dens = smoothstep(0.0, uIn, uT) * (1.0 - smoothstep(uOutAt, uOutAt + uOut, uT));
   float keep = step(aSeed.w, dens * clamp(win * 3.0, 0.0, 1.0));
-  // ② drift, and the smear as it goes
+  // ② the place stands; only its ragged edge breathes — and as it goes, a short sweep the way the archaeologist walks
+  // (the artist, 2026-11-22, of the first dream: "그게 풍경으로 보여야 하는데 지금은 그냥 비주얼 이펙트 같아")
   float t = uT * 0.6;
-  vec3 drift = vec3(n3(p * 0.5 + vec3(t, 0.0, 0.0)) - 0.5, n3(p * 0.5 + vec3(0.0, t, 7.0)) - 0.5, n3(p * 0.5 + vec3(3.0, 0.0, t)) - 0.5) * 0.35;
+  float rim = 1.0 - clamp(win * 3.0, 0.0, 1.0);
+  vec3 drift = vec3(n3(p * 0.5 + vec3(t, 0.0, 0.0)) - 0.5, n3(p * 0.5 + vec3(0.0, t, 7.0)) - 0.5, n3(p * 0.5 + vec3(3.0, 0.0, t)) - 0.5) * (0.03 + 0.3 * rim);
   float go = smoothstep(uOutAt, uOutAt + uOut, uT);
-  p += drift + vec3(uDir.x, 0.0, uDir.y) * (aSeed.x * 0.6 + go * (1.5 + 3.0 * aSeed.w));
+  p += drift + vec3(uDir.x, 0.0, uDir.y) * go * (0.3 + 1.0 * aSeed.w);
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
   float z = max(0.1, -mv.z);
-  // ③ blurred near and far
-  float blur = smoothstep(4.0, 1.5, z) + smoothstep(uR * 1.2, uR * 2.5, z);
-  vBlur = clamp(blur, 0.0, 1.0);
-  vA = keep * (0.35 + 0.65 * clamp(win * 2.0, 0.0, 1.0)) * (1.0 - 0.6 * vBlur);
+  // ③ small crisp points; blurred only far off
+  float blur = smoothstep(uR * 2.5, uR * 5.0, z);
+  vBlur = blur;
+  vA = keep * (0.55 + 0.45 * clamp(win * 2.0, 0.0, 1.0)) * (1.0 - 0.5 * vBlur);
   vColor = color;
   gl_Position = projectionMatrix * mv;
-  gl_PointSize = min(uMaxPx, max(1.0, uSize * aSize * uScale / z * (1.0 + 2.5 * vBlur)));
+  gl_PointSize = clamp(uSize * aSize * clamp(8.0 / z, 0.6, 1.4) * (1.0 + 1.5 * vBlur) * (1.0 - 0.3 * go), 1.0, uMaxPx);
 }`;
 const DREAM_FRAG = `
 varying vec3 vColor;
@@ -140,9 +148,9 @@ void main() {
   vec2 c = gl_PointCoord * 2.0 - 1.0;
   float r = dot(c, c);
   if (r > 1.0) discard;
-  float a = vA * mix(1.0 - r, exp(-r * 3.0), vBlur) * 0.85;
+  float a = vA * mix(1.0, exp(-r * 3.0), vBlur) * 0.9;
   if (a < 0.004) discard;
-  gl_FragColor = vec4(vColor * a, a);
+  gl_FragColor = vec4(vColor, a);
 }`;
 const isCoarse = () => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches && !window.matchMedia("(pointer: fine)").matches;
 
@@ -177,7 +185,7 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
         fragmentShader: DREAM_FRAG,
         transparent: true,
         depthWrite: false,
-        blending: THREE.AdditiveBlending,
+        // (ordinary transparency: the first dream's added light read as an effect)
         uniforms: { uT: { value: 0 }, uIn: { value: 1 }, uOutAt: { value: 3 }, uOut: { value: 1.8 }, uSize: { value: 0.07 }, uScale: { value: 400 }, uDir: { value: new THREE.Vector2(1, 0) }, uOrigin: { value: new THREE.Vector3() }, uR: { value: 12 }, uMaxPx: { value: 28 } },
       }),
     [],
@@ -230,6 +238,9 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
       m.uniforms.uScale.value = state.gl.domElement.height / 2;
       m.uniforms.uSize.value = cfg.pointSize;
     }
+    // (the dream's points are sized in pixels: small and crisp)
+    dreamMat.uniforms.uSize.value = cfg.dreamPx;
+    dreamMat.uniforms.uMaxPx.value = Math.max(2, cfg.dreamPx * 1.6);
     if (s.active) {
       const t = now - s.t0;
       const ex = exs.find((e) => e.i === s.ex);
@@ -273,7 +284,9 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
     const box: BoxConfig = { ...DEFAULT_BOXES, secPerUnit: Math.max(1, dcfg.slotSec), unit: cfg.unit, width: 0.8, density: 1.4, variety: DEFAULT_VARIETY, buildSlots: 0 };
     const me = meRef.current.id;
     const dream = cfg.dream, phone = isCoarse();
-    const r = futurePresence(h.f, me, K, kMe, p, { ...cfg, radius: cfg.cloudR, surface: cfg.surface * (dream ? (phone ? 0.6 : 2.5) : 1), wild: cfg.wild, traces: true }, box);
+    // (the dream: a narrow piece, sampled densely — the whole budget in it — so the place reads from the points' density)
+    const R = dream ? cfg.dreamR : cfg.cloudR;
+    const r = futurePresence(h.f, me, K, kMe, p, { ...cfg, radius: R + 4, surface: cfg.surface * (dream ? (phone ? 4 : 14) : 1), surfaceCap: dream ? (phone ? 400 : 2000) : 160, wild: cfg.wild, traces: true }, box);
     // FOUND: the visitor stayed in that ground (their own cells near, whenever in their life)
     let found = false;
     for (const c of h.f.cellsOf(me)) if (wrapDist((c.cx + 0.5) * CELL_SIZE, (c.cz + 0.5) * CELL_SIZE, p.x, p.z) <= FOUND_NEAR) {
@@ -288,7 +301,6 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
     const Z = (geom.getAttribute("aSize") as THREE.BufferAttribute).array as Float32Array;
     let size = 1;
     let v = 0;
-    const R = cfg.cloudR;
     // (the dream: up to 90 000 points — a phone a fifth — thinner the further from the visitor; the visitor's own cells
     // lower the threshold of what is near them: their life comes first and stays longest)
     const cap = dream ? Math.min(CAP, phone ? 18000 : 90000) : CAP;
@@ -298,8 +310,7 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
       if (v >= cap) return;
       const x = nearestImage(x0, p.x), z = nearestImage(z0, p.z);
       const d2 = (x - p.x) ** 2 + (z - p.z) ** 2;
-      if (d2 > R * R * (dream ? 1.6 : 1)) return;
-      if (dream && hash(v, 23, Math.round(x * 7 + z * 13)) > 1 - 0.75 * Math.pow(Math.sqrt(d2) / (R * 1.26), 1.5)) return;
+      if (d2 > R * R * (dream ? 1.8 : 1)) return;
       P[v * 3] = x;
       P[v * 3 + 1] = y;
       P[v * 3 + 2] = z;
@@ -318,12 +329,12 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
         if (nearMine) S[v * 4 + 3] *= 0.4;
       }
       // (sizes: the kind's, and in the dream each its own — from a third to twice)
-      Z[v] = dream ? size * (0.35 + 1.65 * hash(v, 17, 5) ** 2) : size;
+      Z[v] = dream ? size * (0.75 + 0.5 * hash(v, 17, 5)) : size;
       v++;
     };
     // (the dream's plants paler: only the plants carry colour)
     const green = new THREE.Color(cfg.plantColor);
-    if (dream) green.lerp(new THREE.Color("#ffffff"), 0.45);
+    if (dream) green.lerp(new THREE.Color("#9aa59a"), 0.5);
     // the parts that are left, on their surfaces
     size = 1;
     for (let o = 0; o + 3 < r.surface.length; o += 4) {
@@ -336,7 +347,7 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
     for (let o = 0; o + 11 < r.plantClouds.length; o += 12) {
       const x = r.plantClouds[o], z = r.plantClouds[o + 1], rad = r.plantClouds[o + 3], tall = r.plantClouds[o + 4] * cfg.unit, kind = r.plantClouds[o + 5], own = Math.floor(r.plantClouds[o + 9] * 1e6);
       if ((nearestImage(x, p.x) - p.x) ** 2 + (nearestImage(z, p.z) - p.z) ** 2 > (R + 2) ** 2) continue;
-      const n = Math.min(120, 20 + Math.round(rad * rad * 25));
+      const n = Math.min(dream ? 700 : 120, Math.round((20 + rad * rad * 25) * (dream ? 6 : 1)));
       if (r.plantClouds[o + 6] > 0.3) flowering++;
       for (let i = 0; i < n; i++) {
         const th = hash(own, i, 1) * Math.PI * 2, rr = rad * Math.sqrt(hash(own, i, 2)), u = hash(own, i, 3);
@@ -349,11 +360,13 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
     for (let o = 0; o + 4 < r.vegTree.length; o += 5) {
       const k = 0.45 + r.vegTree[o + 3];
       put(r.vegTree[o], r.vegTree[o + 1] * cfg.unit, r.vegTree[o + 2], green.r * k, green.g * k, green.b * k);
+      // (the dream: each of a tree's points a small knot of them)
+      if (dream) for (let j = 0; j < 4; j++) put(r.vegTree[o] + (hash(o, j, 41) - 0.5) * 0.16, r.vegTree[o + 1] * cfg.unit + (hash(o, j, 42) - 0.5) * 0.16, r.vegTree[o + 2] + (hash(o, j, 43) - 0.5) * 0.16, green.r * k, green.g * k, green.b * k);
     }
     // the mounds: domes of pale points; the dark earth: a few grey points flat on the ground
     for (let o = 0; o + 3 < r.mounds.length; o += 4) {
       const x = r.mounds[o], z = r.mounds[o + 1], score = r.mounds[o + 2], sd = Math.floor(r.mounds[o + 3] * 1e6);
-      const n = Math.min(60, 10 + Math.round(score * 10)), Rm = CELL_SIZE * 0.5 * Math.min(2, Math.sqrt(score)), H = cfg.unit * 0.3 * Math.min(1.5, score);
+      const n = Math.min(dream ? 400 : 60, Math.round((10 + score * 10) * (dream ? 6 : 1))), Rm = CELL_SIZE * 0.5 * Math.min(2, Math.sqrt(score)), H = cfg.unit * 0.3 * Math.min(1.5, score);
       for (let i = 0; i < n; i++) {
         const u1 = hash(sd, i, 1), th = hash(sd, i, 2) * Math.PI * 2, rr = Rm * Math.sqrt(u1), c = 0.7 + 0.25 * hash(sd, i, 3);
         put(x + Math.cos(th) * rr, 0.02 + H * (1 - u1), z + Math.sin(th) * rr, c, c, c);
@@ -361,7 +374,7 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
     }
     for (let o = 0; o + 3 < r.stains.length; o += 4) {
       const x = r.stains[o], z = r.stains[o + 1], sd = Math.floor(r.stains[o + 3] * 1e6);
-      for (let i = 0; i < 8; i++) {
+      for (let i = 0; i < (dream ? 60 : 8); i++) {
         const th = hash(sd, i, 5) * Math.PI * 2, rr = CELL_SIZE * 0.45 * Math.sqrt(hash(sd, i, 6));
         put(x + Math.cos(th) * rr, 0.015, z + Math.sin(th) * rr, 0.3, 0.3, 0.3);
       }
@@ -371,13 +384,31 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
     for (let o = 0; o + 3 < r.traces.length; o += 4) {
       const x = r.traces[o], z = r.traces[o + 1], kind = r.traces[o + 3], sd = Math.floor((x * 131 + z * 71) * 100);
       const c = kind >= 1 ? 1 : kind > 0 ? 0.8 : 0.6;
-      for (let i = 0; i < 14; i++) put(x + (hash(sd, i, 7) - 0.5) * CELL_SIZE, 0.03, z + (hash(sd, i, 8) - 0.5) * CELL_SIZE, c, c, c);
+      for (let i = 0; i < (dream ? 90 : 14); i++) put(x + (hash(sd, i, 7) - 0.5) * CELL_SIZE, 0.03, z + (hash(sd, i, 8) - 0.5) * CELL_SIZE, c, c, c);
     }
     // the ground of the future, scanned: a sparse floor of small dark points
-    size = 0.45;
-    for (let i = 0; i < 1400; i++) {
-      const th = hash(i, 91, Math.round(now)) * Math.PI * 2, rr = R * Math.sqrt(hash(i, 92, Math.round(now)));
-      put(p.x + Math.cos(th) * rr, 0.005, p.z + Math.sin(th) * rr, 0.2, 0.2, 0.2);
+    size = dream ? 0.85 : 0.45;
+    // (the dream: the ground fills what is left of the budget, densely, and rises over the mounds — the place's
+    // relief read from the points, as a scan's; a little lighter or darker by a slow noise of its own)
+    const groundN = dream ? Math.max(0, cap - v) : 1400;
+    const moundH = (x: number, z: number): number => {
+      let hgt = 0;
+      for (let o = 0; o + 3 < r.mounds.length; o += 4) {
+        const dx = nearestImage(r.mounds[o], p.x) - x, dz = nearestImage(r.mounds[o + 1], p.z) - z, score = r.mounds[o + 2];
+        const Rm = CELL_SIZE * 0.9 * Math.min(2, Math.sqrt(score)), q = (dx * dx + dz * dz) / (Rm * Rm);
+        if (q < 1) hgt = Math.max(hgt, cfg.unit * 0.3 * Math.min(1.5, score) * (1 - q) * (1 - q));
+      }
+      return hgt;
+    };
+    for (let i = 0; i < groundN; i++) {
+      const th = hash(i, 91, Math.round(now)) * Math.PI * 2, rr = R * (dream ? 1.3 : 1) * Math.sqrt(hash(i, 92, Math.round(now)));
+      const x = p.x + Math.cos(th) * rr, z = p.z + Math.sin(th) * rr;
+      if (!dream) {
+        put(x, 0.005, z, 0.2, 0.2, 0.2);
+        continue;
+      }
+      const c = 0.2 + 0.1 * Math.sin(x * 0.9 + Math.cos(z * 0.7) * 2) * Math.cos(z * 1.1 - x * 0.3) + 0.05 * hash(i, 93, 1);
+      put(x, 0.005 + moundH(x, z), z, c, c, c);
     }
     geom.setDrawRange(0, v);
     M.uniforms.uR.value = R;

@@ -45,6 +45,8 @@ export interface PresenceConfig {
   /** THE POINT CLOUD (the excavators' moment — FuturePresence.tsx): points per square world unit of a part's surface;
    *  0 = none made. */
   surface?: number;
+  /** The most points on one part's surface (absent = 160). */
+  surfaceCap?: number;
   /** Plants over the ground nobody kept (futureVillage.ts ground.density: the wild forest), 0 … 1; absent = none. */
   wild?: number;
 }
@@ -102,11 +104,11 @@ function pushEdges(out: number[], b: Box, dy: number): void {
 }
 
 /** Points on a box's six faces, as many as its area × `perArea` (3 … 160), each [x, y, z, shade]. */
-function pushSurface(out: number[], b: Box, dy: number, perArea: number): void {
+function pushSurface(out: number[], b: Box, dy: number, perArea: number, capPer = 160): void {
   const [ax, ay, az, bx, by, bz, cx, cy, cz] = axes(b);
   const A = [b.sy * b.sz, b.sx * b.sz, b.sx * b.sy];
   const total = 2 * (A[0] + A[1] + A[2]);
-  const n = Math.max(3, Math.min(160, Math.round(total * perArea)));
+  const n = Math.max(3, Math.min(capPer, Math.round(total * perArea)));
   const base = (Math.round(b.x * 977) ^ b.seed) | 0, base2 = (Math.round(b.z * 971) ^ Math.round(b.y * 967)) | 0;
   // (concrete lighter, steel darker; each part its own tone)
   const shade = (STEEL_KINDS.has(b.kind) ? 0.45 : 0.6) + 0.3 * b.tone;
@@ -199,7 +201,7 @@ export function futurePresence(field: DensityField, me: string, K: number, kMe: 
     }
     for (const b of keptHere) {
       pushEdges(edges, b, -footY);
-      if (perArea > 0 && surface.length < 60000 * 4) pushSurface(surface, b, -footY, perArea);
+      if (perArea > 0 && surface.length < 60000 * 4) pushSurface(surface, b, -footY, perArea, cfg.surfaceCap ?? 160);
     }
     kept += keptHere.length;
   }
