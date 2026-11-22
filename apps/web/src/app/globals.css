@@ -72,10 +72,17 @@ body {
 
 /* The specimen card's face (lib/parliament/plate.ts PLATE_FACE): GalmuriMono11 (Lee Minseo, SIL OFL 1.1), self-hosted
    like Neo둥근모 (CREDITS.md); only downloaded when a card is shown. */
-@font-face { font-family: "GalmuriMono11"; src: url("/fonts/GalmuriMono11.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "GalmuriMono11"; src: url("/fonts/GalmuriMono11.woff2") format("woff2"); font-display: block; }
 
+/* ONE FACE FOR THE APPARATUS AND THE CARD (the artist, 2026-11-22: "첫 진입화면이랑 로그 같은 것들 폰트 카드에 쓰던거랑
+   정렬 좀"): the player view's screens — the opening, the notices, the name, the log, the end — are set in the card's
+   face, GalmuriMono11 (preloaded: app/layout.tsx), Latin and Hangul alike; Neo둥근모 stays only as a fallback. Its pixel
+   grid is 12 px, so the HUD's sizes are on a 6 px step (12 · 18 · 24 · 48: whole device pixels at 2×), with no letter
+   spacing — as on the card. */
+.hud-face,
 .hud-ko {
-  font-family: "NeoDunggeunmo", "Galmuri11", "DungGeunMo", "VT323", monospace;
+  font-family: "GalmuriMono11", "NeoDunggeunmo", monospace;
+  letter-spacing: 0;
   /* Korean wraps between words, not inside them */
   word-break: keep-all;
 }

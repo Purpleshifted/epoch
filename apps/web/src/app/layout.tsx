@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { GameProvider } from "@/context/GameContext";
+import { preload } from "react-dom";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -29,11 +30,16 @@ export const metadata: Metadata = {
   },
 };
 
+/** The card's face, which the player view's screens are set in too (globals.css .hud-face): fetched with the page, so the
+ * first screen does not show another face first. */
+const CARD_FACE = "/fonts/GalmuriMono11.woff2";
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  preload(CARD_FACE, { as: "font", type: "font/woff2", crossOrigin: "anonymous" });
   return (
     <html lang="ko">
       <body

@@ -15,11 +15,11 @@
  *     stands (portrait / landscape), then prints or saves it, and posts it. Posting or printing keeps the life (and its
  *     recording) in the archive (/api/lives); a life neither posted nor printed is not kept. KR / EN at the top of the
  *     end's screens turns their words, in the same pixel face
- * The words are lib/parliament/script.ts (ko / en), the record's too (LOG · formatEntry). VT323 has no Hangul, so the
- * Korean lines use the pixel face `.hud-ko` (globals.css). Mount it with key = sessionNo: a new visitor, a new record.
+ * The words are lib/parliament/script.ts (ko / en), the record's too (LOG · formatEntry). Every screen is set in the
+ * card's face, GalmuriMono11 (`.hud-face` / `.hud-ko`, globals.css; 2026-11-22: one face for the apparatus and the
+ * card), sizes on its 6 px step. Mount it with key = sessionNo: a new visitor, a new record.
  */
 
-import { VT323 } from "next/font/google";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CAUSE_NAME,
@@ -67,7 +67,6 @@ import { SpecimenCard, printCard, saveCard, type CardAct } from "./SpecimenCard"
 import type { CardVisual } from "./usePersonalVisuals";
 import type { LifeSession } from "./useLifeSession";
 
-const mono = VT323({ weight: "400", subsets: ["latin"], display: "swap" });
 
 const POLL_MS = 250;
 /** One round of the name's melody and its gap (a bar of 8 steps); the keys count this long after the name comes up. */
@@ -477,7 +476,7 @@ export function SessionHud({
   );
 
   return (
-    <div className={`${mono.className} pointer-events-none absolute inset-0 select-none text-white`}>
+    <div className={`hud-face pointer-events-none absolute inset-0 select-none text-white`}>
       {/* the dark: almost black before the life (only the words show), black after the end; while X is
           held (X) to stop living it comes up with the hold. Hard cuts (digital) — the only fade is the dying one, into the end. */}
       <div
@@ -490,16 +489,16 @@ export function SessionHud({
       {/* the title screen */}
       {phase === "idle" && (
         <Centre className="text-center">
-          <div className={`${say} text-[44px] leading-none tracking-[0.1em] text-white/85`}>{title.main}</div>
-          {title.sub && <div className="mt-2 text-[16px] tracking-[0.3em] text-white/40">{title.sub}</div>}
-          <div className={`${say} hud-blink mt-12 text-[18px] tracking-[0.2em] text-white/45`}>{coarse ? S.idle.pressTouch : S.idle.press}</div>
-          <div className={`${say} mt-3 text-[14px] tracking-[0.05em] text-white/30`}>{S.idle.duration(Math.max(1, Math.round(lifeSec / 60)))}</div>
+          <div className={`${say} text-[48px] leading-none text-white/85`}>{title.main}</div>
+          {title.sub && <div className="mt-2 text-[18px] text-white/40">{title.sub}</div>}
+          <div className={`${say} hud-blink mt-12 text-[18px] text-white/45`}>{coarse ? S.idle.pressTouch : S.idle.press}</div>
+          <div className={`${say} mt-3 text-[12px] text-white/30`}>{S.idle.duration(Math.max(1, Math.round(lifeSec / 60)))}</div>
         </Centre>
       )}
 
       {/* the notice: a few pages, their lines coming on one after another */}
       {phase === "notice" && (
-        <Centre className={`${say} text-[20px] leading-[1.6] tracking-[0.02em] text-white/80`}>
+        <Centre className={`${say} text-[18px] leading-[1.6] text-white/80`}>
           <Lines lines={S.notice[page] ?? []} since={since} lineSec={noticeLineSec} />
           <div className="mt-6 h-4 text-[12px] text-white/35">
             {pageDone((S.notice[page] ?? []).length, since, noticeLineSec) && <span className="hud-blink">▪</span>}
@@ -510,8 +509,8 @@ export function SessionHud({
       {/* the consent: whatever is pressed, it is yes */}
       {phase === "consent" && (
         <Centre className={`${say} text-center`}>
-          <div className="text-[22px] leading-[1.5] text-white/85">{S.consent.question}</div>
-          <div className="mt-8 flex items-start justify-center gap-8 text-[20px]">
+          <div className="text-[24px] leading-[1.5] text-white/85">{S.consent.question}</div>
+          <div className="mt-8 flex items-start justify-center gap-8 text-[18px]">
             <div className="border border-white/50 px-6 py-2 text-white/90">{S.consent.yes}</div>
             <div>
               <div className="border border-white/15 px-6 py-2 text-white/20">{S.consent.no}</div>
@@ -523,7 +522,7 @@ export function SessionHud({
 
       {/* the headset */}
       {phase === "headset" && (
-        <Centre className={`${say} text-center text-[20px] leading-[1.6] text-white/80`}>
+        <Centre className={`${say} text-center text-[18px] leading-[1.6] text-white/80`}>
           <Lines lines={coarse ? S.headsetTouch : S.headset} since={since} lineSec={noticeLineSec} />
         </Centre>
       )}
@@ -532,10 +531,10 @@ export function SessionHud({
           over and over; 살아가기 is the way into the world */}
       {phase === "name" && visitorRef.current?.no === session.sessionNo && (
         <Centre className={`${say} text-center`}>
-          <div className="flex items-center justify-center gap-3 text-[26px] text-white">
+          <div className="flex items-center justify-center gap-3 text-[24px] text-white">
             {S.live.mine} (<Glyph dots={glyphOf(visitorRef.current.id)} cell={8} playFrom={phaseAt + 100} playEvery={NAME_LOOP_MS} />)
           </div>
-          <button type="button" onClick={enterWorld} className="pointer-events-auto mt-10 border border-white/50 px-6 py-2 text-[20px] text-white/90 outline-none hover:bg-white hover:text-black">
+          <button type="button" onClick={enterWorld} className="pointer-events-auto mt-10 border border-white/50 px-6 py-2 text-[18px] text-white/90 outline-none hover:bg-white hover:text-black">
             {S.live.enter}
           </button>
         </Centre>
@@ -544,20 +543,20 @@ export function SessionHud({
       {/* live, before the pointer is locked */}
       {phase === "live" && !coarse && !locked && !attemptFailed && (
         <Centre className={`${say} flex justify-center text-center`}>
-          <div className="border border-white/40 bg-black/70 px-6 py-3 text-[20px] text-white/90">{S.live.look}</div>
+          <div className="border border-white/40 bg-black/70 px-6 py-3 text-[18px] text-white/90">{S.live.look}</div>
         </Centre>
       )}
       {/* how to walk, faintly, for the first seconds of the life (the life begins right after the headset) */}
       {phase === "live" && rec.controls && !attemptFailed && (
         <div className="absolute inset-x-0 bottom-28 flex justify-center px-6">
-          <div className={`${say} text-[14px] tracking-[0.05em] text-white/40`}>{coarse ? S.live.controlsTouch : S.live.controls}</div>
+          <div className={`${say} text-[12px] text-white/40`}>{coarse ? S.live.controlsTouch : S.live.controls}</div>
         </div>
       )}
       {/* stopping living (worker): on a desktop a banner at the top, now and then (the key works regardless); on a phone
           a button, up the whole time it is on offer — held for holdSec it is the attempt (the dark follows the hold) */}
       {phase === "live" && !coarse && stopHint && (
         <div className="absolute inset-x-0 top-8 flex justify-center px-6">
-          <div className={`${say} border border-white/30 bg-black/50 px-4 py-1.5 text-[17px] tracking-[0.04em] text-white/85`}>{S.live.stop(holdSec)}</div>
+          <div className={`${say} border border-white/30 bg-black/50 px-4 py-1.5 text-[18px] text-white/85`}>{S.live.stop(holdSec)}</div>
         </div>
       )}
       {phase === "live" && coarse && stopOn && (
@@ -571,7 +570,7 @@ export function SessionHud({
             onMouseDown={session.beginHold}
             onMouseUp={session.endHold}
             onMouseLeave={session.endHold}
-            className={`${say} pointer-events-auto select-none border bg-black/60 px-5 py-2 text-[17px] tracking-[0.04em] text-white/85 outline-none ${attempt > 0 ? "border-white/90" : "border-white/40"}`}
+            className={`${say} pointer-events-auto select-none border bg-black/60 px-5 py-2 text-[18px] text-white/85 outline-none ${attempt > 0 ? "border-white/90" : "border-white/40"}`}
             style={{ touchAction: "none", WebkitTapHighlightColor: "transparent", WebkitTouchCallout: "none", WebkitUserSelect: "none" }}
           >
             {S.live.stopTouch(holdSec)}
@@ -581,7 +580,7 @@ export function SessionHud({
       {/* the line when an attempt fails */}
       {phase === "live" && attemptFailed && (
         <Centre className={`${say} flex justify-center text-center`}>
-          <div className="border border-white/40 bg-black/70 px-6 py-4 text-[20px] leading-[1.6] text-white/90">{S.attempt.failed}</div>
+          <div className="border border-white/40 bg-black/70 px-6 py-4 text-[18px] leading-[1.6] text-white/90">{S.attempt.failed}</div>
         </Centre>
       )}
 
@@ -590,7 +589,7 @@ export function SessionHud({
           writes it down beside the words */}
       {phase === "live" && (
         <div className="absolute inset-x-0 bottom-0 flex justify-center px-4 pb-4">
-          <div className="w-full max-w-[36rem] border border-white bg-black text-[15px] leading-[1.25] tracking-[0.04em]">
+          <div className={`w-full max-w-[36rem] border border-white bg-black ${coarse ? "text-[12px] leading-[1.5]" : "text-[18px] leading-[1.25]"}`}>
             {rec.me && (
               <div className="flex items-center gap-3 border-b border-white px-3 py-2 text-white">
                 <div className={`${say} shrink-0`}>{S.live.mine}</div>
@@ -632,7 +631,7 @@ export function SessionHud({
 
       {/* KR / EN on the end's screens (the visitor's pick), large enough to read as a choice */}
       {phase === "ended" && cause && (
-        <div className={`hud-ko absolute flex ${coarse ? "right-4 top-[14px] gap-1.5 text-[18px]" : "right-6 top-5 gap-2 text-[20px]"}`}>
+        <div className={`hud-ko absolute flex ${coarse ? "right-4 top-[14px] gap-1.5 text-[18px]" : "right-6 top-5 gap-2 text-[18px]"}`}>
           {(["ko", "en"] as const).map((l) => (
             <button
               key={l}
@@ -660,7 +659,7 @@ export function SessionHud({
             }}
           />
           {/* the way it stands (white paper only since 2026-11-22) */}
-          <div className={`${say} flex shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[15px]`}>
+          <div className={`${say} flex shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[18px]`}>
             <span className="flex gap-2">
               {(["portrait", "landscape"] as const).map((o) => (
                 <button key={o} type="button" data-hud-control onClick={() => setTurned(o)} className={pick(orient === o)}>
@@ -669,7 +668,7 @@ export function SessionHud({
               ))}
             </span>
           </div>
-          <div className={`${say} flex shrink-0 flex-wrap items-center justify-center gap-2 text-[15px]`}>
+          <div className={`${say} flex shrink-0 flex-wrap items-center justify-center gap-2 text-[18px]`}>
             <button
               type="button"
               data-hud-control
@@ -704,8 +703,8 @@ export function SessionHud({
               {S.ended.back}
             </button>
           </div>
-          <div className={`${say} max-w-[30rem] shrink-0 text-center text-[13px] leading-[1.5] text-white/45`}>{S.ended.keepNote}</div>
-          <div className={`${say} h-5 shrink-0 text-[15px] tracking-[0.2em] text-white`}>{session.restartReady && <span className="hud-blink">{coarse ? S.ended.nextTouch : S.ended.next}</span>}</div>
+          <div className={`${say} max-w-[30rem] shrink-0 text-center text-[12px] leading-[1.5] text-white/45`}>{S.ended.keepNote}</div>
+          <div className={`${say} h-5 shrink-0 text-[18px] text-white`}>{session.restartReady && <span className="hud-blink">{coarse ? S.ended.nextTouch : S.ended.next}</span>}</div>
         </div>
       )}
 
@@ -713,12 +712,12 @@ export function SessionHud({
           발자국 지도); under it the way on to the card: 출력하기 on the gallery machine, 저장하기 elsewhere, and 게시하기 */}
       {phase === "ended" && cause && step === "record" && (
         <div className={`absolute inset-0 flex items-center justify-center overflow-hidden px-6 ${coarse ? "pb-7 pt-20" : ""}`}>
-          <div className={`${say} w-full max-w-[46rem] text-[17px] leading-[1.3] tracking-[0.03em]`}>
+          <div className={`${say} w-full max-w-[46rem] text-[18px] leading-[1.3]`}>
             <div className="mb-3 text-[24px] text-white">{S.ended.title}</div>
             <div className="flex flex-wrap items-stretch border border-white">
               <div className="min-w-[20rem] flex-1">
                 <div className="flex items-baseline justify-between px-3 py-2">
-                  <span className="text-[20px] text-white">{S.ended.who(individualNo(rec.me))}</span>
+                  <span className="text-[18px] text-white">{S.ended.who(individualNo(rec.me))}</span>
                   <span className="text-[#8c8c8c]">
                     {S.ended.life} {fmtClock(endedBy === "self" ? rec.t : lifeSec)}
                   </span>
@@ -740,7 +739,7 @@ export function SessionHud({
                 <CardRow label={S.ended.veg}>{S.ended.vegRow(sum)}</CardRow>
                 {rec.attempts > 0 && <CardRow label={S.ended.stop}>{S.ended.tried(rec.attempts)}</CardRow>}
                 <CardRow label={S.ended.cause}>
-                  <span className="text-[20px]">{CAUSE_NAME[lang][cause]}</span>
+                  <span className="text-[18px]">{CAUSE_NAME[lang][cause]}</span>
                 </CardRow>
               </div>
               {footprint && rec.ledger && (
@@ -752,7 +751,7 @@ export function SessionHud({
             <div className="pt-3 text-[#8c8c8c]">{S.ended.kept}</div>
             <div className="text-[#8c8c8c]">{S.ended.read}</div>
             {plate && (
-              <div className="flex flex-wrap items-center gap-2 pt-4 text-[16px]">
+              <div className="flex flex-wrap items-center gap-2 pt-4 text-[18px]">
                 {([gallery ? "print" : "save", "post"] as const).map((a) => (
                   <button
                     key={a}
@@ -767,7 +766,7 @@ export function SessionHud({
               </div>
             )}
             {helpLine && cause === "suicide" && <div className="pt-3 text-[#8c8c8c]">{S.ended.help}</div>}
-            {session.restartReady && <div className="hud-blink pt-4 text-[16px] tracking-[0.2em] text-white">{coarse ? S.ended.nextTouch : S.ended.next}</div>}
+            {session.restartReady && <div className="hud-blink pt-4 text-[18px] text-white">{coarse ? S.ended.nextTouch : S.ended.next}</div>}
           </div>
         </div>
       )}
