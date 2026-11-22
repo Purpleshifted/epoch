@@ -117,7 +117,8 @@ export default function RecPlayer({ id }: { id: string }) {
     if (!playing) return;
     let at = -1;
     for (let i = 0; i < events.length; i++) if (events[i].t <= now + 0.05) at = i;
-    if (at !== shown && at >= 0) setShown(at);
+    // (a moment at the same second as the one shown — the one just tapped — does not take the line from it)
+    if (at >= 0 && at !== shown && !(shown >= 0 && events[shown] && Math.abs(events[at].t - events[shown].t) < 0.5)) setShown(at);
   };
 
   const line = shown >= 0 && events[shown] ? events[shown] : null;
