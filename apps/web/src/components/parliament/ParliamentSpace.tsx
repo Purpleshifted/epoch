@@ -2125,11 +2125,11 @@ function SpaceWorld({
     const focusS = modelT !== undefined && modelT > 0 ? Math.min(wantS, modelT + 2 * cfg.secPerUnit) : wantS;
     focus.current = { focusS, focusIsMe: useMe };
     focusY.current = events.length ? (focusS / cfg.secPerUnit) * cfg.unit : null;
-    // THE MARKERS' TRIAL (MeLook.trialMid, the artist 2026-11-22): "me" is drawn at half the block's height — the
-    // follow goes to where it is drawn, not to the sample's time (which today lies far above the block)
-    if (meTrialMid && useMe && last.current && last.current.top > 1) {
-      focusY.current = last.current.top * 0.5;
-      focus.current = { focusS: (focusY.current / cfg.unit) * cfg.secPerUnit, focusIsMe: true };
+    // THE MARKERS' TRIAL (MeLook.trialMid, the artist 2026-11-22): "me" is drawn among the living bots — the follow
+    // goes to where it is drawn, not to the sample's time
+    if (meTrialMid && useMe && trialMe.y !== null) {
+      focusY.current = trialMe.y;
+      focus.current = { focusS: (trialMe.y / cfg.unit) * cfg.secPerUnit, focusIsMe: true };
     }
 
     const o = controls.current;
@@ -2726,6 +2726,10 @@ interface MeLook {
 }
 /** The quiet others: a bot and a visitor as small achromatic points (the old visitor's #111111 is invisible on the black wall). */
 const QUIET_COLOR = { me: "#ffffff", bot: "#8a8f96", visitor: "#d4d7db" } as const;
+
+/** THE TRIAL'S HEIGHT (MeLook.trialMid): where "me" is drawn — the middle of the living bots' heights (world y) — set by
+ *  the markers, read by the camera's follow; null = the trial is off or there are no bots to stand among. */
+const trialMe: { y: number | null } = { y: null };
 
 const glyphTextures = new Map<string, THREE.CanvasTexture>();
 /** A being's melody glyph (glyph.ts) as a small white-on-clear texture, made once per id. */
@@ -3756,13 +3760,20 @@ function Markers({
   });
 
   const quiet = look.others !== "now";
+  // THE TRIAL (the artist, 2026-11-22: "마커 테스트스위치는 왜 또 작동을 안해" — it read the block's top, which was 0):
+  // "me" is drawn at the middle of the living bots' heights, wherever they are; the record stays as it is
+  const botYs = marks.filter((m) => m.kind === "bot" && !m.stale).map((m) => (m.s / secPerUnit) * unit).sort((a, b) => a - b);
+  const trialY = look.trialMid && botYs.length ? botYs[botYs.length >> 1] : null;
+  useEffect(() => {
+    trialMe.y = trialY;
+  }, [trialY]);
+  useEffect(() => () => void (trialMe.y = null), []);
   return (
     <>
       {marks.map((m) => {
         const y = (m.s / secPerUnit) * unit;
         if (m.kind === "me") {
-          // the trial: drawn at half the block's height (the block's top as the view knows it; the record stays)
-          const yMe = look.trialMid && topRef.current > 1 ? topRef.current * 0.5 : y;
+          const yMe = trialY ?? y;
           return <MeMark key={m.id} m={m} y={yMe} look={look} topRef={topRef} label={labels ? `${m.stale ? "me (silent)" : "me"} · ${m.role}${look.trialMid ? " · 시험 높이" : ""}` : null} />;
         }
         const kind = tint && m.kind === "bot" ? botKinds.get(m.id) : undefined;
@@ -4636,7 +4647,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       meColor: { options: { "주황 (지금)": "orange", "흰색 (색은 자연에만)": "white" }, value: "orange", label: "\"나\"의 색" },
       mePulse: { value: false, label: "내 박자로 깜빡임 (내 멜로디의 온셋 · 2 s 마디)" },
       others: { options: { "지금 (파랑 · 검정 공 + 바닥 선)": "now", "무채색 작게 (봇 회색 점 · 타인 밝은 점 · 선 없음)": "quiet", "무채색 작게 · 타인은 작은 기호": "glyph" }, value: "now" as OthersStyle, label: "봇 · 타인" },
-      meTrialMid: { value: false, label: "시험: 나를 블록 가운데 높이에 그리기 (표시만 · 기록은 그대로 · 관객이 블록 시간에 앉을 때까지)" },
+      meTrialMid: { value: false, label: "시험: 나를 살아 있는 봇들 가운데 높이에 그리기 (표시만 · 기록은 그대로)" },
     }),
     { order: lab ? 7.2 : 1.55 },
   );

@@ -180,7 +180,11 @@ export function useBotServer(log: EventLog, active: boolean, getSetup: () => Bot
           (window as unknown as { __lifecycle?: unknown }).__lifecycle = d.readout ? { ...(d.readout as object), slowPerMin: 0, server: true } : undefined;
           // (a server that has never been told the bots' setup: this view's)
           const mine = json();
-          if (mine && (!d.setup || turned())) {
+          // THE OWNER'S WALL IS THE TRUTH (the artist, 2026-11-22: after the 15:17 clear the server kept another view's setup
+          // — 20 s a slot, a rising window stopped at 1330 s — while her wall drew a standing block of 15 s slots: the bots
+          // and the vegetation stood above the future layer, "제발 나 신경쇠약좀 안걸리게"): the owner's browser brings the
+          // server to its own knobs whenever they differ, not only when a knob is turned
+          if (mine && (!d.setup || turned() || (admin && mine !== JSON.stringify(d.setup)))) {
             if (admin) {
               sentSetup = mine;
               ws.send(JSON.stringify({ t: "setup", setup: JSON.parse(mine) }));
