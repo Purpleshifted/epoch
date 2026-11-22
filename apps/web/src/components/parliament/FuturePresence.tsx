@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { useControls } from "leva";
+import { folder, useControls } from "leva";
 import { DEFAULT_BOXES, DEFAULT_DENSITY, DEFAULT_PATH, DEFAULT_VARIETY, DensityField, NO_PATHS, type BoxConfig, type DensityConfig, type EventLog } from "@/lib/parliament";
 import { DEFAULT_PRESENCE, futurePresence, type PresenceConfig, type PresenceResult } from "@/lib/parliament/futurePresence";
 import { CELL_SIZE } from "@/lib/stratum/field";
@@ -27,7 +27,7 @@ import { savable } from "./levaSave";
 import { visitorWorld } from "./useBotServer";
 import { markSpan } from "./usePerfMeter";
 
-export type PresenceMode = "overlay" | "peek" | "lens";
+export type PresenceMode = "encounter" | "overlay" | "peek" | "lens";
 
 export interface FuturePresenceVisual extends PresenceConfig {
   on: boolean;
@@ -42,6 +42,24 @@ export interface FuturePresenceVisual extends PresenceConfig {
   showTraces: boolean;
   edgeColor: string;
   plantColor: string;
+  /** THE ENCOUNTER (mode "encounter" — FutureEncounter.tsx, excavators.ts): how many archaeologists walk the future,
+   *  in what disc, how long a leg; how near one must come; how far round the visitor the future shows; the points'
+   *  size and how many on a part's surface; the plants over ground nobody kept; the gathering, holding and streaming
+   *  away (s); how long one archaeologist waits before it may meet the visitor again. */
+  excCount: number;
+  excRoam: number;
+  excLegSec: number;
+  meetR: number;
+  cloudR: number;
+  pointSize: number;
+  surface: number;
+  wild: number;
+  inSec: number;
+  holdSec: number;
+  outSec: number;
+  cooldownSec: number;
+  /** The present goes dark while the future holds (and comes back as it streams away). */
+  darkPresent: boolean;
 }
 
 /** The peek (mode "peek"): held while F is down, or the phone's button. Read every frame by the drawers. */
@@ -52,6 +70,7 @@ const FALLBACK_DENSITY: DensityConfig = { ...DEFAULT_DENSITY, path: { ...DEFAULT
 
 const GROUP = "미래 (개인뷰 · 시험)";
 const MODES: Record<string, PresenceMode> = {
+  "마주침 — 미래의 발굴자가 내 자리를 지날 때만, 둘레의 미래가 점구름으로 모였다 흩어짐": "encounter",
   "겹침 — 현재의 땅 위에 미래의 남은 것이 함께 선다": "overlay",
   "들여다보기 — F 키 (폰: 버튼)를 누르는 동안 미래만": "peek",
   "렌즈 — 내 둘레 반경 안에서만 미래가 보인다": "lens",
@@ -63,8 +82,26 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
   const k = useControls(
     GROUP,
     savable(GROUP, {
-      on: { value: false, label: "켜기 (주소의 ?future=overlay|peek|lens 가 우선)", render: v2 },
-      mode: { options: MODES, value: "overlay" as PresenceMode, label: "방식", render: v2 },
+      on: { value: true, label: "켜기 (주소의 ?future=encounter|overlay|peek|lens|0 이 우선)", render: v2 },
+      mode: { options: MODES, value: "encounter" as PresenceMode, label: "방식", render: v2 },
+      "마주침 (발굴자)": folder(
+        {
+          excCount: { value: 7, min: 1, max: 30, step: 1, label: "미래의 발굴자 수 (모든 화면에 같은 이들)", render: v2 },
+          excRoam: { value: 44, min: 10, max: 96, step: 1, label: "발굴자가 도는 땅의 반경 (월드 · 세계 가운데에서)", render: v2 },
+          excLegSec: { value: 24, min: 6, max: 120, step: 1, label: "한 곳에서 다음 곳까지 (s · 걷고 서 있는 시간)", render: v2 },
+          meetR: { value: 4, min: 1, max: 15, step: 0.5, label: "마주치는 거리 (월드)", render: v2 },
+          cloudR: { value: 12, min: 4, max: 30, step: 1, label: "보이는 미래의 반경 (월드)", render: v2 },
+          pointSize: { value: 0.07, min: 0.02, max: 0.3, step: 0.005, label: "점 크기 (월드)", render: v2 },
+          surface: { value: 30, min: 5, max: 120, step: 1, label: "부재 겉면의 점 밀도 (월드² 당)", render: v2 },
+          wild: { value: 0.5, min: 0, max: 1, step: 0.05, label: "사람 없이 놔둔 땅의 숲 (0 = 없음)", render: v2 },
+          inSec: { value: 1, min: 0.2, max: 4, step: 0.1, label: "모여드는 시간 (s)", render: v2 },
+          holdSec: { value: 2.2, min: 0, max: 10, step: 0.1, label: "머무는 시간 (s · 발굴자가 곁에 있으면 더)", render: v2 },
+          outSec: { value: 1.8, min: 0.3, max: 6, step: 0.1, label: "흩어지는 시간 (s · 발굴자가 가는 쪽으로)", render: v2 },
+          cooldownSec: { value: 20, min: 2, max: 120, step: 1, label: "같은 발굴자를 다시 마주치기까지 (s)", render: v2 },
+          darkPresent: { value: true, label: "미래가 머무는 동안 현재를 끔 (흩어질 때 돌아옴)", render: v2 },
+        },
+        { collapsed: false },
+      ),
       radius: { value: 14, min: 4, max: 40, step: 1, label: "렌즈 반경 (월드 · 렌즈 방식에서만)", render: v2 },
       everySec: { value: 2, min: 0.5, max: 10, step: 0.5, label: "미래를 다시 읽는 간격 (s)", render: v2 },
       readLatest: { value: true, label: "읽는 단 — 켬: 둘레에서 가장 최근에 지어진 단 (벽과 같음 · 혼자여도 남의 폐허가 보임) · 끔: 내 시각 (내 시간대에 지어진 것만)", render: v2 },
@@ -107,8 +144,21 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
       showTraces: k.showTraces,
       edgeColor: k.edgeColor,
       plantColor: k.plantColor,
+      excCount: k.excCount,
+      excRoam: k.excRoam,
+      excLegSec: k.excLegSec,
+      meetR: k.meetR,
+      cloudR: k.cloudR,
+      pointSize: k.pointSize,
+      surface: k.surface,
+      wild: k.wild,
+      inSec: k.inSec,
+      holdSec: k.holdSec,
+      outSec: k.outSec,
+      cooldownSec: k.cooldownSec,
+      darkPresent: k.darkPresent,
     };
-  }, [url, k.on, k.mode, k.radius, k.everySec, k.readLatest, k.unit, k.band, k.ruin, k.maxBuildings, k.strip, k.lastSteel, k.lastPile, k.showTraces, k.showRemains, k.showPlants, k.showDeposits, k.edgeColor, k.plantColor]);
+  }, [url, k.on, k.mode, k.radius, k.everySec, k.readLatest, k.unit, k.band, k.ruin, k.maxBuildings, k.strip, k.lastSteel, k.lastPile, k.showTraces, k.showRemains, k.showPlants, k.showDeposits, k.edgeColor, k.plantColor, k.excCount, k.excRoam, k.excLegSec, k.meetR, k.cloudR, k.pointSize, k.surface, k.wild, k.inSec, k.holdSec, k.outSec, k.cooldownSec, k.darkPresent]);
 }
 
 const MAX_EDGE_VERTS = 120000;

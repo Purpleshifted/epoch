@@ -40,6 +40,11 @@ export interface PresenceConfig {
   lastPile: number;
   /** The visitor's own cells that are not building: given back as traces (what one alone leaves). */
   traces: boolean;
+  /** THE POINT CLOUD (the excavators' moment — FuturePresence.tsx): points per square world unit of a part's surface;
+   *  0 = none made. */
+  surface?: number;
+  /** Plants over the ground nobody kept (futureVillage.ts ground.density: the wild forest), 0 … 1; absent = none. */
+  wild?: number;
 }
 
 export const DEFAULT_PRESENCE: PresenceConfig = { band: 12, ruin: 0.5, unit: 0.6, radius: 0, maxBuildings: 120, strip: 0.4, lastSteel: 0.6, lastPile: 0.8, traces: true };
@@ -63,6 +68,9 @@ export interface PresenceResult {
    * be without them (decisive) · 0 = not building (what one alone leaves) · 0.5 = building, among others] a cell.
    */
   traces: Float32Array;
+  /** THE PARTS AS POINTS on their surfaces: [x, y, z, shade 0 … 1] each (y from the visitor's ground; empty unless
+   *  PresenceConfig.surface). */
+  surface: Float32Array;
   /** Milliseconds this reading took. */
   ms: number;
 }
@@ -89,6 +97,24 @@ function pushEdges(out: number[], b: Box, dy: number): void {
     P.push([b.x + ax * u + bx * v + cx * w, b.y + dy + ay * u + by * v + cy * w, b.z + az * u + bz * v + cz * w]);
   }
   for (let i = 0; i < 8; i++) for (const bit of [1, 2, 4]) if (!(i & bit)) out.push(...P[i], ...P[i | bit]);
+}
+
+/** Points on a box's six faces, as many as its area × `perArea` (3 … 160), each [x, y, z, shade]. */
+function pushSurface(out: number[], b: Box, dy: number, perArea: number): void {
+  const [ax, ay, az, bx, by, bz, cx, cy, cz] = axes(b);
+  const A = [b.sy * b.sz, b.sx * b.sz, b.sx * b.sy];
+  const total = 2 * (A[0] + A[1] + A[2]);
+  const n = Math.max(3, Math.min(160, Math.round(total * perArea)));
+  const base = (Math.round(b.x * 977) ^ b.seed) | 0, base2 = (Math.round(b.z * 971) ^ Math.round(b.y * 967)) | 0;
+  // (concrete lighter, steel darker; each part its own tone)
+  const shade = (STEEL_KINDS.has(b.kind) ? 0.45 : 0.6) + 0.3 * b.tone;
+  for (let i = 0; i < n; i++) {
+    const f = hash2(base, base2 ^ (i * 7919), 811) * (A[0] + A[1] + A[2]);
+    const side = hash2(base, base2 ^ (i * 7919), 812) < 0.5 ? -0.5 : 0.5;
+    const u = hash2(base, base2 ^ (i * 7919), 813) - 0.5, v = hash2(base, base2 ^ (i * 7919), 814) - 0.5;
+    const [l0, l1, l2] = f < A[0] ? [side, u, v] : f < A[0] + A[1] ? [u, side, v] : [u, v, side];
+    out.push(b.x + ax * l0 + bx * l1 + cx * l2, b.y + dy + ay * l0 + by * l1 + cy * l2, b.z + az * l0 + bz * l1 + cz * l2, shade);
+  }
 }
 
 /**
@@ -119,7 +145,8 @@ export function futurePresence(field: DensityField, me: string, K: number, kMe: 
   // through the column's generator, its parts taken away by the rules of what is left
   const spu = box.secPerUnit, unit = box.unit;
   const buildings = plan.buildings.slice().sort((p, q) => Math.hypot(wrapDelta(p.from.x - at.x), wrapDelta(p.from.z - at.z)) - Math.hypot(wrapDelta(q.from.x - at.x), wrapDelta(q.from.z - at.z))).slice(0, Math.max(0, Math.round(cfg.maxBuildings)));
-  const edges: number[] = [];
+  const edges: number[] = [], surface: number[] = [];
+  const perArea = Math.max(0, cfg.surface ?? 0);
   let kept = 0, gone = 0;
   const ruin = Math.max(0, Math.min(1, cfg.ruin));
   const stripMax = Math.max(0, Math.min(1, cfg.strip)), stripHalf = Math.max(3, Math.round(fcfg.band) / 2);
@@ -168,7 +195,10 @@ export function futurePresence(field: DensityField, me: string, K: number, kMe: 
       if (bot(a) <= footY + tol || keptHere.some((q) => top(q) >= bot(a) - tol && bot(q) < bot(a) && over(a, q))) keptHere.push(a);
       else gone++;
     }
-    for (const b of keptHere) pushEdges(edges, b, -footY);
+    for (const b of keptHere) {
+      pushEdges(edges, b, -footY);
+      if (perArea > 0 && surface.length < 60000 * 4) pushSurface(surface, b, -footY, perArea);
+    }
     kept += keptHere.length;
   }
   // THE VISITOR'S OWN TRACES (the artist's question of 11/16–22: how one's trace and influence read): every cell-slot
@@ -188,8 +218,54 @@ export function futurePresence(field: DensityField, me: string, K: number, kMe: 
     }
   }
   // (the plants' feet: on the ground — what they stood on in the wall's reading may be gone here)
-  const clouds = plan.plantClouds ? Float32Array.from(plan.plantClouds) : EMPTY;
+  let clouds = plan.plantClouds ? Float32Array.from(plan.plantClouds) : EMPTY;
   for (let o = 2; o < clouds.length; o += 12) clouds[o] = 0;
+  // THE GROUND NOBODY KEPT, ROUND THE VISITOR (PresenceConfig.wild): after the people, plants take every free cell —
+  // also where nothing was ever built (the wall's inference makes nothing of a ground without buildings). Within R of
+  // the visitor only; not on what is left of a building, not on the visitor's own cells (they are dark earth).
+  let trees = plan.vegTree ?? EMPTY;
+  const wild = Math.max(0, Math.min(1, cfg.wild ?? 0));
+  if (wild > 0 && R > 0) {
+    const taken = new Set<number>();
+    for (const b of plan.buildings) taken.add(b.cx * 65536 + b.cz);
+    for (let o = 0; o + 3 < traces.length; o += 4) taken.add(Math.floor(traces[o] / CELL) * 65536 + Math.floor(traces[o + 1] / CELL));
+    const extra: number[] = [], treePts: number[] = [];
+    const c0x = Math.floor(at.x / CELL), c0z = Math.floor(at.z / CELL), rc = Math.ceil(R / CELL);
+    for (let dz = -rc; dz <= rc; dz++) {
+      for (let dx = -rc; dx <= rc; dx++) {
+        if ((dx * dx + dz * dz) * CELL * CELL > R * R) continue;
+        const cx = c0x + dx, cz = c0z + dz;
+        if (taken.has(cx * 65536 + cz)) continue;
+        const h1 = hash2(cx, cz, 9301);
+        if (h1 >= wild * 0.55) continue;
+        const x = (cx + hash2(cx, cz, 9302)) * CELL, z = (cz + hash2(cx, cz, 9303)) * CELL;
+        const u = hash2(cx, cz, 9304), own = hash2(cx, cz, 9305);
+        if (u < 0.08) {
+          // a tree: a stem and a crown of points (slots above the ground)
+          const tall = 1.2 + 1.2 * hash2(cx, cz, 9306), crown = 0.6 + 0.8 * hash2(cx, cz, 9307);
+          for (let i = 0; i < 10; i++) treePts.push(x, (tall * i) / 10, z, 0.15, 1);
+          for (let i = 0; i < 60; i++) {
+            const a = hash2(cx * 31 + i, cz, 9308) * Math.PI * 2, c = hash2(cx, cz * 31 + i, 9309) * 2 - 1, q = Math.sqrt(1 - c * c), rr = Math.cbrt(hash2(cx + i, cz - i, 9310));
+            treePts.push(x + Math.cos(a) * q * rr * crown * CELL, tall + c * rr * crown * 0.8, z + Math.sin(a) * q * rr * crown * CELL, 0.25 + 0.4 * hash2(i, cx, 9311), 1);
+          }
+        }
+        const scrub = u < 0.45;
+        extra.push(x, z, 0, (0.6 + 0.9 * hash2(cx, cz, 9312)) * CELL, scrub ? 0.12 + 0.2 * own : 0.03 + 0.05 * own, scrub ? 1 : 0, 0, 0, 1, own, 1, 0);
+      }
+    }
+    if (extra.length) {
+      const all2 = new Float32Array(clouds.length + extra.length);
+      all2.set(clouds);
+      all2.set(extra, clouds.length);
+      clouds = all2;
+    }
+    if (treePts.length) {
+      const t2 = new Float32Array(trees.length + treePts.length);
+      t2.set(trees);
+      t2.set(treePts, trees.length);
+      trees = t2;
+    }
+  }
   return {
     k: K,
     edges: Float32Array.from(edges),
@@ -197,8 +273,9 @@ export function futurePresence(field: DensityField, me: string, K: number, kMe: 
     mounds: plan.mounds,
     stains: plan.stains,
     plantClouds: clouds,
-    vegTree: plan.vegTree ?? EMPTY,
+    vegTree: trees,
     traces: Float32Array.from(traces),
+    surface: Float32Array.from(surface),
     ms: Math.round((performance.now() - t0) * 10) / 10,
   };
 }
