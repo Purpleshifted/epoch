@@ -15,7 +15,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { LS_PARLIAMENT_EPOCH_KEY, LS_TIME_RATE_KEY, WORLD_CLEARED_EVENT, announceEpochWritten, botGround, currentEpochKey, keepWindowSec, saveMerged, setKeepFrom, tailField, timeRate, type EventLog, type PEvent } from "@/lib/parliament";
 import type { BotKind, BotSetup } from "@/lib/parliament/botWorld";
 import type { DensityConfig } from "@/lib/parliament/density";
-import { risePause } from "@/lib/parliament/rise";
+import { risePause, type BlockFrame } from "@/lib/parliament/rise";
 
 /** The bot server and the world on it. `?botserver=0` on a view's address: the old way (the bots in this tab). */
 export const BOT_SERVER = process.env.NEXT_PUBLIC_BOT_SERVER ?? "wss://anthropocene-bots.anthropocene-hesse.workers.dev";
@@ -244,6 +244,20 @@ export const visitorWorld: { density: DensityConfig | null; version: number } = 
  * back into the phone's log — not the whole world, which a phone need not hold. Returns the function the player view gives each sample of
  * its visitor to, with the epoch it was made in (samples of another epoch — before the phone joined — are not sent).
  */
+let visitorBlock: { epochMs: number; frame: BlockFrame; clock: { r: number; v: number; rate: number } } | null = null;
+
+/**
+ * The block of the world `epochMs` as the bot server last told this phone (its herd's window and the rise's stop), and
+ * the world's seconds since its epoch NOW by the clock the server sent with it (not worldNow(), which reads storage
+ * at most every 200 ms — a fresh browser seated by the wall clock stood 35 000 s too high); null when not told yet,
+ * another world, or no block. Where the visitor is seated in time (rise.ts blockSeatOffset).
+ */
+export function blockFrameFor(epochMs: number): { frame: BlockFrame; gone: number } | null {
+  const b = visitorBlock;
+  if (!b || b.epochMs !== epochMs) return null;
+  return { frame: b.frame, gone: Math.max(0, (b.clock.v + (Date.now() - b.clock.r) * b.clock.rate - epochMs) / 1000) };
+}
+
 export function useVisitorLink(active: boolean, log: EventLog): (e: PEvent, epochMs: number) => void {
   const queue = useRef<{ e: PEvent; epochMs: number }[]>([]);
   useEffect(() => {
@@ -300,7 +314,15 @@ export function useVisitorLink(active: boolean, log: EventLog): (e: PEvent, epoc
         } catch {
           // (no storage)
         }
-        if (d.t === "hello" && typeof d.epochMs === "number") epoch = d.epochMs;
+        if (d.t === "hello" && typeof d.epochMs === "number") {
+          epoch = d.epochMs;
+          // the block the bots live in: the visitor is seated in its time (RoleField), not at "seconds since the epoch"
+          const h = (d as { setup?: { lc?: { herd?: { shift?: number; depthSec?: number } } } }).setup?.lc?.herd;
+          const rise = (d as { rise?: { at: number | null; lost: number; epoch: number } | null }).rise;
+          visitorBlock = h && Number(h.depthSec) > 0
+            ? { epochMs: d.epochMs, frame: { shift: Number(h.shift) || 0, depthSec: Number(h.depthSec), rise: rise && rise.epoch === d.epochMs ? { at: rise.at, lost: rise.lost } : null }, clock: { r: d.clock.r - skew, v: d.clock.v, rate: d.clock.rate } }
+            : null;
+        }
       };
       sock.onclose = () => {
         if (ws === sock) ws = null;

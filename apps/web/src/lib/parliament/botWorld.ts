@@ -63,7 +63,11 @@ export class BotWorld {
   readonly events = new Map<string, PEvent>();
   /** Bumps when the block forgot its oldest (the views forget the same). */
   drops = 0;
-  private people = new Map<string, PEvent>();
+  /**
+   * The people (not bots) by id: their latest sample and WHEN IT CAME (world seconds; 2026-11-22). A visitor's sample
+   * carries its time in the block, which is not the clock's — "recent" is when it arrived.
+   */
+  private people = new Map<string, { e: PEvent; seen: number }>();
   private trimmedAt = 0;
 
   constructor(
@@ -90,15 +94,19 @@ export class BotWorld {
     }
   }
 
-  /** Takes an event (people's, or held ones on waking): false when it was there. */
-  add(e: PEvent): boolean {
+  /**
+   * Takes an event (people's, or held ones on waking): false when it was there. `seenSec` = the world's seconds when a
+   * person's sample arrived (without it, its own time: held ones, the old way).
+   */
+  add(e: PEvent, seenSec?: number): boolean {
     if (this.events.has(e.id)) return false;
     this.events.set(e.id, e);
     this.tails.add(e);
     this.built?.add(e);
     if (!e.o.startsWith("bot")) {
       const l = this.people.get(e.o);
-      if (!l || e.s > l.s) this.people.set(e.o, e);
+      const seen = seenSec ?? e.s;
+      if (!l || seen > l.seen || (seen === l.seen && e.s >= l.e.s)) this.people.set(e.o, { e, seen });
     }
     return true;
   }
@@ -170,7 +178,7 @@ export class BotWorld {
         return null;
       };
       const attractors: Attractor[] = [];
-      for (const e of this.people.values()) if (e.s >= at - VISITOR_RECENT_SEC - 120) attractors.push({ x: e.x, z: e.z, w: 3 });
+      for (const { e, seen } of this.people.values()) if (seen >= at - VISITOR_RECENT_SEC - 120) attractors.push({ x: e.x, z: e.z, w: 3 });
       st = stepLifecycle(st, w, { attractors, planRoute, meet }, lc).state;
       for (const v of st.present) {
         const a = lifecycleActor(v, w, this.epochMs, lc.herd);
@@ -191,7 +199,7 @@ export class BotWorld {
       }
       this.drops++;
     }
-    for (const [o, e] of this.people) if (e.s < sec(now) - 600) this.people.delete(o);
+    for (const [o, p] of this.people) if (p.seen < sec(now) - 600) this.people.delete(o);
     // THE GROUND BELOW THE RISEN WINDOW is let go (what the tails and the built field hold grows with every slot the
     // window rises through: 85 MB a quarter of an hour, measured 2026-11-17) — no further up than the window's foot
     // less the record kept under it

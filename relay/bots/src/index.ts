@@ -188,10 +188,12 @@ export class BotServer extends DurableObject {
       if (m.setup.on && !was) await this.ctx.storage.setAlarm(Date.now() + 10);
     } else if (msg.t === "people" && Array.isArray(msg.events) && this.world) {
       const fresh: PEvent[] = [];
+      // when they came (the world's seconds): a visitor's own time is the block's, not the clock's (botWorld.add)
+      const seen = (worldNow(m.clock, Date.now()) - m.epochMs) / 1000;
       for (const e of msg.events.slice(0, MAX_PEOPLE_PER_MSG)) {
         if (!e || typeof e.id !== "string" || typeof e.o !== "string" || e.o.startsWith("bot") || !Number.isFinite(e.x) || !Number.isFinite(e.z) || !Number.isFinite(e.s)) continue;
         const ev: PEvent = { id: e.id, o: e.o, r: e.r, k: e.k, x: e.x, z: e.z, s: e.s };
-        if (this.world.add(ev)) fresh.push(ev);
+        if (this.world.add(ev, seen)) fresh.push(ev);
       }
       // a phone: where its visitor stands now (the first time, the world round them is sent)
       if (this.ctx.getTags(socket)[0] === "visitor") {

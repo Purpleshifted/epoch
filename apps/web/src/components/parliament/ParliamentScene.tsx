@@ -499,6 +499,7 @@ export default function ParliamentScene() {
           pathDots={pathDots}
           pathLine={pathLine}
           offsetWindow={offsetWindow}
+          lifeSec={lifeSec / Math.max(1, lifeRate)}
           botCount={botEnabled ? botCount : 0}
           botRole={botRole}
           botFlock={botFlock}
