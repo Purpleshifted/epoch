@@ -70,6 +70,7 @@ void main() {
  *  place on the screen. */
 const WINDOW_FRAG = `
 ${INK}
+float ign(vec2 f) { return fract(52.9829189 * fract(dot(f, vec2(0.06711056, 0.00583715)))) - 0.5; }
 uniform vec2 uRes;
 uniform float uA, uPose, uWalk, uShape, uSmear;
 uniform vec3 uBack;
@@ -93,7 +94,9 @@ void main() {
   }
   if (m * uA < 0.01) discard;
   vec4 k = inkAt(gl_FragCoord.xy / uRes, uSmear);
-  gl_FragColor = vec4(mix(uBack, k.rgb, k.a), m * uA);
+  // (a half step of noise: no bands in the soft tones)
+  float dn = ign(gl_FragCoord.xy) / 255.0;
+  gl_FragColor = vec4(mix(uBack, k.rgb, k.a) + dn, m * uA);
 }`;
 const FILL_VERT = `
 varying vec2 vUv;
@@ -105,6 +108,7 @@ void main() {
  *  (uHow 0) or a white scan line coming down the screen (1). */
 const FILL_FRAG = `
 ${INK}
+float ign(vec2 f) { return fract(52.9829189 * fract(dot(f, vec2(0.06711056, 0.00583715)))) - 0.5; }
 uniform float uFill, uAlpha, uFilm, uHow, uSmear;
 uniform vec3 uFilmColor, uLine;
 varying vec2 vUv;
@@ -123,7 +127,8 @@ void main() {
   float la = line * 0.85;
   float A2 = la + A * (1.0 - la);
   if (A2 < 0.004) discard;
-  gl_FragColor = vec4((uLine * la + C * A * (1.0 - la)) / max(1e-4, A2), A2);
+  float dn = ign(gl_FragCoord.xy) / 255.0;
+  gl_FragColor = vec4((uLine * la + C * A * (1.0 - la)) / max(1e-4, A2) + dn, clamp(A2 + dn * 2.0, 0.0, 1.0));
 }`;
 
 interface Win {
@@ -150,6 +155,11 @@ const eye = new THREE.Vector3();
 const size = new THREE.Vector2();
 const clearTmp = new THREE.Color();
 const shown = (c: THREE.Color, hex: string, k = 1) => c.set(hex).convertLinearToSRGB().multiplyScalar(k);
+/** Eased 0 … 1 (nothing comes or goes at a constant rate, or in under a fifth of a second). */
+const ease = (x: number) => {
+  const u = Math.max(0, Math.min(1, x));
+  return u * u * (3 - 2 * u);
+};
 
 export class FutureWindows {
   readonly group = new THREE.Group();
@@ -161,6 +171,8 @@ export class FutureWindows {
   private fill = 0;
   private walk = 0;
   private ms = 0;
+  private lastNow = 0;
+  private ownSeenAt = 0;
   private readonly exPos = new THREE.Vector3();
   private readonly capMat: THREE.ShaderMaterial;
   private readonly capScene = new THREE.Scene();
@@ -215,8 +227,7 @@ export class FutureWindows {
   /** The picture (of the screen's shape; a phone smaller) and the windows — made, and put on the GPU, ahead. */
   ensure(gl: THREE.WebGLRenderer, phone: boolean, cfg: FuturePresenceVisual): void {
     gl.getDrawingBufferSize(size);
-    // (small: it is a smudge, and it is taken every frame — at 512 high the taking halved the frame rate)
-    const H = phone ? 216 : 288, W = Math.max(64, Math.min(640, Math.round((H * size.x) / Math.max(1, size.y))));
+    const H = phone ? 384 : 512, W = Math.max(64, Math.min(1024, Math.round((H * size.x) / Math.max(1, size.y))));
     if (!this.rt || this.rt.width !== W || this.rt.height !== H) {
       this.rt?.dispose();
       this.rt = new THREE.WebGLRenderTarget(W, H, { type: THREE.HalfFloatType, format: THREE.RGBAFormat, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false, generateMipmaps: false });
@@ -279,7 +290,7 @@ export class FutureWindows {
       w.alive = false;
       w.mesh.visible = false;
     }
-    Object.assign(this, { next: 1, dropped: false, fill: 0, walk: 0 });
+    Object.assign(this, { next: 1, dropped: false, fill: 0, walk: 0, lastNow: 0 });
   }
 
   /** The place read again (the living future): where its piece is now. */
@@ -362,10 +373,12 @@ export class FutureWindows {
           w.mesh.position.copy(this.exPos);
           U.uPose.value = now;
           U.uWalk.value = this.walk;
-          a = Math.min(1, age / 0.6) * (seen ? 1 : 0);
-          if (!seen) w.alive = false;
+          // (in over 0.6 s; out over 0.5 s once it is out of sight)
+          if (seen) this.ownSeenAt = now;
+          a = ease(age / 0.6) * ease(1 - (now - this.ownSeenAt) / 0.5);
+          if (now - this.ownSeenAt >= 0.5) w.alive = false;
         } else {
-          a = Math.min(1, age / 0.4) * Math.max(0, Math.min(1, (stay - age) / (stay * 0.3)));
+          a = ease(age / 0.5) * ease((stay - age) / Math.max(0.3, stay * 0.3));
           if (age >= stay) w.alive = false;
         }
       }
@@ -382,7 +395,10 @@ export class FutureWindows {
       const full = Math.min(cfg.winFillFull, cfg.winFillR - 0.01);
       near = Math.max(near, a * (1 - Math.max(0, Math.min(1, (d - full) / Math.max(0.01, cfg.winFillR - full)))));
     }
-    this.fill += (near - this.fill) * 0.08;
+    // (the same at any frame rate: two thirds of the way in a quarter second)
+    const dt = Math.max(0, Math.min(0.1, now - this.lastNow));
+    this.lastNow = now;
+    this.fill += (near - this.fill) * (1 - Math.exp(-dt / 0.25));
     if (this.fill < 0.002 && near === 0) this.fill = 0;
     const F = this.fillMat.uniforms;
     this.fillMesh.visible = this.fill > 0.003;

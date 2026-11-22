@@ -86,6 +86,7 @@ uniform vec3 uInk, uPlant, uOwn, uFilmColor, uLine;
 varying vec2 vUv;
 float h1(float x) { return fract(sin(x * 127.1 + uSeed * 311.7) * 43758.5453); }
 float h2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7)) + uSeed * 74.7) * 43758.5453); }
+float ign(vec2 f) { return fract(52.9829189 * fract(dot(f, vec2(0.06711056, 0.00583715)))) - 0.5; }
 // THE PICTURE BENT (the artist, 2026-11-22 night: "디스토션이 있어도 좋을 것 같고… 이터레이션을 많이 돌려봐야 알 것 같아"):
 // where a pixel of the plate reads the picture — 1 each column drawn out from a level of its own · 2 bands slid sideways
 // (a slit camera's) · 3 blocks thrown out of place, a few at a time · 4 seen through rippled glass
@@ -160,7 +161,9 @@ void main() {
   float A2 = la + A * (1.0 - la);
   C = (uLine * la + C * A * (1.0 - la)) / max(1e-4, A2);
   if (A2 < 0.004) discard;
-  gl_FragColor = vec4(C, A2);
+  // (a half step of noise: no bands in the soft tones, nor steps where the picture runs down)
+  float dn = ign(gl_FragCoord.xy) / 255.0;
+  gl_FragColor = vec4(C + dn, clamp(A2 + dn * 2.0, 0.0, 1.0));
 }`;
 
 const WINDOW_VERT = `
@@ -540,7 +543,8 @@ export class FutureFrames {
         live--;
         continue;
       }
-      U.uFade.value = Math.min(1, before / 0.7) * Math.min(1, (life - age) / (life * 0.2));
+      const e1 = Math.max(0, Math.min(1, before / 0.7)), e2 = Math.max(0, Math.min(1, (life - age) / (life * 0.2)));
+      U.uFade.value = e1 * e1 * (3 - 2 * e1) * e2 * e2 * (3 - 2 * e2);
       U.uMono.value = mono;
       U.uDistort.value = cfg.frameDistort === "stretch" ? 1 : cfg.frameDistort === "slit" ? 2 : cfg.frameDistort === "glitch" ? 3 : cfg.frameDistort === "glass" ? 4 : 0;
       U.uDistAmt.value = cfg.frameDistortAmt;
