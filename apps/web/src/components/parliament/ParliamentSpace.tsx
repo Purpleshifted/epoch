@@ -4650,7 +4650,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       meScale: { value: 1.2, min: 0.5, max: 3, step: 0.1, label: "크기 (×)" },
       meColor: { options: { "흰색": "white", "주황": "orange" }, value: "white", label: "색" },
       // (the glyph always blinks its rhythm)
-      mePulse: { value: true, label: "내 박자로 깜빡임", render: (get) => get("마커.meStyle") !== "glyph" },
+      mePulse: { value: true, label: "내 박자로 깜빡임", render: (get: (path: string) => unknown) => get("마커.meStyle") !== "glyph" },
       others: { options: { "파랑 공 + 선": "now", "회색 점": "quiet", "회색 점 · 타인 기호": "glyph" }, value: "now" as OthersStyle, label: "봇 · 타인" },
       byKind: { value: false, label: "봇 성격별 색" },
       names: { value: false, label: "봇 이름" },
