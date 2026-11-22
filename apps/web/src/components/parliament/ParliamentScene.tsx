@@ -134,6 +134,7 @@ function Controller({
   getRhythm,
   eye,
   walkSpeed = 7,
+  hideCursor = false,
 }: {
   playerPosRef: React.MutableRefObject<PlayerState>;
   playerYawRef: React.MutableRefObject<number>;
@@ -154,6 +155,8 @@ function Controller({
   eye?: { on: boolean; height: number; back: number; look: number };
   /** Forward speed (world/s; 7 as it was — 길거리 has a knob); sideways is 4.5/7 of it. */
   walkSpeed?: number;
+  /** 길거리: the visitor's own body (PointPeople) stands in for the square. */
+  hideCursor?: boolean;
 }) {
   const { camera, gl } = useThree();
   const keys = useKeys();
@@ -314,7 +317,7 @@ function Controller({
 
   return (
     <group ref={group}>
-      <PlayerCursor position={[0, -0.25, 0]} getWarn={lifeRef ? () => lifeRef.current.warn : undefined} getRhythm={getRhythm} />
+      {!hideCursor && <PlayerCursor position={[0, -0.25, 0]} getWarn={lifeRef ? () => lifeRef.current.warn : undefined} getRhythm={getRhythm} />}
     </group>
   );
 }
@@ -509,6 +512,7 @@ export default function ParliamentScene() {
           getRhythm={withSession ? getRhythm : undefined}
           eye={isV2 ? visuals.street.eye : undefined}
           walkSpeed={isV2 ? visuals.street.walkSpeed : 7}
+          hideCursor={isV2 && withSession && visuals.street.people && visuals.street.look.meBody}
         />
         <RoleField
           key={`field-${session.sessionNo}`}
@@ -537,7 +541,15 @@ export default function ParliamentScene() {
           future={isV2 ? future : undefined}
         />
         {/* 길거리 (2026-11-22, a trial): the others as walking point silhouettes, read from the record's far list */}
-        {isV2 && withSession && visuals.street.people && <PointPeople getOthers={() => witnessRef.current?.far ?? null} playerPosRef={playerPosRef} look={visuals.street.look} phone={coarse} />}
+        {isV2 && withSession && visuals.street.people && (
+          <PointPeople
+            getOthers={() => witnessRef.current?.far ?? null}
+            playerPosRef={playerPosRef}
+            look={visuals.street.look}
+            phone={coarse}
+            me={{ get: () => ({ ...playerPosRef.current, heading: playerYawRef.current }), rhythm: getRhythm }}
+          />
+        )}
       </Canvas>
       {/* the peek into the future (FuturePresence.tsx mode "peek"): the phone's button, the desktop's key, while live */}
       {isV2 && future.on && future.mode === "peek" && (!withSession || session.phase === "live") && <FuturePeekButton coarse={coarse} />}

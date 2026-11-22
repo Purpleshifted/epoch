@@ -73,44 +73,60 @@ const add = (a: V3, b: V3): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 /** A limb of length L hanging from `from`, swung forward (+z) by `angle` radians. */
 const hang = (from: V3, L: number, angle: number): V3 => add(from, [0, -L * Math.cos(angle), L * Math.sin(angle)]);
 
+/** `phi` wrapped into 0 … 2π. */
+const wrap = (phi: number): number => ((phi % TAU) + TAU) % TAU;
+
 /**
- * One leg at `phi` (radians; its thigh is forward-most at π/2). The knee folds in the swing (the thigh coming forward),
- * the foot lifts with it; in the stance it is straight.
+ * One leg at `phi` (radians; its thigh is forward-most at π/2 = heel strike, back-most at 3π/2 = toe-off). The knee
+ * folds in the swing (the thigh coming forward, most as it passes under the body) and never quite locks in the stance;
+ * the heel lifts towards toe-off and the toes hang in the swing.
  */
 function leg(hip: V3, phi: number, thigh: number, shin: number) {
-  const theta = 0.42 * Math.sin(phi); // thigh forward (+) / back (−)
-  // the swing: from toe-off (the thigh back-most, −π/2) to heel strike (forward-most, π/2), the knee folding most as
-  // the thigh passes under the body; straight through the stance
-  const swing = Math.max(0, Math.sin(phi + 1.3));
-  const knee = 0.85 * Math.pow(swing, 1.6);
+  const theta = 0.4 * Math.sin(phi); // thigh forward (+) / back (−)
+  const swing = Math.max(0, Math.sin(phi + 1.3)); // 1 in mid-swing, 0 through the stance
+  const knee = 0.08 + 0.8 * Math.pow(swing, 1.6);
   const k = hang(hip, thigh, theta);
-  const a = hang(k, shin, theta - knee);
-  // the foot: flat on the ground in the stance, toes down a little in the swing
-  const toe: V3 = add(a, [0, -0.04 + 0.03 * swing, 0.2 - 0.05 * swing]);
+  const a0 = hang(k, shin, theta - knee);
+  // the heel lifts through the last part of the stance (π → 3π/2), then the swing's own lift takes over
+  const w = wrap(phi);
+  const push = w > Math.PI && w < 1.5 * Math.PI + 0.35 ? Math.pow(Math.min(1, (w - Math.PI) / (0.5 * Math.PI)), 2) : 0;
+  const a: V3 = [a0[0], a0[1] + 0.035 * push, a0[2]];
+  // the foot: flat in the stance, toes down in the swing, up on the heel at push-off
+  const toe: V3 = add(a, [0, -0.04 + 0.03 * swing - 0.03 * push, 0.2 - 0.05 * swing]);
   return { knee: k, ankle: a, toe };
 }
 
-/** One arm at `phi` (opposite to the leg of the same side). */
+/** One arm at `phi` (opposite to the leg of the same side): the elbow bends more as the arm comes forward. */
 function arm(sh: V3, phi: number, upper: number, fore: number) {
-  const alpha = 0.33 * Math.sin(phi);
+  const alpha = 0.3 * Math.sin(phi);
   const e = hang(sh, upper, alpha);
-  const w = hang(e, fore, alpha + 0.5);
+  const w = hang(e, fore, alpha + 0.35 + 0.3 * Math.max(0, Math.sin(phi)));
   return { elbow: e, wrist: w };
 }
 
-/** The joints at `phase` (0 … 1), for a 1.7 m body (scaled by the caller). */
+/** A point `d` across the body (x), turned by `yaw` about the vertical. */
+const across = (c: V3, d: number, yaw: number): V3 => add(c, [d * Math.cos(yaw), 0, -d * Math.sin(yaw)]);
+
+/**
+ * The joints at `phase` (0 … 1), for a 1.7 m body (scaled by the caller). Besides the legs and arms: the pelvis turns
+ * with the legs and sways towards the standing leg, the shoulders turn against it, the trunk leans a little forward,
+ * the head rides steadier than the pelvis.
+ */
 export function jointsAt(phase: number): Joints {
   const phi = phase * TAU;
-  const bob = 0.022 * Math.cos(2 * phi); // highest twice a stride, at mid-stance
-  const pelvis: V3 = [0, 0.95 + bob, 0];
-  const shoulders: V3 = [0, 1.45 + bob, 0.01];
-  const head: V3 = [0, 1.59 + bob, 0.02];
-  const hipL = add(pelvis, [-0.1, -0.02, 0]);
-  const hipR = add(pelvis, [0.1, -0.02, 0]);
+  const bob = 0.02 * Math.cos(2 * phi); // highest twice a stride, at mid-stance
+  const sway = 0.018 * Math.sin(phi + 0.6); // the weight over the standing leg
+  const pelvisYaw = 0.13 * Math.sin(phi); // the left hip forward with the left leg
+  const shoulderYaw = -0.09 * Math.sin(phi); // against it
+  const pelvis: V3 = [sway, 0.95 + bob, 0];
+  const shoulders: V3 = [sway * 0.4, 1.45 + bob * 0.8, 0.035];
+  const head: V3 = [sway * 0.2, 1.59 + bob * 0.5, 0.045];
+  const hipL = across(add(pelvis, [0, -0.02, 0]), -0.1, pelvisYaw);
+  const hipR = across(add(pelvis, [0, -0.02, 0]), 0.1, pelvisYaw);
   const L = leg(hipL, phi, 0.44, 0.44);
   const R = leg(hipR, phi + Math.PI, 0.44, 0.44);
-  const shL = add(shoulders, [-0.19, 0, 0]);
-  const shR = add(shoulders, [0.19, 0, 0]);
+  const shL = across(shoulders, -0.19, shoulderYaw);
+  const shR = across(shoulders, 0.19, shoulderYaw);
   const AL = arm(shL, phi + Math.PI, 0.3, 0.27);
   const AR = arm(shR, phi, 0.3, 0.27);
   return { pelvis, shoulders, head, hipL, hipR, kneeL: L.knee, kneeR: R.knee, ankleL: L.ankle, ankleR: R.ankle, toeL: L.toe, toeR: R.toe, shL, shR, elbowL: AL.elbow, elbowR: AR.elbow, wristL: AL.wrist, wristR: AR.wrist };
@@ -267,9 +283,11 @@ export interface MotionConfig {
   /** Below this speed the body stands (the stride settles). */
   standBelow: number;
   stride: number;
+  /** The legs never cycle faster than this (strides/s): past it the body glides rather than scurries. */
+  maxCadence: number;
 }
 
-export const DEFAULT_MOTION: MotionConfig = { maxSpeed: 2.6, accel: 5, reachSec: 0.45, snapDist: 8, turnRate: 5, standBelow: 0.18, stride: strideLength(1.7) };
+export const DEFAULT_MOTION: MotionConfig = { maxSpeed: 2.6, accel: 5, reachSec: 0.45, snapDist: 8, turnRate: 5, standBelow: 0.18, stride: strideLength(1.7), maxCadence: 2.2 };
 
 export function stepPerson(s: PersonMotion, dt: number, cfg: MotionConfig = DEFAULT_MOTION): void {
   const dx = s.tx - s.x, dz = s.tz - s.z;
@@ -300,7 +318,7 @@ export function stepPerson(s: PersonMotion, dt: number, cfg: MotionConfig = DEFA
     diff = ((diff + Math.PI) % TAU + TAU) % TAU - Math.PI;
     const maxTurn = cfg.turnRate * dt;
     s.heading += Math.max(-maxTurn, Math.min(maxTurn, diff));
-    s.phase = (s.phase + (speed / cfg.stride) * dt) % 1;
+    s.phase = (s.phase + Math.min(cfg.maxCadence, speed / cfg.stride) * dt) % 1;
   } else {
     // standing: the legs come together at the nearest such moment of the stride
     const target = standingPhase(s.phase);

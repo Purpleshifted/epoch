@@ -18,19 +18,26 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { nearestImage, type Other } from "@/lib/parliament";
-import { DEFAULT_BODY, DEFAULT_MOTION, bakeWalk, stepPerson, strideLength, type PersonMotion } from "@/lib/parliament/pointPeople";
+import { nearestImage, stepAt, type Other } from "@/lib/parliament";
+import { DEFAULT_BODY, DEFAULT_MOTION, bakeWalk, stepPerson, strideLength, type MotionConfig, type PersonMotion } from "@/lib/parliament/pointPeople";
 
 export interface PeopleLook {
   /** Points a body is made of on a desktop, and on a phone (a prefix of the same body). */
   points: number;
   pointsPhone: number;
-  /** A point's size (world units, shrinking with distance; never under 1 px). */
+  /** THE SCALE: metres a world unit is (the artist, 2026-11-22: the bodies were too big beside the buildings' bays and
+   *  the vegetation) — every length below in metres is divided by it. */
+  scale: number;
+  /** A point's size (metres, shrinking with distance; never under 1 px). */
   dot: number;
   /** The grey of the points (0 … 1). */
   grey: number;
-  /** Height of a body (world units = metres). */
+  /** Height of an average body (metres); bodies differ by `variety`. */
   height: number;
+  /** How different the bodies are (0 = all alike, 1 = ±8 % height, ±10 % build, ±15 % pace). */
+  variety: number;
+  /** The legs never cycle faster than this (strides/s). */
+  maxCadence: number;
   /** The faint standing plate behind each body, and its opacity. */
   plate: boolean;
   plateAlpha: number;
@@ -45,12 +52,22 @@ export interface PeopleLook {
   maxSpeed: number;
   /** Seconds after the last sample from which the body fades (its age); the record's own recent window. */
   recentSec: number;
-  /** A standing body turns to face the nearest other within `faceRadius` (a group stands together, not in a row). */
+  /** A standing body turns to face the nearest other within `faceRadius` (metres; a group stands together, not in a row). */
   faceEach: boolean;
   faceRadius: number;
+  /** The visitor's own body (seen from behind in the eye view) in place of the square; its points blink their melody. */
+  meBody: boolean;
+  /** The body's brightness while its melody rests (1 = no blink). */
+  meRest: number;
 }
 
-export const DEFAULT_PEOPLE: PeopleLook = { points: 480, pointsPhone: 200, dot: 0.045, grey: 0.78, height: 1.7, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3 };
+export const DEFAULT_PEOPLE: PeopleLook = { points: 480, pointsPhone: 200, scale: 2.5, dot: 0.07, grey: 0.78, height: 1.7, variety: 1, maxCadence: 2.2, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3, meBody: false, meRest: 0.4 };
+
+/** The visitor, for their own body: where they stand and look (the controller's yaw), and their melody. */
+export interface MeInput {
+  get: () => { x: number; z: number; vx?: number; vz?: number; heading: number };
+  rhythm: () => boolean[] | null;
+}
 
 const TAU = Math.PI * 2;
 /** How fast a standing body turns to face someone (rad/s) — slower than a walker turns. */
@@ -71,7 +88,17 @@ interface Person extends PersonMotion {
   trail: { x: number; z: number; heading: number; phase: number; t: number }[];
   lastTrailAt: number;
   hash: number;
+  /** This body's own height factor, build factor and motion (variety). */
+  hs: number;
+  ws: number;
+  motion: MotionConfig;
 }
+
+/** The same functions of a body's hash the vertex shader uses: its height and build factors (variety 0 … 1). */
+const frac = (x: number) => x - Math.floor(x);
+const heightFactor = (hash: number, variety: number) => 1 + variety * (0.16 * frac(hash * 7.31) - 0.08);
+const buildFactor = (hash: number, variety: number) => 1 + variety * (0.2 * frac(hash * 13.7) - 0.1);
+const paceFactor = (hash: number, variety: number) => 1 + variety * (0.3 * frac(hash * 3.17) - 0.15);
 
 const VERT = /* glsl */ `
 uniform sampler2D uBody;
@@ -81,6 +108,7 @@ uniform float uSize;
 uniform float uScale;
 uniform float uTime;
 uniform float uBreath;
+uniform float uVariety;
 attribute float aPoint;
 attribute vec4 iPos;   // x, y, z, heading
 attribute vec4 iAnim;  // phase, alpha, standing (0 … 1), hash
@@ -95,9 +123,14 @@ void main() {
   vec3 p0 = texture2D(uBody, vec2(u, (f0 + 0.5) / uFrames)).xyz;
   vec3 p1 = texture2D(uBody, vec2(u, (f1 + 0.5) / uFrames)).xyz;
   vec3 p = mix(p0, p1, ft);
+  // this body's own height and build (the same functions of its hash as the CPU's stride uses)
+  float hs = 1.0 + uVariety * (0.16 * fract(iAnim.w * 7.31) - 0.08);
+  float ws = 1.0 + uVariety * (0.2 * fract(iAnim.w * 13.7) - 0.1);
+  p.y *= hs;
+  p.xz *= ws;
   // a standing body breathes: the chest rises a little, slowly, each in its own time
   float breath = uBreath * iAnim.z * 0.012 * sin(uTime * 1.3 + iAnim.w * 6.2832);
-  p.y *= 1.0 + breath * smoothstep(0.6, 1.5, p.y);
+  p.y *= 1.0 + breath * smoothstep(0.6, 1.5, p.y / hs);
   float c = cos(iPos.w), s = sin(iPos.w);
   vec3 w = vec3(p.x * c + p.z * s, p.y, -p.x * s + p.z * c) + iPos.xyz;
   vec4 mvPosition = modelViewMatrix * vec4(w, 1.0);
@@ -136,6 +169,7 @@ export function PointPeople({
   playerPosRef,
   look = DEFAULT_PEOPLE,
   phone = false,
+  me: selfIn,
 }: {
   /** Everyone within the view, nearest first (the record's `far`); null before the first fold. */
   getOthers: () => readonly Other[] | null;
@@ -143,19 +177,24 @@ export function PointPeople({
   look?: PeopleLook;
   /** A phone: fewer points a body, no smear. */
   phone?: boolean;
+  /** The visitor themself (drawn as a body when look.meBody). */
+  me?: MeInput;
 }) {
   const points = Math.max(32, Math.round(phone ? look.pointsPhone : look.points));
   const copies = phone || look.smearSec <= 0 ? 0 : Math.min(MAX_COPIES, Math.max(0, Math.round(look.smearCopies)));
   const frames = DEFAULT_BODY.frames;
+  // metres → world units
+  const k = 1 / Math.max(0.1, look.scale);
+  const heightU = look.height * k;
 
-  // the stride as a float texture: one row a frame, one texel a point
+  // the stride as a float texture: one row a frame, one texel a point (an average body; each differs by its hash)
   const body = useMemo(() => {
-    const data = bakeWalk({ ...DEFAULT_BODY, points, height: look.height });
+    const data = bakeWalk({ ...DEFAULT_BODY, points, height: heightU });
     const t = new THREE.DataTexture(data, points, frames, THREE.RGBAFormat, THREE.FloatType);
     t.magFilter = t.minFilter = THREE.NearestFilter;
     t.needsUpdate = true;
     return t;
-  }, [points, frames, look.height]);
+  }, [points, frames, heightU]);
 
   const geom = useMemo(() => {
     const g = new THREE.InstancedBufferGeometry();
@@ -176,7 +215,7 @@ export function PointPeople({
       new THREE.ShaderMaterial({
         uniforms: THREE.UniformsUtils.merge([
           THREE.UniformsLib.fog,
-          { uBody: { value: null }, uFrames: { value: frames }, uPoints: { value: points }, uSize: { value: look.dot }, uScale: { value: 400 }, uTime: { value: 0 }, uBreath: { value: 1 }, uGrey: { value: look.grey } },
+          { uBody: { value: null }, uFrames: { value: frames }, uPoints: { value: points }, uSize: { value: look.dot }, uScale: { value: 400 }, uTime: { value: 0 }, uBreath: { value: 1 }, uGrey: { value: look.grey }, uVariety: { value: 1 } },
         ]),
         vertexShader: VERT,
         fragmentShader: FRAG,
@@ -208,7 +247,14 @@ export function PointPeople({
 
   const people = useRef(new Map<string, Person>());
   const lastList = useRef<readonly Other[] | null>(null);
-  const motion = useMemo(() => ({ ...DEFAULT_MOTION, maxSpeed: look.maxSpeed, stride: strideLength(look.height) }), [look.maxSpeed, look.height]);
+  const motion = useMemo<MotionConfig>(() => ({ ...DEFAULT_MOTION, maxSpeed: look.maxSpeed, stride: strideLength(heightU), maxCadence: look.maxCadence }), [look.maxSpeed, heightU, look.maxCadence]);
+  /** This body's own motion: its pace and its stride follow its height and pace factors. */
+  const motionOf = (hash: number): MotionConfig => {
+    const hs = heightFactor(hash, look.variety), pace = paceFactor(hash, look.variety);
+    return { ...motion, maxSpeed: motion.maxSpeed * pace, accel: motion.accel * pace, stride: motion.stride * hs, turnRate: motion.turnRate * (0.8 + 0.4 * frac(hash * 5.3)) };
+  };
+  // the visitor's own body (look.meBody): its stride runs with their speed; its points blink their melody
+  const self = useRef({ phase: 0, breathe: 0 });
 
   useFrame((state, delta) => {
     const dt = Math.min(delta, 0.05);
@@ -226,7 +272,7 @@ export function PointPeople({
         if (!p) {
           if (P.size >= MAX_PEOPLE) continue;
           const h = idHash(o.o);
-          P.set(o.o, { x: tx, z: tz, vx: 0, vz: 0, heading: h * Math.PI * 2, phase: h, tx, tz, seen: now, bright, alpha: 0, trail: [], lastTrailAt: now, hash: h });
+          P.set(o.o, { x: tx, z: tz, vx: 0, vz: 0, heading: h * Math.PI * 2, phase: h, tx, tz, seen: now, bright, alpha: 0, trail: [], lastTrailAt: now, hash: h, hs: heightFactor(h, look.variety), ws: buildFactor(h, look.variety), motion: motionOf(h) });
         } else {
           // the record's place is drawn where it lies round the walker (the world wraps): a far jump is the wrap, not a walk
           p.tx = tx;
@@ -256,10 +302,10 @@ export function PointPeople({
         p.z = p.tz;
         p.trail.length = 0;
       }
-      stepPerson(p, dt, motion);
+      stepPerson(p, dt, p.motion);
       // standing near someone, the body turns to face the nearest of them (slowly): a group, not a row
       if (look.faceEach && Math.hypot(p.vx, p.vz) < motion.standBelow) {
-        let best: Person | null = null, bd = look.faceRadius;
+        let best: Person | null = null, bd = look.faceRadius * k;
         for (const q of P.values()) {
           if (q === p) continue;
           const d = Math.hypot(q.x - p.x, q.z - p.z);
@@ -313,13 +359,38 @@ export function PointPeople({
         n++;
       }
       if (plates && look.plate && np < MAX_PEOPLE) {
-        v3.set(p.x, look.height * 0.56, p.z);
+        v3.set(p.x, heightU * p.hs * 0.56, p.z);
         q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.heading);
-        s3.set(0.95 * (look.height / 1.7), look.height * 1.12, 1);
+        s3.set(0.95 * heightU * p.ws * (1 / 1.7), heightU * p.hs * 1.12, 1);
         m4.compose(v3, q, s3);
         plates.setMatrixAt(np, m4);
         np++;
       }
+    }
+    // THE VISITOR'S OWN BODY (the artist, 2026-11-22: with the eye at a person's height, must "me" be a square in front
+    // of the gaze? — and then how is the melody carried?): their back, a body like the others, walking as they walk;
+    // its points go dim while their melody rests and bright on its beats (the square's blink, carried by the body)
+    if (selfIn && look.meBody && n < MAX_INSTANCES) {
+      const m = selfIn.get();
+      const speed = Math.hypot(m.vx ?? 0, m.vz ?? 0);
+      const s = self.current;
+      if (speed > motion.standBelow) s.phase = (s.phase + Math.min(motion.maxCadence, speed / motion.stride) * dt) % 1;
+      else {
+        const target = s.phase > 0.25 && s.phase < 0.75 ? 0.5 : s.phase < 0.5 ? 0 : 1;
+        s.phase += (target - s.phase) * Math.min(1, 6 * dt);
+        if (s.phase >= 1) s.phase -= 1;
+      }
+      const r = selfIn.rhythm();
+      const lit = !r || r[stepAt(performance.now())];
+      A[n * 4] = m.x;
+      A[n * 4 + 1] = 0;
+      A[n * 4 + 2] = m.z;
+      A[n * 4 + 3] = m.heading;
+      B[n * 4] = s.phase;
+      B[n * 4 + 1] = lit ? 1 : look.meRest;
+      B[n * 4 + 2] = 1 - Math.min(1, speed / motion.standBelow);
+      B[n * 4 + 3] = 0.5;
+      n++;
     }
     setInstanceCount(geom, n);
     iPos.addUpdateRange(0, n * 4);
@@ -330,7 +401,7 @@ export function PointPeople({
       plates.count = look.plate ? np : 0;
       if (np) plates.instanceMatrix.needsUpdate = true;
     }
-    setUniforms(mat.uniforms, { uBody: body, uSize: look.dot, uGrey: look.grey, uBreath: look.breath, uTime: now, uScale: (state.size.height * state.viewport.dpr) / 2 });
+    setUniforms(mat.uniforms, { uBody: body, uSize: look.dot * k, uGrey: look.grey, uBreath: look.breath, uVariety: look.variety, uTime: now, uScale: (state.size.height * state.viewport.dpr) / 2 });
     // a readout for the console (like __parliament): how many bodies and copies are drawn, and the nearest body
     let nearest: { d: number; x: number; z: number; speed: number } | null = null;
     for (const p of P.values()) {
