@@ -48,13 +48,21 @@ export function botServerOn(): boolean {
  * (`?botadmin=0` unmarks it). Sessions never use it: they are not the owner. docs/bot-server.md.
  */
 const BOT_ADMIN_KEY = "anthropocene:bot-admin:v1";
+/**
+ * ON PRODUCTION THE WALL IS THE OWNER (the artist, 2026-11-22: "걍 일반창 버튼이 어드민이면 되는 거 아냐?; 어차피 다른 사람이
+ * 뭐 건드리게 할 것도 아니고"): since every test page joins "rehearsal" (botWorldHere), the only walls on the
+ * exhibition's world are hers — so a production wall owns the bots without being marked. Not a browser driven by a
+ * script (navigator.webdriver: the sessions' headless checks), and not one unmarked with `?botadmin=0`.
+ */
 export function botAdmin(): boolean {
   if (typeof window === "undefined") return false;
   try {
     const q = new URLSearchParams(window.location.search).get("botadmin");
-    if (q === "1") localStorage.setItem(BOT_ADMIN_KEY, "1");
-    else if (q === "0") localStorage.removeItem(BOT_ADMIN_KEY);
-    return localStorage.getItem(BOT_ADMIN_KEY) === "1";
+    if (q === "1" || q === "0") localStorage.setItem(BOT_ADMIN_KEY, q);
+    const mark = localStorage.getItem(BOT_ADMIN_KEY);
+    if (mark === "1") return true;
+    if (mark === "0") return false;
+    return BOT_WORLD === "redesign" && !navigator.webdriver;
   } catch {
     return false;
   }
