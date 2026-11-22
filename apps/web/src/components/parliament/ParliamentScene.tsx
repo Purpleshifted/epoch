@@ -35,6 +35,7 @@ import { uploadLifeRecording, useLifeRecording } from "./useLifeRecording";
 import { useTilt, type TiltState } from "./useTilt";
 import { usePageLock } from "./usePageLock";
 import { usePersonalVisuals } from "./usePersonalVisuals";
+import { FuturePeekButton, useFuturePresenceControls } from "./FuturePresence";
 import { SessionHud } from "./SessionHud";
 import { useReloadOnContextLoss } from "./useReloadOnContextLoss";
 import {
@@ -437,6 +438,9 @@ export default function ParliamentScene() {
   const role: RoleId = isV2 ? "worker" : roleChoice;
   // V2: the headset sound (null in V1); with a session ESC releases the look, so it is not the mute key then
   const sound = useSound({ escMute: !withSession });
+  // a word another left, found (SessionHud's record): the headset plays the leaver's melody once
+  const soundEngine = sound?.engine;
+  const onFound = useCallback((o: string) => soundEngine?.found(o), [soundEngine]);
   // V2: the life's sound recorded from the name to the end of the reverb (useLifeRecording.ts; the card's QR)
   const recording = useLifeRecording(withSession ? session : null, sound, visitorRef, sound?.record ?? NO_RECORDING);
   // the card's QR from the moment the card is up: the life's own page (/rec/<id>), which waits for the recording — it
@@ -453,6 +457,8 @@ export default function ParliamentScene() {
   // V2: what the player view adds so the visitor's effect on the ground lands (Leva 개인뷰 비주얼)
   const visuals = usePersonalVisuals();
   const brutal = isV2 && visuals.look === "brutal";
+  // THE FUTURE UNDER THE VISITOR'S FEET (FuturePresence.tsx, a trial of 2026-11-22; Leva 미래 (개인뷰 · 시험), ?future=)
+  const future = useFuturePresenceControls(isV2);
   const getRhythm = useCallback(() => (witnessRef.current ? rhythmOf(witnessRef.current.me) : null), []);
 
   useEffect(() => {
@@ -524,13 +530,16 @@ export default function ParliamentScene() {
           grass={isV2 ? visuals.grass : undefined}
           marks={isV2 ? visuals.marks : undefined}
           answers={answers}
+          future={isV2 ? future : undefined}
         />
         {/* 길거리 (2026-11-22, a trial): the others as walking point silhouettes, read from the record's far list */}
         {isV2 && withSession && visuals.street.people && <PointPeople getOthers={() => witnessRef.current?.far ?? null} playerPosRef={playerPosRef} look={visuals.street.look} phone={coarse} />}
       </Canvas>
+      {/* the peek into the future (FuturePresence.tsx mode "peek"): the phone's button, the desktop's key, while live */}
+      {isV2 && future.on && future.mode === "peek" && (!withSession || session.phase === "live") && <FuturePeekButton coarse={coarse} />}
 
       {withSession && !demo && (
-        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} visitorRef={visitorRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} card={visuals.card} venue={venueParam} recordingUrl={recordingQr} uploadRecording={uploadLifeRecording} onAnswer={onAnswer} />
+        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} visitorRef={visitorRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} card={visuals.card} venue={venueParam} recordingUrl={recordingQr} uploadRecording={uploadLifeRecording} onAnswer={onAnswer} onFound={onFound} />
       )}
       {/* sound wiring (v4 A2): the artist's NoiseCraft patch as a hidden instrument, playing while LIVE */}
       {sound && sound.params.instrument !== "webaudio" && <NoiseCraftHost sound={sound} live={!withSession || session.phase === "live"} />}

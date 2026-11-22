@@ -20,6 +20,7 @@
 
 import { useEffect, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
+import type * as THREE from "three";
 import {
   LS_PARLIAMENT_ME_KEY,
   ONE_FLOCK,
@@ -62,14 +63,16 @@ import {
 } from "@/lib/parliament";
 import { KEY_NAMES, personalSignals, worldKey, type WorldKey } from "@/lib/sound";
 import { DitherGround } from "./DitherGround";
+import { FuturePresence, futurePeek, type FuturePresenceVisual } from "./FuturePresence";
+import { FutureEncounter, futureMeet } from "./FutureEncounter";
 import { NatureCloud, type GrassReaction } from "./NatureCloud";
 import { AnswerBurst, ConcreteLines, ConcreteOutline, OtherDots, type BurstAt, type MarksData } from "./Marks";
 import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
-import { blockFrameFor, botServerOn, useVisitorLink } from "./useBotServer";
+import { blockFrameFor, botServerOn, livingBotsNear, useVisitorLink } from "./useBotServer";
 import { onLifeEvent } from "./lifeEvents";
 import { newWordMotifOf } from "@/lib/parliament/glyph";
-import { blockSeatOffset } from "@/lib/parliament/rise";
+import { blockSeatOffset, herdSeatOffset } from "@/lib/parliament/rise";
 import type { SoundSetup } from "./useSound";
 import { useFoldState, useStressState, useWorld } from "./useWorld";
 import { muffleSound, type LifeSignal } from "./useLifeSession";
@@ -94,6 +97,10 @@ export interface ParliamentDebug {
   role: RoleId;
   s: number;
   offset: number;
+  /** How the life was seated in time: the clock's top (no block told) · a random height of the window · beside a bot. */
+  seat?: "clock" | "random" | "herd";
+  /** How many others the record counts as here now (aliveOwners). */
+  alive?: number;
   events: number;
   slabs: number;
   paths: number;
@@ -149,9 +156,13 @@ export function RoleField({
   answers,
   sessionNo = 0,
   visitorRef,
+  future,
 }: {
   playerPosRef: React.MutableRefObject<{ x: number; z: number; vx?: number; vz?: number }>;
   role: RoleId;
+  /** THE FUTURE UNDER THE VISITOR'S FEET (FuturePresence.tsx, a trial of 2026-11-22): the layer of what is found after
+   *  the people are gone, read off this view's own log at the visitor's slot; absent / off = nothing. */
+  future?: FuturePresenceVisual;
   cfg: FoldConfig;
   natureCfg: NatureConfig;
   pointSize: number;
@@ -206,7 +217,11 @@ export function RoleField({
   const fold = useFoldState(log, cfg, PLAYER_FOLD_OPTS);
   const stressAt = useStressState(log, natureCfg);
   /** `rand`: where in the block's window this life is seated; `seatEpoch`: the world it was seated in (0 = not yet). */
-  const me = useRef({ id: "v_anon", offset: 0, tag: "t", rand: 0.5, seatEpoch: 0 });
+  const me = useRef({ id: "v_anon", offset: 0, tag: "t", rand: 0.5, seatEpoch: 0, rand2: 0.5, herdEpoch: 0, seat: "clock" as "clock" | "random" | "herd" });
+  /** How many others the record counts as here (aliveOwners), as of the last fold: the readout. */
+  const aliveN = useRef(0);
+  /** `?seat=random`: the life keeps its random seat in the window (no moving beside the bots) — for comparing. */
+  const seatRandomOnly = useRef(typeof window !== "undefined" && new URLSearchParams(window.location.search).get("seat") === "random");
   /** My own samples, in time order (what the ledger reads; a life is a few hundred). */
   const myEvents = useRef<PEvent[]>([]);
   const ledgerMs = useRef(0);
@@ -281,6 +296,9 @@ export function RoleField({
   const seenOwners = useRef(new Map<string, { s: number; at: number }>());
   // V2 sound: the epoch's tonal field (harmony.ts), made once per epoch
   const tonal = useRef<{ epochMs: number; key: WorldKey } | null>(null);
+  // the visitor's assigned time as of the last frame (the future layer reads its slot), and the present's drawing
+  const sNow = useRef(0);
+  const present = useRef<THREE.Group>(null);
 
   useEffect(() => {
     epochMs.current = getEpochMs();
@@ -291,6 +309,9 @@ export function RoleField({
       tag: Math.random().toString(36).slice(2, 6),
       rand: Math.random(),
       seatEpoch: 0,
+      rand2: Math.random(),
+      herdEpoch: 0,
+      seat: "clock",
     };
     if (visitorRef) visitorRef.current = { no: sessionNo, id: me.current.id };
     try {
@@ -342,7 +363,29 @@ export function RoleField({
       if (off !== null) {
         me.current.offset = off;
         me.current.seatEpoch = epochMs.current;
+        me.current.seat = "random";
         rejoined.current = true;
+      }
+    }
+    // BORN WHERE THE BOTS ARE (the artist, 2026-11-22: "봇이 어느 정도 있는 시간대면 좋겠는데. 무작위로"): the server tells
+    // a phone what is written near its visitor only once it has had a sample of them — so the life begins at its
+    // random seat, and a few seconds into it, once the live stream of the bots near has run for a moment, it is seated
+    // again beside one of them (rise.ts herdSeatOffset: a random one of the living bots near, within ±20 s). Once per
+    // world; with no bot near within 8 s the random seat stays. The first few samples stand at the random seat.
+    if (!seatRandomOnly.current && me.current.seatEpoch === epochMs.current && me.current.herdEpoch !== epochMs.current && (!lifeRef || lifeRef.current.phase === "live")) {
+      // (the first message is the world round the visitor as it was — its bots may be long gone: only what came after
+      // it, in the last 3 s, is living; so the reading waits past that message)
+      const near = livingBotsNear(3000);
+      const listened = near.since > 0 ? wall - near.since : 0;
+      if (listened >= 4500) {
+        const b = blockFrameFor(epochMs.current);
+        const off = b && near.bots.length ? herdSeatOffset(b.frame, b.gone, live.current.lifeSec, near.bots.map((q) => q.s), me.current.rand, me.current.rand2) : null;
+        if (off !== null) {
+          me.current.offset = off;
+          me.current.seat = "herd";
+          me.current.herdEpoch = epochMs.current;
+          rejoined.current = true;
+        } else if (listened >= 8000) me.current.herdEpoch = epochMs.current;
       }
     }
     const { role: myRole, botCount: nBots, botRole: theirRole, botFlock: flock, sampleSec, cfg: foldCfg, fold: theFold } = live.current;
@@ -427,6 +470,9 @@ export function RoleField({
     if (epochMs.current === 0) return;
     const dt = Math.min(delta, 0.05);
     const sMe = sessionSeconds(worldNow(), epochMs.current, me.current.offset);
+    sNow.current = sMe;
+    // (the peek into the future: the present's drawing goes dark while F — the phone's button — is held)
+    if (present.current) present.current.visible = !(future?.on && ((future.mode === "peek" && futurePeek.on) || (future.mode === "encounter" && futureMeet.dark)));
     if (answers && answers.current > answered.current) {
       answered.current = answers.current;
       const { x, z } = playerPosRef.current;
@@ -466,6 +512,7 @@ export function RoleField({
       // who is here now: everyone within the assignment window, whatever time slot they live in
       heads.current = dandelionsIn(events);
       const alive = aliveOwners(events, me.current.id, seenOwners.current, performance.now(), ALIVE_HOLD_MS, sMe, Math.max(offsetWindow, DEFAULT_WITNESS.recentSec));
+      aliveN.current = alive.size;
       snap.current = fold.at(sMe, { x: p.x, z: p.z, r: readR });
       stress.current = stressAt(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
       markSpan("fold", performance.now() - tFold);
@@ -480,6 +527,8 @@ export function RoleField({
           alive,
           cfg: { ...DEFAULT_WITNESS, nearRadius: cfg.radius, farRadius: VIEW_RADIUS },
         });
+        // (the future passed where the visitor stands: FutureEncounter.tsx — the record writes it once)
+        if (future?.on && future.mode === "encounter") witnessRef.current.future = futureMeet.last;
         // the ledger of this life: only while LIVE (after the end it keeps the life's last reading); it reads the
         // WHOLE world (its totals, my slabs wherever they are), so less often than the drawing
         ledgerTimer.current += FOLD_EVERY;
@@ -550,13 +599,15 @@ export function RoleField({
         );
         const d = sound.engine.debug;
         const k = tonal.current.key;
-        soundLine = `${sound.status} · ${KEY_NAMES[k.root]} ${k.mode.name} · bar ${d.bar} ${d.chord} · lock ${d.lock.toFixed(2)} · ×${d.density}${d.answer ? " · answer" : ""} · near ${sig.neighbours.length} · path ${sig.pathP.toFixed(2)} stay ${sig.stay.toFixed(2)} sealed ${sig.sealed.toFixed(2)} · magenta ${d.magenta}${d.place ? " · 건물 " + d.place : ""}${d.phrase ? " · " + d.phrase : ""}${d.nc ? " · " + d.nc : ""}${present ? "" : ` · 세션 ${lifeRef!.current.phase} (무음)`}`;
+        soundLine = `${sound.status} · ${KEY_NAMES[k.root]} ${k.mode.name} · bar ${d.bar} ${d.chord} · lock ${d.lock.toFixed(2)} · ×${d.density}${d.answer ? " · answer" : ""} · near ${sig.neighbours.length} · path ${sig.pathP.toFixed(2)} stay ${sig.stay.toFixed(2)} sealed ${sig.sealed.toFixed(2)} · magenta ${d.magenta}${d.place ? " · 건물 " + d.place : ""}${d.phrase ? " · " + d.phrase : ""}${d.nc ? " · " + d.nc : ""}${d.found.played || d.found.waiting ? ` · 찾은 말 ${d.found.played}${d.found.last ? " (" + d.found.last + ")" : ""}${d.found.waiting ? " 대기 " + d.found.waiting : ""}` : ""}${present ? "" : ` · 세션 ${lifeRef!.current.phase} (무음)`}`;
       }
       if (sound) markSpan("sound", performance.now() - tSound);
       (window as unknown as { __parliament?: ParliamentDebug }).__parliament = {
         role,
         s: +sMe.toFixed(1),
         offset: +me.current.offset.toFixed(1),
+        seat: me.current.seat,
+        alive: aliveN.current,
         events: log.size,
         x: +p.x.toFixed(1),
         z: +p.z.toFixed(1),
@@ -578,6 +629,11 @@ export function RoleField({
   // where a path has formed). Slabs appear in the Top and Side views.
   return (
     <>
+      {future?.on && future.mode !== "encounter" && <FuturePresence log={log} meRef={me} getS={() => sNow.current} playerPosRef={playerPosRef} cfg={future} />}
+      {future?.on && future.mode === "encounter" && (
+        <FutureEncounter log={log} meRef={me} getS={() => sNow.current} getWorldSec={() => (worldNow() - epochMs.current) / 1000} getEpochMs={() => epochMs.current} getLive={() => !lifeRef || lifeRef.current.phase === "live"} playerPosRef={playerPosRef} cfg={future} sound={sound} getYaw={() => playerYawRef?.current ?? 0} />
+      )}
+      <group ref={present}>
       {grass?.style === "dither" || grass?.style === "field" ? (
         <DitherGround
           playerPosRef={playerPosRef}
@@ -624,6 +680,7 @@ export function RoleField({
       )}
       {marks?.concrete.on && marks.concrete.style === "lines" && <ConcreteLines getMarks={() => marksRef.current} height={marks.concrete.height} bright={marks.concrete.bright} />}
       {marks?.concrete.on && marks.concrete.style === "outline" && <ConcreteOutline getMarks={() => marksRef.current} scale={marks.concrete.outlineScale} />}
+      </group>
     </>
   );
 }

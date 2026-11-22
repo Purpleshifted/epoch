@@ -22,7 +22,7 @@ import { futureOnly } from "@/lib/parliament/futureOnly";
 import { plantTone, tone } from "@/lib/parliament/plantTone";
 // (the parts come and go softly: futureLife.ts)
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { futureLifeU, futureTicker, futureTickU, lifeTick, recSum, liveAndFading, newKeyedLife, placeKey, setLifeAttr, tick, type KeyedLife } from "./futureLife";
+import { edgeFade, futureLifeU, futureTicker, futureTickU, lifeTick, recSum, liveAndFading, newKeyedLife, placeKey, setLifeAttr, tick, type KeyedLife } from "./futureLife";
 import { savable } from "./levaSave";
 
 /** Between the wall's ticker (which asks for it with these knobs) and its answer (which is drawn here). */
@@ -548,25 +548,25 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
       {/* the paths: what has only just been walked, faint — and the frame (walked for half the band on end), bright */}
       <lineSegments ref={roads} frustumCulled={false}>
         <bufferGeometry />
-        <lineBasicMaterial color="#7d8187" />
+        <lineBasicMaterial color="#7d8187" onBeforeCompile={edgeFade} customProgramCacheKey={() => "future-edge-line"} />
       </lineSegments>
       <lineSegments ref={roadsOld} frustumCulled={false}>
         <bufferGeometry />
-        <lineBasicMaterial color="#e6e7e9" />
+        <lineBasicMaterial color="#e6e7e9" onBeforeCompile={edgeFade} customProgramCacheKey={() => "future-edge-line"} />
       </lineSegments>
       <lineSegments ref={water} frustumCulled={false}>
         <bufferGeometry />
-        <lineBasicMaterial color="#6f757c" />
+        <lineBasicMaterial color="#6f757c" onBeforeCompile={edgeFade} customProgramCacheKey={() => "future-edge-line"} />
       </lineSegments>
       {/* (named: the folder 미래 마을 층 — 땅 아래 shows it or not — FutureUnder showInferred) */}
       <points ref={veg} name="future-veg" frustumCulled={false}>
         <bufferGeometry />
-        <pointsMaterial vertexColors size={k.vegSize} sizeAttenuation />
+        <pointsMaterial vertexColors size={k.vegSize} sizeAttenuation onBeforeCompile={edgeFade} customProgramCacheKey={() => "future-edge-points"} />
       </points>
       {/* (no shadow on it while it is see-through at all — the artist, 2026-11-17: "반투명 땅에는 그림자 없어도 될 듯") */}
       <mesh ref={ground} visible={false} receiveShadow={k.groundOpacity >= 0.99}>
         <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial key={k.groundOpacity >= 0.99 ? "solid" : "clear"} color={k.groundColor} roughness={1} metalness={0} transparent={k.groundOpacity < 0.99} opacity={k.groundOpacity} depthWrite={k.groundOpacity >= 0.99} />
+        <meshStandardMaterial key={k.groundOpacity >= 0.99 ? "solid" : "clear"} color={k.groundColor} roughness={1} metalness={0} transparent={k.groundOpacity < 0.99} opacity={k.groundOpacity} depthWrite={k.groundOpacity >= 0.99} onBeforeCompile={edgeFade} customProgramCacheKey={() => "future-edge-ground"} />
       </mesh>
       {/* THE PIT (which of these is drawn is set every frame, by the version and where the eye is): its walls and floor
           seen from inside, the wide ground round its mouth, the passage above it, the bright ceiling, the cut face */}

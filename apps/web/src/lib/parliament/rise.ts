@@ -100,3 +100,32 @@ export function blockSeatOffset(f: BlockFrame, gone: number, lifeSec: number, ra
   const still = stopped ? 1 : 1 - shift;
   return rand * Math.max(0, depth - still * Math.max(0, lifeSec)) - (gone - bottom);
 }
+
+/** How far (s) from the bot it is born beside a life may be seated: inside the window the record calls "here" (±120 s). */
+export const HERD_SEAT_SPREAD_SEC = 20;
+
+/**
+ * BORN WHERE THE BOTS ARE (the artist, 2026-11-22: "봇이 어느 정도 있는 시간대면 좋겠는데. 무작위로"): instead of anywhere
+ * in the window (blockSeatOffset), the life is seated at the block time of one of the bots living near — picked at
+ * random among them, so a band with a bigger herd is picked the more often — within ±HERD_SEAT_SPREAD_SEC of it, and
+ * never so high that the life would end above the window's top (a bot too high for that is passed over; if every bot
+ * is, the highest seat under the top). `botTimes` = the block times (PEvent.s) of the bots' latest samples; `rand`
+ * and `rand2` two numbers 0 … 1 of the life's own. Null = no bot to be born beside (the caller keeps its random seat),
+ * or no block.
+ */
+export function herdSeatOffset(f: BlockFrame, gone: number, lifeSec: number, botTimes: readonly number[], rand: number, rand2: number): number | null {
+  const depth = Math.max(0, f.depthSec);
+  if (!(depth > 0) || !botTimes.length) return null;
+  const shift = Math.max(0, Math.min(1, f.shift));
+  const stopped = f.rise?.at !== null && f.rise?.at !== undefined;
+  const counted = Math.max(0, (stopped ? Math.min(f.rise!.at!, gone) : gone) - (f.rise?.lost ?? 0));
+  const bottom = shift * counted;
+  const still = stopped ? 1 : 1 - shift;
+  // (the highest block time a life may begin at and still end under the top; and the window's foot)
+  const highest = bottom + Math.max(0, depth - still * Math.max(0, lifeSec));
+  const ok = botTimes.filter((s) => s <= highest + HERD_SEAT_SPREAD_SEC);
+  const pool = ok.length ? ok : botTimes;
+  const pick = pool[Math.min(pool.length - 1, Math.floor(Math.max(0, Math.min(0.999999, rand)) * pool.length))];
+  const target = Math.max(bottom, Math.min(highest, pick + (rand2 - 0.5) * 2 * HERD_SEAT_SPREAD_SEC));
+  return target - gone;
+}

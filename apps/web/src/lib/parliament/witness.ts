@@ -52,7 +52,9 @@ export type LogKey =
   | "path.formed"
   | "concrete.share"
   | "sealed.under"
-  | "alone.long";
+  | "alone.long"
+  | "future.found"
+  | "future.gaze";
 
 /** 0 a fact · 1 notable · 2 important (how the HUD colours the line). */
 export type LogLevel = 0 | 1 | 2;
@@ -132,6 +134,12 @@ export interface Observation {
   far: Other[];
   /** Whose word (dandelion.ts wordSpots) is within `wordRadius` now. */
   wordsNear: string[];
+  /**
+   * THE FUTURE PASSED (excavators.ts, FuturePresence.tsx — the artist, 2026-11-22): the last time one of the future's
+   * archaeologists crossed where the visitor stands — its own id (one line each), and whether it found the visitor's
+   * life there (they stayed there: their cells are in the layer) or only looked. Absent = never.
+   */
+  future?: { id: string; found: boolean } | null;
 }
 
 export interface WitnessConfig {
@@ -343,6 +351,7 @@ export class WitnessLog {
   private watched = false;
   private worded = new Set<string>();
   private lastWordT = -Infinity;
+  private lastFuture: string | null = null;
 
   constructor(cfg: WitnessConfig = DEFAULT_WITNESS) {
     this.cfg = cfg;
@@ -493,6 +502,11 @@ export class WitnessLog {
         this.ask(obs.t, who);
         w("word.asked", { who, n, dots: newWordOf(longest.o, obs.me, Math.floor(obs.t)) }, 2);
       }
+    }
+    // the future passed where the visitor stands (FuturePresence.tsx): one line a passing, reversed
+    if (obs.future && obs.future.id !== this.lastFuture) {
+      this.lastFuture = obs.future.id;
+      w(obs.future.found ? "future.found" : "future.gaze", {}, 2);
     }
     // someone's word underfoot
     for (const o of obs.wordsNear) {

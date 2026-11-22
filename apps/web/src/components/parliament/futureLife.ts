@@ -146,11 +146,12 @@ export const LIFE_GLSL = [
 export const DISSOLVE_GLSL = "if (vFutureLife < 0.999 && fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) > vFutureLife) discard;";
 
 /** POINTS of their own sizes (`psize`) that come and go by `aLife` — they grow from nothing and shrink back to it. */
-export function lifePoints(shader: { uniforms: Record<string, unknown>; vertexShader: string }): void {
+export function lifePoints(shader: { uniforms: Record<string, unknown>; vertexShader: string; fragmentShader: string }): void {
   shader.uniforms.uLife = futureLifeU;
   shader.vertexShader = shader.vertexShader
     .replace("void main() {", `attribute float psize;\nattribute vec2 aLife;\nuniform vec3 uLife;\n${LIFE_GLSL}\nvoid main() {`)
     .replace("gl_PointSize = size;", "gl_PointSize = size * psize * futureLife(aLife, uLife);");
+  edgeFade(shader);
 }
 
 /** SOLID THINGS (an instanced mesh with `aLife` on its geometry) that come and go by dissolving all over at once —
@@ -163,6 +164,7 @@ function lifeDissolveBy(u: { value: THREE.Vector3 }, shader: { uniforms: Record<
     .replace("#include <common>", `#include <common>\nattribute vec2 aLife;\nuniform vec3 uLife;\nvarying float vFutureLife;\n${LIFE_GLSL}`)
     .replace("#include <begin_vertex>", "#include <begin_vertex>\nvFutureLife = futureLife(aLife, uLife);");
   shader.fragmentShader = shader.fragmentShader.replace("#include <common>", "#include <common>\nvarying float vFutureLife;").replace("#include <clipping_planes_fragment>", `#include <clipping_planes_fragment>\n${DISSOLVE_GLSL}`);
+  edgeFade(shader);
 }
 
 /** Puts `aLife` on an instanced mesh's geometry (once) and fills it: [born, died] a thing. */
@@ -194,4 +196,31 @@ export function recSum(a: Float32Array | null | undefined): number {
     sums.set(a, v);
   }
   return v;
+}
+
+/**
+ * THE LAYER FADES OUT AT ITS EDGES (the artist, 2026-11-22: "미래에서 멀리서 바라봤을 때 … 경계가 잘려있는 게 마음에 안
+ * 들어, 그라데이션으로 요소들이 사라지면 좋겠는데"): everything the layer draws thins out towards the edge of the ground
+ * it was read from (FutureResult.ground) — fewer and fewer of its pixels kept, the same screen-door all over, so the
+ * plants, the trees, the ruins, the ways and the ground itself go together, over `uEdgeW` (world) inside the edge.
+ * Set every frame by the layer (FutureUnder 보기 › edgeFade); 0 = cut as it was.
+ */
+/** (uEdgeWorld: the world's width — it wraps, world.ts — so a layer read across the seam fades at its own edges) */
+export const futureEdgeU = { uEdgeRect: { value: new THREE.Vector4(-1e9, -1e9, 1e9, 1e9) }, uEdgeW: { value: 0 }, uEdgeWorld: { value: 1e9 } };
+
+/** Patches a material's shaders (any with <project_vertex> and <clipping_planes_fragment>) to fade at the edge. */
+export function edgeFade(shader: { uniforms: Record<string, unknown>; vertexShader: string; fragmentShader: string }): void {
+  Object.assign(shader.uniforms, futureEdgeU);
+  shader.vertexShader = shader.vertexShader
+    .replace("#include <common>", "#include <common>\nvarying vec2 vEdgeXZ;")
+    .replace(
+      "#include <project_vertex>",
+      "#include <project_vertex>\n{\n\tvec4 edgeWP = vec4( transformed, 1.0 );\n#ifdef USE_INSTANCING\n\tedgeWP = instanceMatrix * edgeWP;\n#endif\n\tvEdgeXZ = ( modelMatrix * edgeWP ).xz;\n}",
+    );
+  shader.fragmentShader = shader.fragmentShader
+    .replace("#include <common>", "#include <common>\nvarying vec2 vEdgeXZ;\nuniform vec4 uEdgeRect;\nuniform float uEdgeW, uEdgeWorld;")
+    .replace(
+      "#include <clipping_planes_fragment>",
+      "#include <clipping_planes_fragment>\nif ( uEdgeW > 0.0 ) {\n\tvec2 edgeC = 0.5 * ( uEdgeRect.xy + uEdgeRect.zw ), edgeH = 0.5 * ( uEdgeRect.zw - uEdgeRect.xy );\n\tvec2 edgeP = vEdgeXZ - edgeC;\n\tedgeP -= uEdgeWorld * floor( edgeP / uEdgeWorld + 0.5 );\n\tvec2 edgeQ = edgeH - abs( edgeP );\n\tfloat edgeD = min( edgeQ.x, edgeQ.y );\n\tfloat edgeA = smoothstep( 0.0, 1.0, edgeD / uEdgeW );\n\tif ( edgeA < 0.999 && fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) + 0.31 ) ) > edgeA ) discard;\n}",
+    );
 }

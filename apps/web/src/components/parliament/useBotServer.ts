@@ -14,11 +14,28 @@
 import { useCallback, useEffect, useRef } from "react";
 import { LS_PARLIAMENT_EPOCH_KEY, LS_TIME_RATE_KEY, WORLD_CLEARED_EVENT, announceEpochWritten, botGround, currentEpochKey, keepWindowSec, saveMerged, setKeepFrom, tailField, timeRate, type EventLog, type PEvent } from "@/lib/parliament";
 import type { BotKind, BotSetup } from "@/lib/parliament/botWorld";
+import type { DensityConfig } from "@/lib/parliament/density";
+import type { HerdConfig } from "@/lib/parliament/lifecycle";
 import { risePause, type BlockFrame } from "@/lib/parliament/rise";
+import { savedValuesReady } from "./levaSave";
 
 /** The bot server and the world on it. `?botserver=0` on a view's address: the old way (the bots in this tab). */
 export const BOT_SERVER = process.env.NEXT_PUBLIC_BOT_SERVER ?? "wss://anthropocene-bots.anthropocene-hesse.workers.dev";
-export const BOT_WORLD = process.env.NEXT_PUBLIC_BOT_WORLD ?? "redesign";
+/**
+ * WHICH WORLD ON THE BOT SERVER (the artist, 2026-11-22: "응, 분리해" — after a page that was not the exhibition's
+ * cleared its world): production's own ("redesign", the exhibition's world, the one the artist's wall runs); everything
+ * else — branch previews, `next dev`, every session's test page — "rehearsal", so nothing tried elsewhere reaches the
+ * exhibition's bots or world. Production is known by its build (NEXT_PUBLIC_VERCEL_ENV) or, failing that, its
+ * address. NEXT_PUBLIC_BOT_WORLD overrides both.
+ */
+const PRODUCTION_HOSTS = ["anthropocene-redesign.vercel.app", "anthropocene-redesign-hesse-parks-projects.vercel.app"];
+function botWorldHere(): string {
+  if (process.env.NEXT_PUBLIC_BOT_WORLD) return process.env.NEXT_PUBLIC_BOT_WORLD;
+  if (process.env.NEXT_PUBLIC_VERCEL_ENV === "production") return "redesign";
+  if (typeof window !== "undefined" && PRODUCTION_HOSTS.includes(window.location.hostname)) return "redesign";
+  return "rehearsal";
+}
+export const BOT_WORLD = botWorldHere();
 export function botServerOn(): boolean {
   if (typeof window === "undefined") return false;
   return !!BOT_SERVER && new URLSearchParams(window.location.search).get("botserver") !== "0";
@@ -32,17 +49,31 @@ export function botServerOn(): boolean {
  * (`?botadmin=0` unmarks it). Sessions never use it: they are not the owner. docs/bot-server.md.
  */
 const BOT_ADMIN_KEY = "anthropocene:bot-admin:v1";
+/**
+ * ON PRODUCTION THE ARTIST'S WALL IS THE OWNER (the artist, 2026-11-22: "걍 일반창 버튼이 어드민이면 되는 거 아냐?;
+ * 어차피 다른 사람이 뭐 건드리게 할 것도 아니고"): since every test page joins "rehearsal" (botWorldHere), a wall WITH ITS
+ * PANEL on the exhibition's world (/v2/global/space, which /rehearsal/global opens) owns the bots without being marked.
+ * Never the exhibition's wall or the audience's pages (?ui=0 — /exhibition/global lands there with it — and anything
+ * else: the QR's /exhibition/* pages, phones), never a browser driven by a script (navigator.webdriver, HeadlessChrome),
+ * and never one unmarked with `?botadmin=0`.
+ */
 export function botAdmin(): boolean {
   if (typeof window === "undefined") return false;
   try {
-    const q = new URLSearchParams(window.location.search).get("botadmin");
-    if (q === "1") localStorage.setItem(BOT_ADMIN_KEY, "1");
-    else if (q === "0") localStorage.removeItem(BOT_ADMIN_KEY);
-    return localStorage.getItem(BOT_ADMIN_KEY) === "1";
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get("botadmin");
+    if (q === "1" || q === "0") localStorage.setItem(BOT_ADMIN_KEY, q);
+    const mark = localStorage.getItem(BOT_ADMIN_KEY);
+    if (mark === "1") return true;
+    if (mark === "0") return false;
+    const scripted = navigator.webdriver || /HeadlessChrome/.test(navigator.userAgent);
+    return BOT_WORLD === "redesign" && window.location.pathname === "/v2/global/space" && params.get("ui") !== "0" && !scripted;
   } catch {
     return false;
   }
 }
+/** The wall's bots group (useGlobalBots): its saves must be in before the owner brings the server to them. */
+const BOT_GROUP = "봇 (글로벌에서 돌리기)";
 
 const SAVE_EVERY_MS = 2000;
 const PEOPLE_EVERY_MS = 1000;
@@ -67,6 +98,9 @@ export function useBotServer(log: EventLog, active: boolean, getSetup: () => Bot
     let gone = false, tries = 0, retry = 0;
     let epoch = 0;
     let sentSetup: string | null = null;
+    /** The server's setup as its hello said it (null = no hello yet), and whether the owner has compared its saved knobs. */
+    let serverSetup: string | null = null;
+    let synced = false;
     // only the owner's browser changes the server's bots, clock or world (botAdmin)
     const admin = botAdmin();
     let saidNotOwner = false;
@@ -165,7 +199,14 @@ export function useBotServer(log: EventLog, active: boolean, getSetup: () => Bot
           (window as unknown as { __lifecycle?: unknown }).__lifecycle = d.readout ? { ...(d.readout as object), slowPerMin: 0, server: true } : undefined;
           // (a server that has never been told the bots' setup: this view's)
           const mine = json();
-          if (mine && (!d.setup || turned())) {
+          // THE OWNER'S WALL IS THE TRUTH (the artist, 2026-11-22: after the 15:17 clear the server kept another view's setup
+          // — 20 s a slot, a rising window stopped at 1330 s — while her wall drew a standing block of 15 s slots: the bots
+          // and the vegetation stood above the future layer, "제발 나 신경쇠약좀 안걸리게"): the owner's browser brings the
+          // server to its own knobs when they differ — but NOT HERE: a fresh browser's knobs may still be the code's defaults
+          // (bots off) when the hello comes; the check below (every second) waits until its saves are in (savedValuesReady)
+          serverSetup = d.setup ? JSON.stringify(d.setup) : "";
+          synced = false;
+          if (mine && turned()) {
             if (admin) {
               sentSetup = mine;
               ws.send(JSON.stringify({ t: "setup", setup: JSON.parse(mine) }));
@@ -228,6 +269,14 @@ export function useBotServer(log: EventLog, active: boolean, getSetup: () => Bot
       }
       // the knobs turned here: the server's bots follow (the owner's browser only)
       const mine = json();
+      // …and once per joining, the owner brings the server to its SAVED knobs if they differ (see the hello)
+      if (admin && !synced && serverSetup !== null && savedValuesReady(BOT_GROUP)) {
+        synced = true;
+        if (mine && mine !== serverSetup) {
+          sentSetup = mine;
+          ws.send(JSON.stringify({ t: "setup", setup: JSON.parse(mine) }));
+        }
+      }
       if (mine && mine !== sentSetup && turned()) {
         sentSetup = mine;
         if (admin) ws.send(JSON.stringify({ t: "setup", setup: JSON.parse(mine) }));
@@ -265,6 +314,10 @@ function handKey(s: BotSetup | null): string {
   return s ? JSON.stringify({ ...s, density: null }) : "";
 }
 
+/** What the phone knows of the world's rules (from the server's hello): the buildings' density config, null until it
+ *  came or when the server has none. `version` bumps when it changed (FuturePresence.tsx reads it). */
+export const visitorWorld: { density: DensityConfig | null; herd: HerdConfig | null; version: number } = { density: null, herd: null, version: 0 };
+
 /**
  * THE VISITOR'S SAMPLES TO THE BOT SERVER (the personal view, a phone): the phone joins the world's epoch and clock,
  * and what it sends is its visitor where they stand, a few times a second. The walls see them, and the bots go to
@@ -284,6 +337,22 @@ export function blockFrameFor(epochMs: number): { frame: BlockFrame; gone: numbe
   const b = visitorBlock;
   if (!b || b.epochMs !== epochMs) return null;
   return { frame: b.frame, gone: Math.max(0, (b.clock.v + (Date.now() - b.clock.r) * b.clock.rate - epochMs) / 1000) };
+}
+
+/**
+ * THE BOTS LIVING NEAR THE VISITOR, as the server writes them (2026-11-22: a life is born where the bots are —
+ * rise.ts herdSeatOffset): each bot's latest sample's block time and when it came (wall ms). The server sends a
+ * phone what is written within 40 world units of where its visitor last stood — so these are the bots near in space;
+ * one whose sample came in the last few seconds is living now (the first message is the world round the visitor as
+ * it was: those bots may be long gone, so a reading waits for the live stream — `since`).
+ */
+const nearBots = new Map<string, { s: number; x: number; z: number; at: number }>();
+/** Wall ms the first message of the world near the visitor came (0 = none yet). */
+let nearSince = 0;
+export function livingBotsNear(withinMs = 3000): { since: number; bots: { o: string; s: number; x: number; z: number }[] } {
+  const now = Date.now(), bots: { o: string; s: number; x: number; z: number }[] = [];
+  for (const [o, b] of nearBots) if (now - b.at <= withinMs) bots.push({ o, s: b.s, x: b.x, z: b.z });
+  return { since: nearSince, bots };
 }
 
 export function useVisitorLink(active: boolean, log: EventLog): (e: PEvent, epochMs: number) => void {
@@ -314,10 +383,29 @@ export function useVisitorLink(active: boolean, log: EventLog): (e: PEvent, epoc
           return;
         }
         if (d.t === "ev") {
+          const evs = (d as { events?: PEvent[] }).events ?? [];
+          // (the bots near, as they write: livingBotsNear)
+          const at = Date.now();
+          if (!nearSince && evs.length) nearSince = at;
+          for (const e of evs) {
+            if (e.k !== "p" || !e.o.startsWith("bot")) continue;
+            const b = nearBots.get(e.o);
+            if (!b || e.s >= b.s) nearBots.set(e.o, { s: e.s, x: e.x, z: e.z, at });
+          }
           // (only once the phone's own world has ended and it is in the server's: useWorld empties the log on the
           // epoch's change, and what came before would go with it)
-          if (epoch && currentEpochKey() === String(epoch) && joined()) log.addMany((d as { events?: PEvent[] }).events ?? []);
+          if (epoch && currentEpochKey() === String(epoch) && joined()) log.addMany(evs);
           return;
+        }
+        // THE WORLD'S RULES, FOR THE FUTURE UNDER THE VISITOR'S FEET (futurePresence.ts, 2026-11-22): the server's
+        // buildings' density rule — the wall's, as it last sent it — so the phone infers the same layer the wall does
+        if (d.t === "hello" || d.t === "setup") {
+          const su = (d as { setup?: { density?: DensityConfig | null; lc?: { herd?: HerdConfig } } | null }).setup;
+          visitorWorld.density = su?.density ?? null;
+          // (and the herds' setup: where the villages are, and so where the future's water runs — futurePresence.ts)
+          visitorWorld.herd = su?.lc?.herd ?? null;
+          visitorWorld.version++;
+          if (d.t === "setup") return;
         }
         if ((d.t !== "hello" && d.t !== "clock") || !d.clock || typeof d.serverNow !== "number") return;
         const skew = d.serverNow - Date.now();
@@ -335,6 +423,10 @@ export function useVisitorLink(active: boolean, log: EventLog): (e: PEvent, epoc
           // (no storage)
         }
         if (d.t === "hello" && typeof d.epochMs === "number") {
+          if (epoch !== d.epochMs) {
+            nearBots.clear();
+            nearSince = 0;
+          }
           epoch = d.epochMs;
           // the block the bots live in: the visitor is seated in its time (RoleField), not at "seconds since the epoch"
           const h = (d as { setup?: { lc?: { herd?: { shift?: number; depthSec?: number } } } }).setup?.lc?.herd;
