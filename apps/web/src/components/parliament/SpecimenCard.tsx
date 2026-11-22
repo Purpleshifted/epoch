@@ -119,10 +119,11 @@ const DPI = 300;
 /**
  * The printed card drawn this much smaller, centred on its paper (the artist, 2026-11-22: a landscape card's QR came
  * out cut — "배율 안전빵으로"): the NIIMBOT B2 Pro's head prints 48 mm across 54 mm paper, about 3 mm unprinted at each
- * side, and the card's own margin is 4 mm. 46 / 54 keeps all of it inside the head with a millimetre to spare.
+ * side, and the card's own margin is 4 mm. 50 / 54 keeps what is drawn (5.7 … 48.3 mm across) inside the head with
+ * room for it to sit off centre (46 / 54 left the landscape card's long edges too empty: "비율 너무 많이 줄인듯").
  * `?printfit=0.9` on the address tries another.
  */
-const PRINT_FIT = 46 / 54;
+const PRINT_FIT = 50 / 54;
 function printFit(): number {
   if (typeof window === "undefined") return PRINT_FIT;
   const q = Number(new URLSearchParams(window.location.search).get("printfit"));
