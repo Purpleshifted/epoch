@@ -153,7 +153,14 @@ export interface FuturePresenceVisual extends PresenceConfig {
   /** A window's height (world), its shape, how far the observer walks between two it leaves (world), how long one
    *  stays (s), how many at once (≤ 12). */
   winH: number;
-  winShape: "body" | "sheet";
+  winShape: "body" | "sheet" | "person";
+  /** THE OBSERVER AS A PERSON IN A LONG EXPOSURE (winShape "person"): how much of the future shows through them
+   *  (0 = clothes only … 1 = a window only), the exposure's length (s), the view's up-and-down shake while it is open
+   *  (of the screen's height), clothes in colour or in black and white. */
+  winSee: number;
+  winExposure: number;
+  winShake: number;
+  winColor: "colour" | "grey";
   winGap: number;
   winStay: number;
   winMax: number;
@@ -195,6 +202,8 @@ const ENCOUNTER_LOOKS: readonly Look[] = ["window", "frames", "scan", "dream", "
 
 export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
   const [url] = useState(() => (typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("future")));
+  // (?body=person|body|sheet: the observer's shape for a preview, over the knob)
+  const [bodyUrl] = useState(() => (typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("body")));
   const v2 = () => isV2;
   const hidden = () => false;
   /** A folder shows only for the looks it belongs to (the knob `방식`). */
@@ -218,7 +227,11 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
       "창": folder(
         {
           winH: { value: 2.4, min: 0.5, max: 8, step: 0.1, label: "창의 키" },
-          winShape: { options: { "걷는 몸 모양": "body", "사각 창": "sheet" }, value: "body", label: "창의 모양" },
+          winShape: { options: { "걷는 몸 모양": "body", "사각 창": "sheet", "장노출 사람 (시험 · 주소 ?body=person)": "person" }, value: "body", label: "창의 모양" },
+          winSee: { value: 0.3, min: 0, max: 1, step: 0.05, label: "몸에 미래가 비치는 정도 (0 = 옷만 · 1 = 창만)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
+          winExposure: { value: 0.7, min: 0.03, max: 3, step: 0.01, label: "장노출 길이 (s · 길수록 끌림이 김)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
+          winShake: { value: 0.035, min: 0, max: 0.1, step: 0.002, label: "세로 끌림 (화면 높이 대비)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
+          winColor: { options: { "색": "colour", "흑백": "grey" }, value: "colour", label: "옷의 색", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
           winGap: { value: 2, min: 0.3, max: 6, step: 0.1, label: "창과 창 사이 (관찰자가 걸은 거리)" },
           winStay: { value: 20, min: 2, max: 120, step: 1, label: "창이 남는 시간 (s)" },
           winMax: { value: 10, min: 2, max: 12, step: 1, label: "서 있는 창 수" },
@@ -410,7 +423,11 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
       winR: k.winR,
       winSeeR: k.winSeeR,
       winH: k.winH,
-      winShape: k.winShape as FuturePresenceVisual["winShape"],
+      winShape: (bodyUrl === "person" || bodyUrl === "body" || bodyUrl === "sheet" ? bodyUrl : k.winShape) as FuturePresenceVisual["winShape"],
+      winSee: k.winSee,
+      winExposure: k.winExposure,
+      winShake: k.winShake,
+      winColor: k.winColor as FuturePresenceVisual["winColor"],
       winGap: k.winGap,
       winStay: k.winStay,
       winMax: Math.round(k.winMax),
@@ -446,7 +463,7 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
       frameCurve: k.frameCurve,
       frameReread: k.frameReread,
     };
-  }, [url, k.on, k.look, k.radius, k.everySec, k.readLatest, k.unit, k.band, k.ruin, k.maxBuildings, k.strip, k.lastSteel, k.lastPile, k.showTraces, k.showRemains, k.showPlants, k.showDeposits, k.edgeColor, k.plantColor, k.excCount, k.excRoam, k.excLegSec, k.meetR, k.cloudR, k.pointSize, k.surface, k.wild, k.inSec, k.holdSec, k.outSec, k.cooldownSec, k.darkPresent, k.fxLevel, k.dreamR, k.dreamPx, k.scanR, k.scanPix, k.scanFrames, k.scanTurn, k.scanStill, k.scanBase, k.scanGain, k.scanNew, k.scanPx, k.scanGlow, k.scanSplat, k.scanHold, k.scanDark, k.scanArrive, k.scanArriveDist, k.scanArriveSec, k.scanFlow, k.frameR, k.frameEvery, k.frameTurn, k.frameMove, k.frameMax, k.frameHold, k.frameLife, k.frameH, k.frameAlpha, k.frameFilm, k.frameInk, k.frameSplat, k.frameSmear, k.frameJitter, k.frameArriveSec, k.frameRest, k.framePass, k.frameRevealSec, k.frameBody, k.frameOut, k.framePaper, k.frameTone, k.frameDistort, k.frameDistortAmt, k.frameEdge, k.frameCurve, k.frameReread, k.winR, k.winSeeR, k.winH, k.winShape, k.winGap, k.winStay, k.winMax, k.winFillR, k.winFillFull, k.winFillAlpha, k.winFillHow]);
+  }, [url, k.on, k.look, k.radius, k.everySec, k.readLatest, k.unit, k.band, k.ruin, k.maxBuildings, k.strip, k.lastSteel, k.lastPile, k.showTraces, k.showRemains, k.showPlants, k.showDeposits, k.edgeColor, k.plantColor, k.excCount, k.excRoam, k.excLegSec, k.meetR, k.cloudR, k.pointSize, k.surface, k.wild, k.inSec, k.holdSec, k.outSec, k.cooldownSec, k.darkPresent, k.fxLevel, k.dreamR, k.dreamPx, k.scanR, k.scanPix, k.scanFrames, k.scanTurn, k.scanStill, k.scanBase, k.scanGain, k.scanNew, k.scanPx, k.scanGlow, k.scanSplat, k.scanHold, k.scanDark, k.scanArrive, k.scanArriveDist, k.scanArriveSec, k.scanFlow, k.frameR, k.frameEvery, k.frameTurn, k.frameMove, k.frameMax, k.frameHold, k.frameLife, k.frameH, k.frameAlpha, k.frameFilm, k.frameInk, k.frameSplat, k.frameSmear, k.frameJitter, k.frameArriveSec, k.frameRest, k.framePass, k.frameRevealSec, k.frameBody, k.frameOut, k.framePaper, k.frameTone, k.frameDistort, k.frameDistortAmt, k.frameEdge, k.frameCurve, k.frameReread, k.winR, k.winSeeR, k.winH, k.winShape, bodyUrl, k.winSee, k.winExposure, k.winShake, k.winColor, k.winGap, k.winStay, k.winMax, k.winFillR, k.winFillFull, k.winFillAlpha, k.winFillHow]);
 }
 
 const MAX_EDGE_VERTS = 120000;

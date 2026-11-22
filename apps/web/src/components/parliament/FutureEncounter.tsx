@@ -427,7 +427,7 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
   /** ?paper=1 — the trial's white ground (until the street look's is here): a white sky, and the present (still drawn for
    *  the black ground) put away while the frames stand, so they are seen as they will be on paper. A trial's hook only. */
   const paperTrial = useRef(false);
-  const fixScene = useRef<{ set: boolean; x: number; z: number; rx: number; rz: number; t0: number } | null>(null);
+  const fixScene = useRef<{ set: boolean; x: number; z: number; rx: number; rz: number; t0: number; i: number } | null>(null);
   useEffect(() => () => frames.dispose(), [frames]);
   // THE WINDOWS (futureWindows.ts): the observer a large window onto the future, windows left where it passed, the screen
   // filled when the visitor is near one
@@ -541,7 +541,9 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
       state.gl.compile(captureScene, state.camera);
       if (cfg.scan) ensureAtlas(state.gl, isCoarse());
       // (a trial's hook until the street look's white ground is here: ?paper=1 = the view on paper)
-      if (new URLSearchParams(window.location.search).get("futurefix") === "1") fixScene.current = { set: false, x: 0, z: 0, rx: 1, rz: 0, t0: 0 };
+      // (?futurefix=<n>: the fixed scene, with observer number n − 1 — its clothes, as a long-exposure person)
+      const fixN = Number(new URLSearchParams(window.location.search).get("futurefix"));
+      if (fixN >= 1) fixScene.current = { set: false, x: 0, z: 0, rx: 1, rz: 0, t0: 0, i: Math.floor(fixN) - 1 };
       if (new URLSearchParams(window.location.search).get("paper") === "1") {
         paperTrial.current = true;
         paperLook.on = true;
@@ -587,7 +589,7 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
         Object.assign(f, { set: true, x: p.x + tmpDir.x * 3.2, z: p.z + tmpDir.z * 3.2, rx: -tmpDir.z, rz: tmpDir.x, t0: now });
       }
       const ph = (now - f.t0) * 0.25, side = 2.4 * Math.sin(ph), sg = Math.cos(ph) >= 0 ? 1 : -1;
-      exs = [{ i: 0, x: f.x + f.rx * side, z: f.z + f.rz * side, dx: f.rx * sg, dz: f.rz * sg, standing: false }];
+      exs = [{ i: f.i, x: f.x + f.rx * side, z: f.z + f.rz * side, dx: f.rx * sg, dz: f.rz * sg, standing: false }];
     } else if (fixScene.current) exs = [];
     // (the dream's own material, or today's — the same uniforms are set on both)
     const M = cfg.dream ? dreamMat : mat;
@@ -915,7 +917,7 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
     }
     if (cfg.windows) {
       windows.ensure(state.gl, phone, cfg);
-      windows.begin(p, R, cfg.plantColor);
+      windows.begin(p, R, cfg.plantColor, ex.i);
     }
     Object.assign(s, { active: true, t0: now, ex: ex.i, outAt: cfg.inSec + (cfg.frames ? cfg.frameHold : cfg.scan ? cfg.scanHold : cfg.holdSec), scan: cfg.scan && !cfg.frames && !cfg.windows, frames: cfg.frames && !cfg.windows, windows: cfg.windows });
     s.cool.set(ex.i, now + cfg.cooldownSec);
