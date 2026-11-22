@@ -152,6 +152,16 @@ function Centre({ className = "", children }: { className?: string; children: Re
   );
 }
 
+/** The gallery from the end card: its language, the venue (the gallery machine's gallery comes back by itself) and the
+ * way back to this experience, as it was opened. */
+function galleryHref(lang: Lang, venue: string | null | undefined): string {
+  const q = new URLSearchParams();
+  if (lang === "en") q.set("lang", "en");
+  if (venue) q.set("venue", venue);
+  if (typeof window !== "undefined") q.set("back", window.location.pathname + window.location.search);
+  return `/exhibition/gallery?${q.toString()}`;
+}
+
 /** Lines that come on one after another, `lineSec` apart (hard cuts); the ones not yet up keep their room. */
 function Lines({ lines, since, lineSec = NOTICE_LINE_SEC, className = "" }: { lines: string[]; since: number; lineSec?: number; className?: string }) {
   const n = linesShown(lines.length, since, lineSec);
@@ -654,7 +664,11 @@ export function SessionHud({
               </button>
             )}
             {inGallery && (
-              <a href={`/exhibition/gallery${lang === "en" ? "?lang=en" : ""}`} data-hud-control className="pointer-events-auto border border-white px-4 py-1 text-white outline-none">
+              <a
+                href={galleryHref(lang, venue)}
+                data-hud-control
+                className="pointer-events-auto border border-white px-4 py-1 text-white outline-none"
+              >
                 {S.ended.viewGallery}
               </a>
             )}

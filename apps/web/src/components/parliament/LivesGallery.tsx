@@ -5,6 +5,10 @@
  * it (paper, orientation), its number, when, posted or printed; a card opens its recording (/rec/<id>). A life not
  * posted is not here (its recording is on the Worker, reachable only by the QR it got). From /api/lives; on a branch
  * preview that is production's, trials included (marked).
+ *
+ * On the gallery machine (`venue=gallery`) the gallery gives the screen back by itself: IDLE_SEC without a touch, a key
+ * or a scroll and it goes to the experience (`back`, the page 갤러리 보기 came from; else the exhibition's personal view)
+ * — the artist, 2026-11-22: "갤러리 홈에서 일정시간 이상 지나면 경험창으로". 돌아가기 goes there too.
  */
 
 import Link from "next/link";
@@ -58,6 +62,10 @@ const WORDS = {
 } as const;
 
 const PAGE = 60;
+/** The gallery machine's gallery goes back to the experience after this long untouched (s). */
+const IDLE_SEC = 60;
+/** A way back that stays on this site (a path, not another origin). */
+const safeBack = (b: string | undefined): string | null => (b && b.startsWith("/") && !b.startsWith("//") ? b : null);
 const two = (v: number) => String(v).padStart(2, "0");
 const when = (ms: number) => {
   const d = new Date(ms);
@@ -74,8 +82,11 @@ const recPath = (url: string | null): string | null => {
   }
 };
 
-export default function LivesGallery({ lang = "ko" }: { lang?: Lang }) {
+export default function LivesGallery({ lang = "ko", venue, back }: { lang?: Lang; venue?: string; back?: string }) {
   const W = WORDS[lang];
+  const kiosk = venue === "gallery";
+  /** The experience this gallery returns to. */
+  const home = safeBack(back) ?? `/exhibition/personal?${kiosk ? "venue=gallery&" : ""}lang=${lang}`;
   const [lives, setLives] = useState<Life[]>([]);
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
   const [more, setMore] = useState(false);
@@ -105,10 +116,27 @@ export default function LivesGallery({ lang = "ko" }: { lang?: Lang }) {
     void load();
   }, [load]);
 
-  const back = () => {
-    if (window.history.length > 1) window.history.back();
-    else window.location.href = `/exhibition/personal${lang === "en" ? "?lang=en" : ""}`;
+  const goBack = () => {
+    if (!safeBack(back) && !kiosk && window.history.length > 1) window.history.back();
+    else window.location.replace(home);
   };
+
+  // the gallery machine: untouched for IDLE_SEC, the screen goes back to the experience for the next visitor
+  useEffect(() => {
+    if (!kiosk) return;
+    let timer = 0;
+    const arm = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => window.location.replace(home), IDLE_SEC * 1000);
+    };
+    const kinds = ["pointerdown", "pointermove", "wheel", "scroll", "keydown", "touchstart"] as const;
+    for (const k of kinds) window.addEventListener(k, arm, { passive: true });
+    arm();
+    return () => {
+      window.clearTimeout(timer);
+      for (const k of kinds) window.removeEventListener(k, arm);
+    };
+  }, [kiosk, home]);
 
   return (
     <main className="min-h-[100dvh] bg-black px-4 pb-16 pt-6 text-[14px] leading-[1.45] text-white" style={{ fontFamily: "GalmuriMono11, monospace" }}>
@@ -118,7 +146,7 @@ export default function LivesGallery({ lang = "ko" }: { lang?: Lang }) {
             <h1 className="text-[24px] font-normal">{W.title}</h1>
             {state === "ready" && <span className="text-[#8c8c8c]">{W.count(lives.length, more)}</span>}
           </div>
-          <button type="button" onClick={back} className="min-h-[44px] border border-white/40 px-4 text-white/80 outline-none">
+          <button type="button" onClick={goBack} className="min-h-[44px] border border-white/40 px-4 text-white/80 outline-none">
             {W.back}
           </button>
         </div>

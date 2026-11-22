@@ -132,15 +132,18 @@ export async function printCard(plate: PlateInput, look: CardLook): Promise<"pri
   return "dialog";
 }
 
-/** The browser's print: the card alone at 54 × 86 mm (or turned), nothing else of the page (Chrome with
- * --kiosk-printing prints without the dialog). The page's face is already loaded: the card is on the screen. */
+/** The browser's print: the card alone on one 54 × 86 mm page, nothing else of the page — a landscape card stood up on
+ * it (a quarter turn clockwise), as the helper does, so the printer needs the one paper size (tools/card-printer/
+ * add-card-size.sh adds it to the label printer: "54mmx86mm"). Chrome with --kiosk-printing prints without the dialog.
+ * The page's face is already loaded: the card is on the screen. */
 async function printInBrowser(plate: PlateInput, look: CardLook): Promise<void> {
-  const [w, h] = look.orient === "landscape" ? ["86mm", "54mm"] : ["54mm", "86mm"];
+  const land = look.orient === "landscape";
   const box = document.createElement("div");
   box.id = "specimen-card-print";
-  box.innerHTML = plateSvg(plate, glyphOf, look);
+  box.innerHTML = `<div class="card">${plateSvg(plate, glyphOf, look)}</div>`;
   const style = document.createElement("style");
-  style.textContent = `#specimen-card-print{display:none}@media print{@page{size:${w} ${h};margin:0}html,body{margin:0!important;padding:0!important;background:#fff!important}body>*:not(#specimen-card-print){display:none!important}#specimen-card-print{display:block!important;width:${w};height:${h};overflow:hidden}#specimen-card-print svg{display:block;width:100%;height:100%}}`;
+  const card = land ? "width:86mm;height:54mm;transform-origin:0 0;transform:translateX(54mm) rotate(90deg)" : "width:54mm;height:86mm";
+  style.textContent = `#specimen-card-print{display:none}@media print{@page{size:54mm 86mm;margin:0}html,body{margin:0!important;padding:0!important;background:#fff!important}body>*:not(#specimen-card-print){display:none!important}#specimen-card-print{display:block!important;width:54mm;height:86mm;overflow:hidden}#specimen-card-print .card{${card}}#specimen-card-print svg{display:block;width:100%;height:100%}}`;
   document.head.appendChild(style);
   document.body.appendChild(box);
   try {
