@@ -98,6 +98,40 @@ export interface FuturePresenceVisual extends PresenceConfig {
   scanArriveDist: number;
   scanArriveSec: number;
   scanFlow: boolean;
+  /** THE FRAMES (the artist, 2026-11-22 night: "연속적으로 닥쳐오는 2D 프레임 … 그 자리의 미래도시 스냅샷 … 반투명하게 렌더돼서
+   *  공간감을 주도록 배열" — futureFrames.ts): the future round the visitor taken from their eye as small pictures, each a
+   *  translucent plate that comes from the archaeologist, through the visitor and away. */
+  frames: boolean;
+  /** The piece of the future the pictures are of (its radius, world). */
+  frameR: number;
+  /** Another picture every … s, or when the eye has turned … degrees or moved … (world). */
+  frameEvery: number;
+  frameTurn: number;
+  frameMove: number;
+  /** Plates at once (≤ 12), how long one lives (s), its height (world). */
+  frameMax: number;
+  /** The least the frames stay (s) — longer while the archaeologist is in reach. */
+  frameHold: number;
+  frameLife: number;
+  frameH: number;
+  /** The picture's opacity, the sheet's own veil, how heavy the ink, a surface sample's size in the picture (world), the
+   *  long exposure's sideways smear (of the picture's width), how much the plates are off from one another (world). */
+  frameAlpha: number;
+  frameFilm: number;
+  frameInk: number;
+  frameSplat: number;
+  frameSmear: number;
+  frameJitter: number;
+  /** The coming: how long the rush (s), how far from the eye it has slowed (world), how fast it then drifts on (world/s). */
+  frameArriveSec: number;
+  frameRest: number;
+  framePass: number;
+  /** The white scan line's sweep (s); how the plates go; the archaeologist's body (the window's height, world). */
+  frameRevealSec: number;
+  frameOut: "melt" | "dots" | "line";
+  frameBody: number;
+  /** Paper (dark ink on white) or the black ground (light ink): auto = as the street look's white ground says. */
+  framePaper: "auto" | "paper" | "black";
 }
 
 /** The peek (mode "peek"): held while F is down, or the phone's button. Read every frame by the drawers. */
@@ -167,6 +201,33 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
         },
         { collapsed: true },
       ),
+      "프레임 (닥쳐오는 2D 프레임 · 발굴자에게서 나와 나를 지나가는 반투명 판)": folder(
+        {
+          frames: { value: false, label: "프레임으로 보기 (주소 ?future=frames · 켜면 스캔·꿈 대신)", render: v2 },
+          frameR: { value: 10, min: 3, max: 24, step: 0.5, label: "그림에 담기는 미래의 반경 (월드)", render: v2 },
+          frameEvery: { value: 0.5, min: 0.2, max: 2, step: 0.05, label: "새 장을 찍는 간격 (s)", render: v2 },
+          frameTurn: { value: 15, min: 2, max: 60, step: 1, label: "이만큼 돌아보면 바로 새 장 (도)", render: v2 },
+          frameMove: { value: 0.4, min: 0.1, max: 3, step: 0.05, label: "이만큼 움직이면 바로 새 장 (월드 · 0.4 ≈ 1 m)", render: v2 },
+          frameMax: { value: 12, min: 3, max: 12, step: 1, label: "살아 있는 판 수 (최대 12)", render: v2 },
+          frameHold: { value: 6, min: 1, max: 30, step: 0.5, label: "적어도 이만큼 머묾 (s · 발굴자가 곁에 있으면 더, 멀어지면 사라짐)", render: v2 },
+          frameLife: { value: 6, min: 2, max: 15, step: 0.5, label: "판 한 장이 사는 시간 (s)", render: v2 },
+          frameH: { value: 4, min: 1, max: 10, step: 0.25, label: "판의 높이 (월드 · 폭은 2/3)", render: v2 },
+          frameAlpha: { value: 0.5, min: 0.1, max: 1, step: 0.05, label: "그림의 불투명도 (0.3–0.5 = 아세테이트)", render: v2 },
+          frameFilm: { value: 0.05, min: 0, max: 0.3, step: 0.01, label: "판 자체의 막 (빈 곳도 비치는 정도)", render: v2 },
+          frameInk: { value: 2, min: 0.2, max: 5, step: 0.1, label: "번짐의 진하기", render: v2 },
+          frameSplat: { value: 0.3, min: 0.05, max: 0.8, step: 0.01, label: "번짐 한 점의 크기 (월드 · 클수록 부드러움)", render: v2 },
+          frameSmear: { value: 0.012, min: 0, max: 0.08, step: 0.002, label: "장노출 — 옆으로 끌리는 번짐 (그림 폭 대비)", render: v2 },
+          frameJitter: { value: 0.25, min: 0, max: 1.5, step: 0.05, label: "판끼리 어긋남 (월드 · 자리와 기울기)", render: v2 },
+          frameArriveSec: { value: 2.5, min: 0.3, max: 10, step: 0.1, label: "닥쳐오는 시간 (s · 처음 빠르고 닿으며 느려짐)", render: v2 },
+          frameRest: { value: 3, min: 0.5, max: 10, step: 0.25, label: "이만큼 앞에서 느려짐 (월드)", render: v2 },
+          framePass: { value: 1, min: 0, max: 4, step: 0.1, label: "그 뒤 나를 지나가는 속도 (월드/s)", render: v2 },
+          frameRevealSec: { value: 1, min: 0.1, max: 4, step: 0.1, label: "흰 스캔 선이 위에서 아래로 쓰는 시간 (s)", render: v2 },
+          frameOut: { options: { "세로로 흘러내림": "melt", "점 꺼짐": "dots", "스캔 선 되돌아감": "line" }, value: "melt", label: "사라지는 방식 (발굴자가 멀어지면)", render: v2 },
+          frameBody: { value: 1, min: 0.3, max: 4, step: 0.05, label: "발굴자의 몸 = 창 (키 · 월드)", render: v2 },
+          framePaper: { options: { "자동 — 길거리의 흰 바탕을 따름": "auto", "흰 종이 위의 어두운 번짐": "paper", "검은 바탕 위의 밝은 번짐": "black" }, value: "auto", label: "바탕", render: v2 },
+        },
+        { collapsed: true },
+      ),
       radius: { value: 14, min: 4, max: 40, step: 1, label: "렌즈 반경 (월드 · 렌즈 방식에서만)", render: v2 },
       everySec: { value: 2, min: 0.5, max: 10, step: 0.5, label: "미래를 다시 읽는 간격 (s)", render: v2 },
       readLatest: { value: true, label: "읽는 단 — 켬: 둘레에서 가장 최근에 지어진 단 (벽과 같음 · 혼자여도 남의 폐허가 보임) · 끔: 내 시각 (내 시간대에 지어진 것만)", render: v2 },
@@ -187,7 +248,7 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
     { collapsed: true, order: 1.2, render: v2 },
   );
   return useMemo<FuturePresenceVisual>(() => {
-    const urlMode = url === "dream" || url === "scan" ? "encounter" : url && (Object.values(MODES) as string[]).includes(url) ? (url as PresenceMode) : null;
+    const urlMode = url === "dream" || url === "scan" || url === "frames" ? "encounter" : url && (Object.values(MODES) as string[]).includes(url) ? (url as PresenceMode) : null;
     const mode = (urlMode ?? k.mode) as PresenceMode;
     return {
       on: url ? url !== "0" : k.on,
@@ -223,10 +284,10 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
       cooldownSec: k.cooldownSec,
       darkPresent: k.darkPresent,
       fxLevel: k.fxLevel,
-      dream: url === "dream" ? true : k.dream,
+      dream: url === "dream" ? true : url === "frames" ? false : k.dream,
       dreamR: k.dreamR,
       dreamPx: k.dreamPx,
-      scan: url === "scan" ? true : url === "dream" ? false : k.scan,
+      scan: url === "scan" ? true : url === "dream" || url === "frames" ? false : k.scan && !k.frames,
       scanR: k.scanR,
       scanPix: k.scanPix,
       scanFrames: k.scanFrames,
@@ -244,8 +305,30 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
       scanArriveDist: k.scanArriveDist,
       scanArriveSec: k.scanArriveSec,
       scanFlow: k.scanFlow,
+      frames: url === "frames" ? true : url === "scan" || url === "dream" ? false : k.frames,
+      frameR: k.frameR,
+      frameEvery: k.frameEvery,
+      frameTurn: k.frameTurn,
+      frameMove: k.frameMove,
+      frameMax: Math.round(k.frameMax),
+      frameHold: k.frameHold,
+      frameLife: k.frameLife,
+      frameH: k.frameH,
+      frameAlpha: k.frameAlpha,
+      frameFilm: k.frameFilm,
+      frameInk: k.frameInk,
+      frameSplat: k.frameSplat,
+      frameSmear: k.frameSmear,
+      frameJitter: k.frameJitter,
+      frameArriveSec: k.frameArriveSec,
+      frameRest: k.frameRest,
+      framePass: k.framePass,
+      frameRevealSec: k.frameRevealSec,
+      frameBody: k.frameBody,
+      frameOut: k.frameOut as FuturePresenceVisual["frameOut"],
+      framePaper: k.framePaper as FuturePresenceVisual["framePaper"],
     };
-  }, [url, k.on, k.mode, k.radius, k.everySec, k.readLatest, k.unit, k.band, k.ruin, k.maxBuildings, k.strip, k.lastSteel, k.lastPile, k.showTraces, k.showRemains, k.showPlants, k.showDeposits, k.edgeColor, k.plantColor, k.excCount, k.excRoam, k.excLegSec, k.meetR, k.cloudR, k.pointSize, k.surface, k.wild, k.inSec, k.holdSec, k.outSec, k.cooldownSec, k.darkPresent, k.fxLevel, k.dream, k.dreamR, k.dreamPx, k.scan, k.scanR, k.scanPix, k.scanFrames, k.scanTurn, k.scanStill, k.scanBase, k.scanGain, k.scanNew, k.scanPx, k.scanGlow, k.scanSplat, k.scanHold, k.scanDark, k.scanArrive, k.scanArriveDist, k.scanArriveSec, k.scanFlow]);
+  }, [url, k.on, k.mode, k.radius, k.everySec, k.readLatest, k.unit, k.band, k.ruin, k.maxBuildings, k.strip, k.lastSteel, k.lastPile, k.showTraces, k.showRemains, k.showPlants, k.showDeposits, k.edgeColor, k.plantColor, k.excCount, k.excRoam, k.excLegSec, k.meetR, k.cloudR, k.pointSize, k.surface, k.wild, k.inSec, k.holdSec, k.outSec, k.cooldownSec, k.darkPresent, k.fxLevel, k.dream, k.dreamR, k.dreamPx, k.scan, k.scanR, k.scanPix, k.scanFrames, k.scanTurn, k.scanStill, k.scanBase, k.scanGain, k.scanNew, k.scanPx, k.scanGlow, k.scanSplat, k.scanHold, k.scanDark, k.scanArrive, k.scanArriveDist, k.scanArriveSec, k.scanFlow, k.frames, k.frameR, k.frameEvery, k.frameTurn, k.frameMove, k.frameMax, k.frameHold, k.frameLife, k.frameH, k.frameAlpha, k.frameFilm, k.frameInk, k.frameSplat, k.frameSmear, k.frameJitter, k.frameArriveSec, k.frameRest, k.framePass, k.frameRevealSec, k.frameBody, k.frameOut, k.framePaper]);
 }
 
 const MAX_EDGE_VERTS = 120000;

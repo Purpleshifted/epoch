@@ -21,6 +21,8 @@ import * as THREE from "three";
 import { DEFAULT_BOXES, DEFAULT_DENSITY, DEFAULT_PATH, DEFAULT_VARIETY, DensityField, NO_PATHS, nearestImage, wrapDist, type BoxConfig, type DensityConfig, type EventLog } from "@/lib/parliament";
 import { excavatorsAt } from "@/lib/parliament/excavators";
 import { futurePresence, waterDistance } from "@/lib/parliament/futurePresence";
+import { FutureFrames } from "./futureFrames";
+import { paperLook } from "./paperLook";
 import { playFuturePassing } from "./futureSound";
 import type { SoundSetup } from "./useSound";
 import { CELL_SIZE } from "@/lib/stratum/field";
@@ -328,7 +330,7 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
   const field = useRef<{ f: DensityField; key: string; fed: number; drops: number } | null>(null);
   // (the scan's place: where it came from (arrive: a direction × a distance), how far the visitor's walking has drawn it
   // (flow), and where it is now (shift = the two))
-  const st = useRef({ active: false, t0: 0, ex: -1, cool: new Map<number, number>(), outAt: 0, scan: false, arrive: new THREE.Vector3(), flow: new THREE.Vector3(), shift: new THREE.Vector3() });
+  const st = useRef({ active: false, t0: 0, ex: -1, cool: new Map<number, number>(), outAt: 0, scan: false, frames: false, arrive: new THREE.Vector3(), flow: new THREE.Vector3(), shift: new THREE.Vector3() });
   const geom = useMemo(() => {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(CAP * 3), 3));
@@ -413,6 +415,13 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
     },
     [scanPoints, scanMat, captureMat],
   );
+  // THE FRAMES (futureFrames.ts): the place taken from the eye as pictures, each a translucent plate that comes
+  const frames = useMemo(() => new FutureFrames(geom), [geom]);
+  const framesKey = useRef("");
+  /** ?paper=1 — the trial's white ground (until the street look's is here): a white sky, and the present (still drawn for
+   *  the black ground) put away while the frames stand, so they are seen as they will be on paper. A trial's hook only. */
+  const paperTrial = useRef(false);
+  useEffect(() => () => frames.dispose(), [frames]);
   useEffect(() => {
     futureMeet.last = null;
     futureMeet.dark = false;
@@ -519,6 +528,21 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
       state.gl.compile(tmp, state.camera);
       state.gl.compile(captureScene, state.camera);
       if (cfg.scan) ensureAtlas(state.gl, isCoarse());
+      // (a trial's hook until the street look's white ground is here: ?paper=1 = the view on paper)
+      if (new URLSearchParams(window.location.search).get("paper") === "1") {
+        paperTrial.current = true;
+        paperLook.on = true;
+        state.scene.background = new THREE.Color(paperLook.paper);
+      }
+    }
+    // (the frames' plates and programs made before the first encounter, and again when their number or size changes)
+    if (cfg.frames) {
+      const fk = `${isCoarse()}:${cfg.frameMax}`;
+      if (framesKey.current !== fk) {
+        framesKey.current = fk;
+        frames.ensure(state.gl, isCoarse(), cfg);
+        frames.compile(state.gl, state.camera);
+      }
     }
     // THE FIELD: this view's log through the wall's density rule, fed a little every frame
     const dcfg = visitorWorld.density ?? FALLBACK_DENSITY;
@@ -542,7 +566,7 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
     const M = cfg.dream ? dreamMat : mat;
     if (points.current && points.current.material !== M) points.current.material = M;
     // (the scan: the cloud is only what the frames are taken of)
-    if (points.current) points.current.visible = !(s.active && s.scan);
+    if (points.current) points.current.visible = !(s.active && (s.scan || s.frames));
     for (const m of [mat, dreamMat]) {
       m.uniforms.uScale.value = state.gl.domElement.height / 2;
       m.uniforms.uSize.value = cfg.pointSize;
@@ -555,8 +579,9 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
       const ex = exs.find((e) => e.i === s.ex);
       const inside = !!ex && wrapDist(ex.x, ex.z, p.x, p.z) <= cfg.meetR * 1.6;
       // (it holds while the archaeologist is there, at least `hold` seconds; then it streams away)
-      if (inside) s.outAt = Math.max(s.outAt, Math.min(t + 0.5, cfg.inSec + (s.scan ? cfg.scanHold : 0) + 12));
-      const outLen = s.scan ? cfg.outSec * 1.5 : cfg.outSec;
+      // (the frames stay as long as the archaeologist is in reach, and go when it is not)
+      if (inside) s.outAt = Math.max(s.outAt, Math.min(t + 0.5, cfg.inSec + (s.scan ? cfg.scanHold : s.frames ? 48 : 0) + 12));
+      const outLen = s.scan || s.frames ? cfg.outSec * 1.5 : cfg.outSec;
       M.uniforms.uT.value = t;
       M.uniforms.uOutAt.value = s.outAt;
       if (ex) {
@@ -568,9 +593,12 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
         a.needsUpdate = true;
       }
       const env = Math.min(1, t / Math.max(0.1, cfg.inSec)) * (1 - Math.min(1, Math.max(0, (t - s.outAt) / Math.max(0.1, outLen))));
-      lineMat.opacity = 0.7 * env;
+      // (the frames' archaeologist is a window of a body's shape, not a line)
+      lineMat.opacity = s.frames ? 0 : 0.7 * env;
       // (the present is dark while the future holds; it comes back as the cloud streams away — the afterimage)
-      futureMeet.dark = (s.scan ? cfg.scanDark : cfg.darkPresent && !cfg.dream) && t < s.outAt;
+      // (the frames stand in the present, translucent: it stays)
+      futureMeet.dark = s.frames ? paperTrial.current : (s.scan ? cfg.scanDark : cfg.darkPresent && !cfg.dream) && t < s.outAt;
+      if (s.frames) frames.update({ gl: state.gl, cam: state.camera, now, t, outAt: s.outAt, outLen, ex: ex ? { x: nearestImage(ex.x, p.x), z: nearestImage(ex.z, p.z), standing: ex.standing } : null, cfg });
       if (s.scan) {
         // THE PLACE COMES (B): from far ahead it rushes in, slowing as it reaches the visitor; and (A) while it holds the
         // visitor stands where they are — their walking draws the place to them instead
@@ -617,6 +645,7 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
         lineMat.opacity = 0;
         scanPoints.visible = false;
         scanMat.uniforms.uCount.value = 0;
+        frames.end();
       }
       return;
     }
@@ -636,9 +665,9 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
     const box: BoxConfig = { ...DEFAULT_BOXES, secPerUnit: Math.max(1, dcfg.slotSec), unit: cfg.unit, width: 0.8, density: 1.4, variety: DEFAULT_VARIETY, buildSlots: 0 };
     const me = meRef.current.id;
     // (the scan takes its frames of the dream's sampling of the place)
-    const dream = cfg.dream || cfg.scan, phone = isCoarse();
+    const dream = cfg.dream || cfg.scan || cfg.frames, phone = isCoarse();
     // (the dream: a narrow piece, sampled densely — the whole budget in it — so the place reads from the points' density)
-    const R = cfg.scan ? cfg.scanR : dream ? cfg.dreamR : cfg.cloudR;
+    const R = cfg.frames ? cfg.frameR : cfg.scan ? cfg.scanR : dream ? cfg.dreamR : cfg.cloudR;
     const r = futurePresence(h.f, me, K, kMe, p, { ...cfg, radius: R + 4, surface: cfg.surface * (dream ? (phone ? 4 : 14) : 1), surfaceCap: dream ? (phone ? 400 : 2000) : 160, wild: cfg.wild, traces: true }, box);
     // FOUND: the visitor stayed in that ground (their own cells near, whenever in their life)
     let found = false;
@@ -659,10 +688,10 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
     // (the dream: up to 90 000 points — a phone a fifth — thinner the further from the visitor; the visitor's own cells
     // lower the threshold of what is near them: their life comes first and stays longest)
     // (the scan's cloud is never drawn, only taken into frames: a phone gets it whole)
-    const cap = dream ? Math.min(CAP, phone && !cfg.scan ? 18000 : 90000) : CAP;
+    const scanOnly = cfg.scan || cfg.frames;
+    const cap = dream ? Math.min(CAP, phone && !scanOnly ? 18000 : 90000) : CAP;
     const mine: number[] = [];
     for (let o = 0; o + 3 < r.traces.length; o += 4) mine.push(r.traces[o], r.traces[o + 1]);
-    const scanOnly = cfg.scan;
     const put = (x0: number, y: number, z0: number, r0: number, g0: number, b0: number) => {
       if (v >= cap) return;
       const x = nearestImage(x0, p.x), z = nearestImage(z0, p.z);
@@ -713,7 +742,7 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
     for (let o = 0; o + 11 < r.plantClouds.length; o += 12) {
       const x = r.plantClouds[o], z = r.plantClouds[o + 1], rad = r.plantClouds[o + 3], tall = r.plantClouds[o + 4] * cfg.unit, kind = r.plantClouds[o + 5], own = Math.floor(r.plantClouds[o + 9] * 1e6);
       if ((nearestImage(x, p.x) - p.x) ** 2 + (nearestImage(z, p.z) - p.z) ** 2 > (R + 2) ** 2) continue;
-      const n = Math.min(cfg.scan ? 260 : dream ? 700 : 120, Math.round((20 + rad * rad * 25) * (dream ? 6 : 1)));
+      const n = Math.min(scanOnly ? 260 : dream ? 700 : 120, Math.round((20 + rad * rad * 25) * (dream ? 6 : 1)));
       if (r.plantClouds[o + 6] > 0.3) flowering++;
       for (let i = 0; i < n; i++) {
         const th = hash(own, i, 1) * Math.PI * 2, rr = rad * Math.sqrt(hash(own, i, 2)), u = hash(own, i, 3);
@@ -791,7 +820,7 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
     M.uniforms.uIn.value = cfg.inSec;
     M.uniforms.uOut.value = cfg.outSec;
     M.uniforms.uT.value = 0;
-    if (cfg.scan) {
+    if (cfg.scan && !cfg.frames) {
       const sc = scan.current, U = scanMat.uniforms;
       ensureAtlas(state.gl, phone);
       Object.assign(sc, { count: 0, newest: -1, n: 0, lastAt: -Infinity });
@@ -814,14 +843,18 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
       captureMat.uniforms.uOrigin.value.set(p.x, 0, p.z);
       captureMat.uniforms.uR.value = R;
     }
-    Object.assign(s, { active: true, t0: now, ex: ex.i, outAt: cfg.inSec + (cfg.scan ? cfg.scanHold : cfg.holdSec), scan: cfg.scan });
+    if (cfg.frames) {
+      frames.ensure(state.gl, phone, cfg);
+      frames.begin(p, R, cfg.plantColor);
+    }
+    Object.assign(s, { active: true, t0: now, ex: ex.i, outAt: cfg.inSec + (cfg.frames ? cfg.frameHold : cfg.scan ? cfg.scanHold : cfg.holdSec), scan: cfg.scan && !cfg.frames, frames: cfg.frames });
     s.cool.set(ex.i, now + cfg.cooldownSec);
     // THE PASSING, HEARD (futureSound.ts): glitter where the meadow flowers, a river where the future's water runs near,
     // from the side it comes from to the side it goes to (the listener's right: the camera's yaw)
     const wd = waterDistance(epoch, visitorWorld.herd, sNow, p.x, p.z);
     const yaw = getYaw?.() ?? 0, rx = -Math.cos(yaw), rz = Math.sin(yaw);
     const side = Math.max(-1, Math.min(1, ex.dx * rx + ex.dz * rz));
-    const heard = cfg.fxLevel > 0 && playFuturePassing(sound, { glitter: Math.min(1, flowering / 15), river: wd <= 10 ? 1 - wd / 10 : 0, found, panFrom: -side * 0.8, panTo: side * 0.8, dur: cfg.inSec + (cfg.scan ? cfg.scanHold : cfg.holdSec) + cfg.outSec, level: cfg.fxLevel });
+    const heard = cfg.fxLevel > 0 && playFuturePassing(sound, { glitter: Math.min(1, flowering / 15), river: wd <= 10 ? 1 - wd / 10 : 0, found, panFrom: -side * 0.8, panTo: side * 0.8, dur: cfg.inSec + (cfg.frames ? cfg.frameHold + 2 : cfg.scan ? cfg.scanHold : cfg.holdSec) + cfg.outSec, level: cfg.fxLevel });
     markSpan("future-meet", performance.now() - t0);
     (window as unknown as { __futureMeet?: unknown }).__futureMeet = { at: Math.round(getWorldSec()), ex: ex.i, found, heard, flowering, water: Number.isFinite(wd) ? Math.round(wd * 10) / 10 : null, points: v, ms: Math.round(performance.now() - t0), readMs: Math.round(r.ms), fillMs: Math.round(fillMs), k: K, kMe, n: r.n, surface: r.surface.length / 4, plants: r.plantClouds.length / 12, trees: r.vegTree.length / 5, mounds: r.mounds.length / 4, stains: r.stains.length / 4, traces: r.traces.length / 4, scan: cfg.scan ? { W: scan.current.W, H: scan.current.H, K: scan.current.K, points: scan.current.W * scan.current.H * scan.current.K } : null };
   });
@@ -831,6 +864,7 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
       <points ref={points} geometry={geom} material={mat} frustumCulled={false} />
       <lineSegments geometry={line} material={lineMat} frustumCulled={false} />
       <primitive object={scanPoints} />
+      <primitive object={frames.group} />
     </>
   );
 }
