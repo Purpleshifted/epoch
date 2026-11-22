@@ -4641,19 +4641,29 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   // THE MARKERS: the bots' names (off: no text over them) and their colours by how their herd moves
   const mk = useLevaControls(
     "마커",
+    // THE FOLDER TIDIED (the artist, 2026-11-22 night: "레바 좀 정리해가면서 하라고"): "me" first — one choice of how, and
+    // only the knobs that choice reads; then the others; the trial in its own folder. Short names; the defaults are the
+    // artist's saved values of 16:33 (빛기둥 · 1.2 · 흰색 · 깜빡임 · 시험 켬). Saved values keep their keys.
     savable("마커", {
-      names: { value: false, label: "봇 이름 보이기" },
-      byKind: { value: false, label: "성격별 색 (정착 파랑 · 유랑 주황 · 순회 초록 · 혼자 회색)" },
-      // "ME" ON THE WALL — the proposals of docs/me-marker.md (the artist, 2026-11-22), tried here on the real wall
-      meStyle: { options: { "수직선 (지금)": "line", "수면 (내 시간 높이의 수평 고리)": "plane", "빛기둥 (나에서 내 위의 미래까지)": "column", "기호 (내 이름의 멜로디 · 내 박자로 깜빡임)": "glyph", "위로 (선이 내 위에 쌓인 것으로)": "up" }, value: "line" as MeStyle, label: "\"나\"의 표시" },
-      meScale: { value: 1, min: 0.5, max: 3, step: 0.1, label: "\"나\"의 크기 (×)" },
-      meColor: { options: { "주황 (지금)": "orange", "흰색 (색은 자연에만)": "white" }, value: "orange", label: "\"나\"의 색" },
-      mePulse: { value: false, label: "내 박자로 깜빡임 (내 멜로디의 온셋 · 2 s 마디)" },
-      others: { options: { "지금 (파랑 · 검정 공 + 바닥 선)": "now", "무채색 작게 (봇 회색 점 · 타인 밝은 점 · 선 없음)": "quiet", "무채색 작게 · 타인은 작은 기호": "glyph" }, value: "now" as OthersStyle, label: "봇 · 타인" },
-      meTrialMid: { value: false, label: "시험: 나를 살아 있는 봇들 가운데 높이에 그리기 (표시만 · 기록은 그대로)" },
+      // "ME" ON THE WALL — the proposals of docs/me-marker.md
+      meStyle: { options: { "수직선": "line", "수면": "plane", "빛기둥": "column", "기호": "glyph", "위로": "up" }, value: "column" as MeStyle, label: "나의 표시" },
+      meScale: { value: 1.2, min: 0.5, max: 3, step: 0.1, label: "크기 (×)" },
+      meColor: { options: { "흰색": "white", "주황": "orange" }, value: "white", label: "색" },
+      // (the glyph always blinks its rhythm)
+      mePulse: { value: true, label: "내 박자로 깜빡임", render: (get) => get("마커.meStyle") !== "glyph" },
+      others: { options: { "파랑 공 + 선": "now", "회색 점": "quiet", "회색 점 · 타인 기호": "glyph" }, value: "now" as OthersStyle, label: "봇 · 타인" },
+      byKind: { value: false, label: "봇 성격별 색" },
+      names: { value: false, label: "봇 이름" },
+      "시험": folder(
+        {
+          meTrialMid: { value: true, label: "나를 봇들 높이에 그림 (표시만)" },
+        },
+        { collapsed: true },
+      ),
     }),
     { order: lab ? 7.2 : 1.55 },
-  );
+    // (a knob shown by another's value — render (get) — loses Leva's inferred type: say what the folder holds)
+  ) as unknown as { meStyle: MeStyle; meScale: number; meColor: string; mePulse: boolean; others: OthersStyle; byKind: boolean; names: boolean; meTrialMid: boolean };
   const meLook = useMemo<MeLook>(
     () => ({ style: mk.meStyle as MeStyle, scale: mk.meScale, white: mk.meColor === "white", pulse: mk.mePulse, others: mk.others as OthersStyle, trialMid: mk.meTrialMid }),
     [mk.meStyle, mk.meScale, mk.meColor, mk.mePulse, mk.others, mk.meTrialMid],
