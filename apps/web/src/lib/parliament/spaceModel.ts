@@ -858,6 +858,8 @@ export class SpaceModel {
     look: ((k: number) => number) | undefined;
     todo: { key: string; sig: string; k0: number; k1: number; tx: number; tz: number; ps: { b: Box; d: number; up: boolean; sk: boolean }[] }[];
     done: Map<string, { sig: string; mesh: FuseMesh }>;
+    /** The building's mass as it was when the job began (undefined: its first) — what the new one replaces. */
+    base: SpaceModel["units"] extends Map<string, infer V> ? V | undefined : never;
   } | null = null;
   /** Masses of buildings that are no longer a building of their own (joined to another): shown until that one is made again. */
   private unitOrphans: { mesh: FuseMesh; heir: string; heirAt: number }[] = [];
@@ -1823,7 +1825,24 @@ export class SpaceModel {
       this.unitOrphans = this.unitOrphans.filter((o) => this.units.get(o.heir)?.at === o.heirAt);
       if (this.unitOrphans.length !== n0) this.unitsVersion++;
     }
-    if (this.unitJob && !lists.has(this.unitJob.id)) this.unitJob = null;
+    // THE JOB GOES ON UNDER THE BUILDING'S NEW NAME (the artist, 2026-11-22: "아예 화석이 안 되고 나타나지도 않는 건물도
+    // 있는데 … 건물이 너무 길어지면"). A long building is many pieces, made over many calls — and its name is its oldest
+    // cell-run, which the rising window lets go of, or another building's when the two touch: the job was thrown away
+    // whenever the name changed, and a building whose name changed sooner than its pieces were made was never shown.
+    // The job is the building's state as it was taken; it is finished under the building that holds most of its parts.
+    if (this.unitJob && !lists.has(this.unitJob.id)) {
+      const job = this.unitJob;
+      let heir = "", most = 0;
+      for (const [id, list] of lists) {
+        let n = 0;
+        for (const e of list) if (job.snap.has(key(e.b))) n++;
+        if (n > most) [heir, most] = [id, n];
+      }
+      if (heir) {
+        job.id = heir;
+        this.stages["fuse job carried to the building's new name (n)"] = (this.stages["fuse job carried to the building's new name (n)"] ?? 0) + 1;
+      } else this.unitJob = null;
+    }
 
     // how far each building's state has moved from the one its mass was made from
     const changeOf = (id: string, list: readonly P[]): number => {
@@ -1912,7 +1931,7 @@ export class SpaceModel {
       }
       const snap = new Map<number, number>();
       for (const e of list) snap.set(key(e.b), e.d);
-      return { id, cfg, snap, ang, parts: seeded ? list.map((e) => ({ b: e.b, grow: e.grow })) : [], h: h && ang ? SpaceModel.turnedHistory(h, c, sn, ext, ka - 12, kb + 12) : h, look: lookOf(list), todo, done: new Map() };
+      return { id, cfg, snap, ang, parts: seeded ? list.map((e) => ({ b: e.b, grow: e.grow })) : [], h: h && ang ? SpaceModel.turnedHistory(h, c, sn, ext, ka - 12, kb + 12) : h, look: lookOf(list), todo, done: new Map(), base: this.units.get(id) };
     };
 
     const deadline = performance.now() + FUSE_BUDGET_MS;
@@ -1935,7 +1954,8 @@ export class SpaceModel {
         this.unitJob = begin(pick, lists.get(pick)!);
       }
       const job = this.unitJob;
-      const was = this.units.get(job.id);
+      // (the mass it began from — still this building's, or, carried to another name, the one it was taken over by)
+      const was = job.base;
       while (job.todo.length) {
         const piece = job.todo.shift()!;
         const kept = was && was.cfg === job.cfg ? was.pieces.get(piece.key) : undefined;
@@ -1949,9 +1969,18 @@ export class SpaceModel {
         }
         if (performance.now() > deadline) break;
       }
+      this.stages["fuse building: pieces left (n)"] = job.todo.length;
+      this.stages["fuse building: pieces made (n)"] = job.done.size;
       if (job.todo.length) break; // (out of time: the building goes on at the next call, from the same state)
       // every piece is done: the building's mass is changed whole
       const mesh = mergeMeshes([...job.done.values()].map((q) => q.mesh));
+      // (carried to a name that is another building's — two that touched: its mass is not this one's to replace; it is
+      // shown beside it until that building is made again, with these parts)
+      const cur = this.units.get(job.id);
+      const joined = !!cur && cur !== was;
+      // (…and the mass it began from, if that is shown beside it already — joined before the job was done: replaced)
+      const wasBeside = joined && was ? this.unitOrphans.findIndex((o) => o.mesh === was.mesh) : -1;
+      if (wasBeside >= 0) this.unitOrphans.splice(wasBeside, 1);
       if (job.ang) {
         const c = Math.cos(job.ang), sn = Math.sin(job.ang);
         for (const arr of [mesh.position, mesh.normal]) {
@@ -1962,7 +1991,7 @@ export class SpaceModel {
           }
         }
       }
-      if (was) for (const k of was.snap.keys()) this.unitFused.delete(k);
+      if (was && !joined) for (const k of was.snap.keys()) this.unitFused.delete(k);
       for (const [k, d] of job.snap) this.unitFused.set(k, d);
       // (the parts are read again against the mass only where the mass takes their place: with `absorb` 0 — the
       // parts stand whole under it — a building's new mass costs the parts nothing)
@@ -1973,16 +2002,26 @@ export class SpaceModel {
       // onto the new — both drawn while it melts, one body
       if (melt) {
         const now = this.morphNow();
-        const old = was && was.mesh.index.length ? was.mesh : null;
+        const old = joined ? (wasBeside >= 0 && was!.mesh.index.length ? was!.mesh : null) : cur && cur.mesh.index.length ? cur.mesh : null;
         const tm = performance.now();
         meltMorph(mesh, old, now, false);
         if (old) {
           meltMorph(old, mesh, now, true);
           this.unitLeaving.push({ mesh: old, until: now + meltSec + 0.5 });
         }
+        // (the masses of buildings that joined this one melt onto it too, rather than being let go at once)
+        if (!joined && this.unitOrphans.some((o) => o.heir === job.id)) {
+          this.unitOrphans = this.unitOrphans.filter((o) => {
+            if (o.heir !== job.id) return true;
+            meltMorph(o.mesh, mesh, now, true);
+            this.unitLeaving.push({ mesh: o.mesh, until: now + meltSec + 0.5 });
+            return false;
+          });
+        }
         this.stages["melt ms (last building)"] = Math.round(performance.now() - tm);
       }
-      this.units.set(job.id, { cfg: job.cfg, snap: job.snap, mesh, at: ++this.unitsVersion, madeMs: performance.now(), pieces: job.done });
+      if (joined) this.unitOrphans.push({ mesh, heir: job.id, heirAt: cur!.at }), this.unitsVersion++;
+      else this.units.set(job.id, { cfg: job.cfg, snap: job.snap, mesh, at: ++this.unitsVersion, madeMs: performance.now(), pieces: job.done });
       this.unitJob = null;
       this.stages["fuse buildings (n)"] = (this.stages["fuse buildings (n)"] ?? 0) + 1;
       if (performance.now() > deadline) break;

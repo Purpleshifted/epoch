@@ -133,6 +133,11 @@ export interface SoundParams {
   afterlifeTail: number;
   /** After the afterlife: the room's speakers' sound, faintly, in the headset (0 = none) — so the sound met on taking the headset off is already known. */
   afterglow: number;
+  /**
+   * A word another left, found underfoot (witness `word.found`): the leaver's melody once, on the next bar, in the
+   * name's voice — this times the level the name sounds at (1 = as loud as the name, 0 = not heard).
+   */
+  foundLevel: number;
   /** How much of my motif goes into the long open space (0..1): the signal sent out, its tail. */
   motifVerb: number;
   /** How much of the building's dullness the patch gets (0 = none, 1 = as everything else). */
@@ -211,6 +216,7 @@ export const DEFAULT_SOUND: SoundParams = {
   dead: false,
   afterlifeTail: 5, // 10 before A5e: the artist found it too long
   afterglow: 0.12,
+  foundLevel: 1,
   ncDull: 0.7,
   ncMap: true,
   ncMapDepth: 0.8,
@@ -231,8 +237,14 @@ interface Voice {
 }
 
 const LOOKAHEAD = 0.3; // s: a bar is scheduled this long before it starts
+/** A found word not played within this many bars of being found (an arrival's cadence held it, a stalled tab) is let go. */
+const FOUND_WAIT_BARS = 4;
 const TICK_MS = 50;
 const OTHER_FADE_SEC = 1.5;
+/** The voice of who has asked me something, against the others' level: the clearest thing around (the artist, 2026-11-10). */
+const ASKER_LEVEL = 2.2;
+/** My answer to a call: how loud it is said against my ordinary motif (the artist, 2026-11-10: it must leap out, to anyone). */
+const ANSWER_VEL = 2.2;
 const MAGENTA_AFTER_MS = 4000;
 /** The others heard at once (nearest first): an HRTF panner per bot was what lagged with a dozen bots (v4 A1). */
 const MAX_VOICES = 4;
@@ -278,6 +290,8 @@ export interface SoundDebug {
   nc: string;
   /** The building's tonality where I stand: "D Dorian · in" / "· ring", empty in the open. */
   place: string;
+  /** The found words' melodies so far (found()): how many have sounded, and the last one — whose, on which bar. */
+  found: { played: number; last: string; waiting: string | null };
 }
 
 export class SoundEngine {
@@ -323,6 +337,12 @@ export class SoundEngine {
   private me: Voice | null = null;
   /** The name's melody on its way to the limiter (announce). */
   private nameOut: GainNode | null = null;
+  /** A found word's melody on its way to the master (found): made at the first, let go at a death. */
+  private foundOut: GainNode | null = null;
+  /** The found word waiting for its bar (found → tick): whose, and when it was found (context seconds). */
+  private foundWaiting: { id: string; at: number } | null = null;
+  private foundPlayed = 0;
+  private foundLast = "";
   /**
    * The recording's tap (recorder.ts): a sink on the limiter's output, made once when a life is first recorded. It
    * carries exactly what goes to the device — the name's melody included — whatever device that is; no processing.
@@ -395,6 +415,7 @@ export class SoundEngine {
       voices: this.voices.size,
       nc: this.ncStatus + (this.nc ? " → engine" : ""),
       place: this.placeLine + (this.lastPlan?.arrival ? ` · 도착 ${this.lastPlan.arrival}` : ""),
+      found: { played: this.foundPlayed, last: this.foundLast, waiting: this.foundWaiting?.id ?? null },
     };
   }
 
@@ -467,6 +488,44 @@ export class SoundEngine {
    * the lock (a path, building together) tightens it by `clockPull`. The patch receives this value. With the Web
    * Audio instrument alone the bar stays the Leva length (the epoch grid must not jump).
    */
+  /** Where the bars are counted from (wall ms): the patch's clock carries the phase when it plays (anchor), else the epoch. */
+  private gridEpochMs(barSec: number): number {
+    return this.params.instrument !== "webaudio" && this.anchor ? this.anchor.wallMs - this.anchor.bar * barSec * 1000 : this.epochMs;
+  }
+
+  /** Where the music is: the step of its bar (8 to a bar) and how far into it; null before it runs. */
+  get musicStep(): { step: number; into: number } | null {
+    if (!this.running || !this.epochMs) return null;
+    const barSec = this.musicBarSec();
+    const inBar = (((Date.now() - this.gridEpochMs(barSec)) / 1000 / barSec) % 1) + 1;
+    const pos = (inBar % 1) * 8;
+    const step = Math.floor(pos);
+    return { step, into: pos - step };
+  }
+
+  /**
+   * MY ANSWER (the artist, 2026-11-10: "the merged structure must leap out, to anyone"; brought into the redesign
+   * 2026-11-22): two bars from `startPerfMs` (performance.now() basis, a bar's edge), `stepMs` a step — first my melody
+   * and `other`'s together, then the new `word` they became (glyph.ts newWordMotifOf, what the record writes down), on
+   * the place's chord, loud, laid over whatever the bars hold. Nothing in the bar plans changes.
+   */
+  playAnswer(startPerfMs: number, stepMs: number, other: string, word: Motif): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.running || !this.me || !this.key || this.params.dead || this.afterlife) return;
+    const chord = this.plans.get(this.planned)?.chord ?? null;
+    const theirs = this.motifs.get(other) ?? makeMotif(other);
+    const cycleSec = (word.steps * stepMs) / 1000;
+    const at0 = ctx.currentTime + Math.max(0, startPerfMs - performance.now()) / 1000;
+    const their = this.voices.get(other);
+    for (const n of realize(this.me.motif, this.key, chord, 1, this.planned)) this.note(this.me.filt, n.freq, at0 + n.at * cycleSec, n.len * cycleSec, ANSWER_VEL, this.me.motif.timbre, 0, true);
+    for (const n of realize(theirs, this.key, chord, 1, this.planned)) this.note(their?.filt ?? this.me.filt, n.freq, at0 + n.at * cycleSec, n.len * cycleSec, ANSWER_VEL, theirs.timbre, 0, !their);
+    for (const n of realize(word, this.key, chord, 1, this.planned + 1)) this.note(this.me.filt, n.freq, at0 + cycleSec + n.at * cycleSec, n.len * cycleSec, ANSWER_VEL, this.me.motif.timbre, 0, true);
+    this.answersPlayed++;
+  }
+
+  /** How many answers have sounded (debug: engine.answersPlayed). */
+  answersPlayed = 0;
+
   musicBarSec(): number {
     const p = this.params;
     if (p.instrument === "webaudio" || !this.sig) return p.barSec;
@@ -762,6 +821,8 @@ export class SoundEngine {
     this.afterRoom = null;
     this.ncFeed = null;
     this.nameOut = null;
+    this.foundOut = null;
+    this.foundWaiting = null;
     this.tapOut = null;
     this.afterlife = null;
     this.wasDead = false;
@@ -805,6 +866,34 @@ export class SoundEngine {
     this.nameOut = null;
     out.gain.setTargetAtTime(0, ctx.currentTime, 0.06);
     setTimeout(() => out.disconnect(), 800);
+  }
+
+  /**
+   * A word another left is found (the witness's `word.found`, SessionHud): `id` = the one who left it, whose melody the
+   * line draws (glyphOf). It sounds ONCE, on the next bar the scheduler plans (tick → playFound), in the name's voice;
+   * that bar my own motif keeps quiet. Nothing while the name is up, at the end, or with the engine stopped (muted) —
+   * a word found then is not played later.
+   */
+  found(id: string): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.timer || this.nameOut || this.afterlife || this.params.dead || this.params.foundLevel <= 0) return;
+    this.foundWaiting = { id, at: ctx.currentTime };
+  }
+
+  /** The found word's melody from `at` (a bar's start): the leaver's motif in the key I stand in, every note in tune, like the name. */
+  private playFound(id: string, at: number, bar: number, key: WorldKey, barSec: number): void {
+    const ctx = this.ctx!;
+    if (!this.foundOut) {
+      this.foundOut = ctx.createGain();
+      // into the master, not the limiter as the name: the master is open at the level the name is announced at, and a
+      // death's fade takes the found word down with everything else
+      this.foundOut.connect(this.master);
+    }
+    this.foundOut.gain.value = this.params.foundLevel;
+    const m = this.motifOf(id);
+    for (const n of realize(m, key, null, 1, 0)) this.note(this.foundOut, n.freq, at + n.at * barSec, n.len * barSec, 1, m.timbre, 0, true);
+    this.foundPlayed++;
+    this.foundLast = `${id} @${bar}`;
   }
 
   private motifOf(id: string): Motif {
@@ -923,6 +1012,9 @@ export class SoundEngine {
     // closeness accumulates while they are near
     const alive = new Set<string>();
     const heard = sig.neighbours.filter((n) => n.dist <= params.hearRadius).slice(0, MAX_VOICES);
+    // who speaks to me is always heard, however many are nearer
+    const asking = sig.asker ? sig.neighbours.find((n) => n.o === sig.asker) : undefined;
+    if (asking && !heard.includes(asking)) heard.push(asking);
     heard.forEach((n, rank) => {
       alive.add(n.o);
       let v = this.voices.get(n.o);
@@ -931,15 +1023,18 @@ export class SoundEngine {
         this.voices.set(n.o, v);
       }
       v.seen = t;
-      v.level = params.othersLevel;
-      v.gain.gain.setTargetAtTime(v.level, t, 0.4);
+      const calls = n.o === sig.asker;
+      v.level = calls ? params.othersLevel * ASKER_LEVEL : params.othersLevel;
+      v.gain.gain.setTargetAtTime(v.level, t, calls ? 0.1 : 0.4);
       if (v.panner) {
-        const model = rank === 0 ? "HRTF" : "equalpower";
+        // who speaks is placed by HRTF too (the artist, 2026-11-10: out of sight it could not be told where the call
+        // came from; equal-power panning says left or right only, never front or behind)
+        const model = rank === 0 || calls ? "HRTF" : "equalpower";
         if (v.panner.panningModel !== model) v.panner.panningModel = model;
         v.panner.positionX.setTargetAtTime(Math.sin(n.angle) * n.dist, t, 0.1);
         v.panner.positionZ.setTargetAtTime(Math.cos(n.angle) * n.dist, t, 0.1);
       }
-      v.filt.frequency.setTargetAtTime(v.blur > 0 ? 4000 * Math.pow(0.12, v.blur) : 4000, t, 0.3);
+      v.filt.frequency.setTargetAtTime(v.blur > 0 && !calls ? 4000 * Math.pow(0.12, v.blur) : 4000, t, calls ? 0.05 : 0.3);
       const near = n.dist < params.hearRadius * 0.5;
       this.closeness.set(n.o, Math.max(0, Math.min(1, (this.closeness.get(n.o) ?? 0) + dt * (near ? 0.12 : -0.08))));
     });
@@ -1153,6 +1248,14 @@ export class SoundEngine {
     this.afterlife = { at: t, until: t + tail, feedUntil: t + FEED };
     // the living sources let go (short releases, not chops — a chopped note reverberating sounded wrong)
     this.voiceBus.gain.setTargetAtTime(0, t + 0.25, 0.15);
+    // a found word still sounding lets go with the voices; one still waiting is not played (tick plans nothing now)
+    this.foundWaiting = null;
+    const fo = this.foundOut;
+    if (fo) {
+      this.foundOut = null;
+      fo.gain.setTargetAtTime(0, t + 0.25, 0.15);
+      setTimeout(() => fo.disconnect(), 2000);
+    }
     this.pad.level.gain.setTargetAtTime(0, t + 0.2, 0.25);
     this.bassGain.gain.setTargetAtTime(0, t, 0.1);
     this.wave.gain.gain.setTargetAtTime(0, t, 0.15);
@@ -1368,10 +1471,7 @@ export class SoundEngine {
     const p = this.params;
     const now = ctx.currentTime;
     const barSec = this.musicBarSec();
-    // the grid: the patch's clock carries the phase when it plays (anchor), else the epoch on the wall clock
-    const nc = p.instrument !== "webaudio";
-    const epoch = nc && this.anchor ? this.anchor.wallMs - this.anchor.bar * barSec * 1000 : this.epochMs;
-    const { bar, start } = barClock(epoch, Date.now(), now, barSec);
+    const { bar, start } = barClock(this.gridEpochMs(barSec), Date.now(), now, barSec);
     if (this.planned < bar) this.planned = bar; // never schedule a bar already under way (or a burst after a hidden tab)
     if (this.planned > bar + 1) {
       // the grid moved back (the patch's clock took over from the epoch grid, or the other way round): the bars
@@ -1389,11 +1489,28 @@ export class SoundEngine {
     const jitter = p.jitterMax * (1 - plan.lock);
     const human = () => (jitter > 0 ? (Math.random() * 2 - 1) * jitter : 0);
 
-    for (const n of plan.me) this.note(this.me.filt, n.freq, nextStart + n.at * barSec + human(), n.len * barSec, 1, this.me.motif.timbre, 0, true);
+    // a found word takes this bar (found()): in my voice, so my motif keeps quiet; an arrival's two bars stay the
+    // cadence's (the word waits for the bar after), and a word that has waited longer than a few bars is let go
+    const fw = this.foundWaiting;
+    let foundBar = false;
+    if (fw && now - fw.at > FOUND_WAIT_BARS * barSec) this.foundWaiting = null;
+    else if (fw && !plan.arrival) {
+      this.foundWaiting = null;
+      this.playFound(fw.id, nextStart, next, this.zoneKey ?? key, barSec);
+      foundBar = true;
+    }
+
+    if (!foundBar) for (const n of plan.me) this.note(this.me.filt, n.freq, nextStart + n.at * barSec + human(), n.len * barSec, 1, this.me.motif.timbre, 0, true);
     for (const vb of plan.others) {
       const v = this.voices.get(vb.o);
       if (!v || v.level <= 0.001) continue;
-      for (const n of vb.notes) this.note(v.filt, n.freq, nextStart + n.at * barSec + human() * 0.5, n.len * barSec, plan.answer ? 1 : 0.8, v.motif.timbre, v.blur);
+      // who speaks to me (the artist, 2026-11-10: heard at once, like a call, plainly the pattern): their melody on the
+      // grid's own steps, in the motif's own instrument instead of a bot's blur
+      const calls = vb.o === sig.asker;
+      for (const n of vb.notes) {
+        const at = nextStart + n.at * barSec + (calls ? 0 : human() * 0.5);
+        this.note(v.filt, n.freq, at, n.len * barSec, plan.answer || calls ? 1 : 0.8, v.motif.timbre, calls ? 0 : v.blur);
+      }
     }
     // the arrival's wave and breath (v4 A4c): the swell rises through the dominant bar; everything dips for a
     // breath, then the tonic breaks — the contrast the hall alone could not give in a sound already wet

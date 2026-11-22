@@ -2,6 +2,7 @@
  * /api/lives — keeping a life (lib/lives/db.ts) and the gallery that shows the kept ones.
  *   POST { id, card, look, via: "post" | "print", venue?, recordingUrl? }  → { kept: true, postedAt } | 503 { kept: false, server: false }
  *   GET  ?limit=60&before=<ms>&trials=1  → { lives: LifeRow[], server }   (newest first; trials only when asked)
+ *   GET  ?rec=<recording id>              → { life: LifeRow | null }         (the posted life with that recording)
  * The card is the end screen's own values (plate.ts PlateInput); it is checked for shape and size only. No auth (like
  * /api/presets): the worst a stranger can do is add a made-up life to the archive.
  *
@@ -11,7 +12,7 @@
  * memory until the server restarts. Anything else without one: 503 / an empty gallery.
  */
 import { NextResponse } from "next/server";
-import { hasLivesDb, readLives, writeLife, type LifeRow, type LifeVia } from "@/lib/lives/db";
+import { hasLivesDb, readLifeByRecording, readLives, writeLife, type LifeRow, type LifeVia } from "@/lib/lives/db";
 
 export const dynamic = "force-dynamic";
 
@@ -74,6 +75,8 @@ export async function POST(req: Request) {
 
 export async function GET(req: Request) {
   const q = new URL(req.url).searchParams;
+  const rec = q.get("rec");
+  if (rec !== null) return byRecording(rec);
   const limit = Math.max(1, Math.min(200, Number(q.get("limit")) || 60));
   const before = Number(q.get("before")) || undefined;
   const trials = q.get("trials") === "1";
@@ -101,5 +104,30 @@ export async function GET(req: Request) {
     return NextResponse.json({ lives, server: true }, { headers: noStore });
   } catch (e) {
     return NextResponse.json({ lives: [], error: String(e).slice(0, 200) }, { status: 500 });
+  }
+}
+
+/** The posted life with recording `rec` (its 발굴노트 when the recording carries none). */
+async function byRecording(rec: string) {
+  const noStore = { "cache-control": "no-store" };
+  if (!/^[a-z0-9_-]{3,40}$/.test(rec)) return NextResponse.json({ error: "bad rec" }, { status: 400 });
+  if (!hasLivesDb()) {
+    const prod = production();
+    if (prod) {
+      try {
+        const r = await fetch(`https://${prod}/api/lives?rec=${rec}`, { cache: "no-store", signal: AbortSignal.timeout(6000) });
+        if (r.ok) return NextResponse.json(await r.json(), { headers: noStore });
+      } catch {
+        /* production unreachable */
+      }
+      return NextResponse.json({ life: null }, { headers: noStore });
+    }
+    const life = (devMemory() ?? []).find((l) => (l.recordingUrl ?? "").endsWith(`/rec/${rec}`)) ?? null;
+    return NextResponse.json({ life }, { headers: noStore });
+  }
+  try {
+    return NextResponse.json({ life: await readLifeByRecording(rec) }, { headers: noStore });
+  } catch (e) {
+    return NextResponse.json({ life: null, error: String(e).slice(0, 200) }, { status: 500 });
   }
 }

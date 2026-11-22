@@ -31,6 +31,11 @@ import * as THREE from "three";
 import {
   DEFAULT_BOXES,
   LS_PARLIAMENT_ME_KEY,
+  GLYPH_COLS,
+  GLYPH_ROWS,
+  glyphOf,
+  rhythmOf,
+  stepAt,
   PART_CAPACITY,
   PART_KINDS,
   RECIPES,
@@ -1312,6 +1317,7 @@ function SpaceWorld({
   followLift,
   link,
   followWho,
+  meTrialMid,
   quietSec,
   controls,
   onStats,
@@ -1369,6 +1375,8 @@ function SpaceWorld({
    * "auto" — me unless me has been quiet for `quietSec` exhibition seconds (the wall with only bots running, and a
    * stale me id left in storage, used to stand still at me's last moment — the artist, 2026-10-30). */
   followWho: FollowWho;
+  /** The markers' trial (MeLook.trialMid): "me" is drawn at half the block's height, so the follow goes there too. */
+  meTrialMid: boolean;
   quietSec: number;
   controls: React.MutableRefObject<Orbit | null>;
   onStats: (s: Stats) => void;
@@ -2118,6 +2126,12 @@ function SpaceWorld({
     const focusS = modelT !== undefined && modelT > 0 ? Math.min(wantS, modelT + 2 * cfg.secPerUnit) : wantS;
     focus.current = { focusS, focusIsMe: useMe };
     focusY.current = events.length ? (focusS / cfg.secPerUnit) * cfg.unit : null;
+    // THE MARKERS' TRIAL (MeLook.trialMid, the artist 2026-11-22): "me" is drawn at half the block's height — the
+    // follow goes to where it is drawn, not to the sample's time (which today lies far above the block)
+    if (meTrialMid && useMe && last.current && last.current.top > 1) {
+      focusY.current = last.current.top * 0.5;
+      focus.current = { focusS: (focusY.current / cfg.unit) * cfg.secPerUnit, focusIsMe: true };
+    }
 
     const o = controls.current;
     // TIME STANDING STILL (rate 0): the camera the LOD and the vegetation window follow is pinned too, so moving the
@@ -2683,6 +2697,210 @@ interface MeStatus {
 const MARK_COLOR = { me: "#ff4d00", bot: "#2a62ff", visitor: "#111111" } as const;
 /** The markers' filter: a bot's colour by how its herd moves (settlers · roamers · on a round · alone). */
 const BOT_KIND_COLOR: Record<BotKind, string> = { settle: "#2a62ff", roam: "#ff8a1f", tour: "#19b36b", loner: "#9a9a9a" };
+
+/**
+ * HOW "ME" IS DRAWN (the artist, 2026-11-22: "글로벌뷰에서 뭐가 '나'인지 모르겠어서 … 봇/타인들과 '나' 플레이어 차별화를
+ * 어떻게 하면 좋을지"): the proposals of docs/me-marker.md as the 마커 folder's switches, tried on the real wall.
+ *   line    the sphere with a thin line down to the ground and a ring there (as before — the default)
+ *   plane   a thin horizontal ring at my time's height: my present as a water level across the block
+ *   column  a column of light from me UP to the block's top — it joins me to my future, what is stacked above me
+ *           (the artist, 2026-11-22: "내 미래랑 빛기둥으로 잇는 게 낫지 않나"; before that it stood ground to top)
+ *   glyph   my name — the melody written down (glyph.ts) — floating at my place, blinking my rhythm
+ *   up      the line goes UP from me to the block's top: what is stacked above me (my future), not the floor
+ */
+type MeStyle = "line" | "plane" | "column" | "glyph" | "up";
+/** The bots and the other visitors beside "me": as before; small achromatic points, no line; or the visitors as small glyphs. */
+type OthersStyle = "now" | "quiet" | "glyph";
+interface MeLook {
+  style: MeStyle;
+  /** × on everything of "me" (the sphere, the ring, the column's width, the glyph). */
+  scale: number;
+  /** White instead of the orange (colour only for nature). */
+  white: boolean;
+  /** Its brightness follows my melody's onsets on the shared bar (glyph.ts rhythmOf · stepAt) — the glyph always does. */
+  pulse: boolean;
+  others: OthersStyle;
+  /**
+   * A TRIAL, DRAWING ONLY (the artist, 2026-11-22: "봇이 없으니… 느껴질 리가…" → "스위치 넣고 고침도 기다려"): until the
+   * visitor is seated in the block's time (future-presence), their sample sits far above the block and the light
+   * column has nothing to reach. On, "me" is DRAWN at half the block's height — the record is untouched.
+   */
+  trialMid: boolean;
+}
+/** The quiet others: a bot and a visitor as small achromatic points (the old visitor's #111111 is invisible on the black wall). */
+const QUIET_COLOR = { me: "#ffffff", bot: "#8a8f96", visitor: "#d4d7db" } as const;
+
+const glyphTextures = new Map<string, THREE.CanvasTexture>();
+/** A being's melody glyph (glyph.ts) as a small white-on-clear texture, made once per id. */
+function glyphTexture(id: string): THREE.CanvasTexture {
+  let t = glyphTextures.get(id);
+  if (t) return t;
+  if (glyphTextures.size > 64) {
+    for (const old of glyphTextures.values()) old.dispose();
+    glyphTextures.clear();
+  }
+  const cell = 8;
+  const c = document.createElement("canvas");
+  c.width = GLYPH_COLS * cell;
+  c.height = GLYPH_ROWS * cell;
+  const g = c.getContext("2d")!;
+  g.fillStyle = "#ffffff";
+  for (const d of glyphOf(id)) g.fillRect(d.col * cell, d.row * cell, d.len * cell - 1, cell - 1);
+  t = new THREE.CanvasTexture(c);
+  t.magFilter = THREE.NearestFilter;
+  t.minFilter = THREE.LinearFilter;
+  glyphTextures.set(id, t);
+  return t;
+}
+
+/** The column's light: full at my height, falling off above and below (world y), never quite gone. */
+const COLUMN_VERT = /* glsl */ `
+  varying float vY;
+  void main() {
+    vec4 wp = modelMatrix * vec4(position, 1.0);
+    vY = wp.y;
+    gl_Position = projectionMatrix * viewMatrix * wp;
+  }
+`;
+const COLUMN_FRAG = /* glsl */ `
+  uniform vec3 uColor;
+  uniform float uY;
+  uniform float uAlpha;
+  uniform float uFall;
+  varying float vY;
+  void main() {
+    float a = uAlpha * (0.2 + 0.8 * exp(-abs(vY - uY) / uFall));
+    gl_FragColor = vec4(uColor, a);
+  }
+`;
+
+/** "Me" on the wall, by the chosen style (MeLook). The group stands on the ground at my (x, z); heights are world y. */
+function MeMark({ m, y, look, topRef, label }: { m: Mark; y: number; look: MeLook; topRef: React.MutableRefObject<number>; label: string | null }) {
+  const color = look.white ? QUIET_COLOR.me : MARK_COLOR.me;
+  const k = look.scale * (m.stale ? 0.7 : 1);
+  const rhythm = useMemo(() => rhythmOf(m.id), [m.id]);
+  const mats = useMemo(
+    () => ({
+      dot: new THREE.MeshBasicMaterial({ depthTest: false, transparent: true }),
+      line: new THREE.MeshBasicMaterial({ transparent: true }),
+      ring: new THREE.MeshBasicMaterial({ transparent: true }),
+      fill: new THREE.MeshBasicMaterial({ transparent: true, side: THREE.DoubleSide, depthWrite: false }),
+      sprite: new THREE.SpriteMaterial({ depthTest: false, transparent: true }),
+      column: new THREE.ShaderMaterial({ vertexShader: COLUMN_VERT, fragmentShader: COLUMN_FRAG, transparent: true, depthWrite: false, side: THREE.DoubleSide, uniforms: { uColor: { value: new THREE.Color("#ffffff") }, uY: { value: 0 }, uAlpha: { value: 0.3 }, uFall: { value: 6 } } }),
+    }),
+    [],
+  );
+  useEffect(() => () => Object.values(mats).forEach((x) => x.dispose()), [mats]);
+  useEffect(() => {
+    for (const x of [mats.dot, mats.line, mats.ring, mats.fill, mats.sprite]) x.color.set(color);
+    (mats.column.uniforms.uColor.value as THREE.Color).set(color);
+  }, [mats, color]);
+  useEffect(() => {
+    if (look.style === "glyph") mats.sprite.map = glyphTexture(m.id);
+  }, [mats, look.style, m.id]);
+  const up = useRef<THREE.Mesh>(null);
+  const cap = useRef<THREE.Mesh>(null);
+  const column = useRef<THREE.Mesh>(null);
+  useFrame(() => {
+    const pulsing = look.pulse || look.style === "glyph";
+    const on = !pulsing || rhythm[stepAt(performance.now()) % rhythm.length];
+    const f = on ? 1 : 0.3;
+    const base = m.stale ? 0.4 : 0.95;
+    mats.dot.opacity = base * f;
+    mats.line.opacity = (m.stale ? 0.25 : 0.5) * f;
+    mats.ring.opacity = (m.stale ? 0.35 : 0.7) * f;
+    mats.fill.opacity = 0.06 * f;
+    mats.sprite.opacity = base * f;
+    mats.column.uniforms.uAlpha.value = (m.stale ? 0.15 : 0.3) * f;
+    mats.column.uniforms.uY.value = y;
+    // the block's top as the view knows it: the line up and the light column reach it — my future, what is stacked above me
+    const top = Math.max(topRef.current, y + 1);
+    // THE LIGHT COLUMN JOINS ME TO MY FUTURE (the artist, 2026-11-22: "내 미래랑 빛기둥으로 잇는 게 낫지 않나"): from my
+    // height up to the top, full at me and still a fifth of it where it meets the layer above
+    mats.column.uniforms.uFall.value = Math.max(3, (top - y) * 0.5);
+    if (up.current) {
+      up.current.position.y = (y + top) / 2;
+      up.current.scale.y = Math.max(top - y, 0.001);
+    }
+    if (cap.current) cap.current.position.y = top;
+    if (column.current) {
+      column.current.position.y = (y + top) / 2;
+      column.current.scale.y = Math.max(top - y, 0.001);
+    }
+  });
+  const dotR = look.style === "plane" ? 0.35 * k : 0.5 * k;
+  return (
+    <group position={[m.x, 0, m.z]}>
+      {look.style !== "glyph" && (
+        <mesh position={[0, y, 0]} material={mats.dot}>
+          <sphereGeometry args={[dotR, 16, 12]} />
+        </mesh>
+      )}
+      {look.style === "line" && (
+        <>
+          {/* a unit cylinder scaled to the height (no new geometry when my time moves) */}
+          <mesh position={[0, y / 2, 0]} scale={[k, Math.max(y, 0.001), k]} material={mats.line}>
+            <cylinderGeometry args={[0.03, 0.03, 1, 6]} />
+          </mesh>
+          <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]} scale={[k, k, 1]} material={mats.ring}>
+            <ringGeometry args={[0.35, 0.5, 24]} />
+          </mesh>
+        </>
+      )}
+      {look.style === "up" && (
+        <>
+          <mesh ref={up} position={[0, y, 0]} scale={[k, 1, k]} material={mats.line}>
+            <cylinderGeometry args={[0.03, 0.03, 1, 6]} />
+          </mesh>
+          <mesh ref={cap} position={[0, y, 0]} rotation={[-Math.PI / 2, 0, 0]} scale={[k, k, 1]} material={mats.ring}>
+            <ringGeometry args={[0.35, 0.5, 24]} />
+          </mesh>
+        </>
+      )}
+      {look.style === "plane" && (
+        <>
+          <mesh position={[0, y, 0]} rotation={[-Math.PI / 2, 0, 0]} scale={[k, k, 1]} material={mats.ring}>
+            <ringGeometry args={[4.8, 5, 64]} />
+          </mesh>
+          <mesh position={[0, y, 0]} rotation={[-Math.PI / 2, 0, 0]} scale={[k, k, 1]} material={mats.fill}>
+            <circleGeometry args={[4.8, 48]} />
+          </mesh>
+        </>
+      )}
+      {look.style === "column" && (
+        <>
+          <mesh ref={column} position={[0, y, 0]} scale={[k, 1, k]} material={mats.column}>
+            <boxGeometry args={[1.2, 1, 1.2]} />
+          </mesh>
+          {/* where the light meets the layer above: a faint ring at the top */}
+          <mesh ref={cap} position={[0, y, 0]} rotation={[-Math.PI / 2, 0, 0]} scale={[k, k, 1]} material={mats.ring}>
+            <ringGeometry args={[0.6, 0.75, 32]} />
+          </mesh>
+        </>
+      )}
+      {look.style === "glyph" && <sprite position={[0, y, 0]} scale={[2.4 * k, 2.4 * k, 1]} material={mats.sprite} />}
+      {label && (
+        <Html position={[0, y + dotR + 0.25 + (look.style === "glyph" ? 1.2 * k : 0), 0]} center style={{ pointerEvents: "none" }}>
+          <div className="whitespace-nowrap font-mono text-[10px] leading-3" style={{ color }}>
+            {label}
+          </div>
+        </Html>
+      )}
+    </group>
+  );
+}
+
+/** A visitor as a small grey glyph (the "others: glyph" style): people have names, bots do not. */
+function OtherGlyph({ id, x, y, z, color }: { id: string; x: number; y: number; z: number; color: string }) {
+  const mat = useMemo(() => new THREE.SpriteMaterial({ depthTest: false, transparent: true, opacity: 0.8 }), []);
+  useEffect(() => () => mat.dispose(), [mat]);
+  useEffect(() => {
+    mat.map = glyphTexture(id);
+    mat.color.set(color);
+    mat.needsUpdate = true;
+  }, [mat, id, color]);
+  return <sprite position={[x, y, z]} scale={[1.6, 1.6, 1]} material={mat} />;
+}
 
 /**
  * THE REDESIGN (the artist, 2026-11-12: "지금 재편하는 중이니 레바는 다 지우고 내가 도입하는 것들만 하나씩 고쳐서
@@ -3475,6 +3693,8 @@ function Markers({
   holdSec,
   labels,
   tint,
+  look,
+  topRef,
   onActive,
   onMe,
 }: {
@@ -3486,6 +3706,10 @@ function Markers({
   labels: boolean;
   /** Bots coloured by how their herd moves (BOT_KIND_COLOR) instead of all one blue. */
   tint: boolean;
+  /** How "me", and the others beside me, are drawn (docs/me-marker.md). */
+  look: MeLook;
+  /** The block's top (world y of the newest time) — the line up and the column reach it. */
+  topRef: React.MutableRefObject<number>;
   onActive: (n: number) => void;
   onMe: (m: MeStatus) => void;
 }) {
@@ -3534,33 +3758,49 @@ function Markers({
     onActive(out.filter((m) => !m.stale).length);
   });
 
+  const quiet = look.others !== "now";
   return (
     <>
       {marks.map((m) => {
         const y = (m.s / secPerUnit) * unit;
+        if (m.kind === "me") {
+          // the trial: drawn at half the block's height (the block's top as the view knows it; the record stays)
+          const yMe = look.trialMid && topRef.current > 1 ? topRef.current * 0.5 : y;
+          return <MeMark key={m.id} m={m} y={yMe} look={look} topRef={topRef} label={labels ? `${m.stale ? "me (silent)" : "me"} · ${m.role}${look.trialMid ? " · 시험 높이" : ""}` : null} />;
+        }
         const kind = tint && m.kind === "bot" ? botKinds.get(m.id) : undefined;
-        const color = kind ? BOT_KIND_COLOR[kind] : MARK_COLOR[m.kind];
-        const big = m.kind === "me" ? 0.5 : 0.32;
+        const color = kind ? BOT_KIND_COLOR[kind] : quiet ? QUIET_COLOR[m.kind] : MARK_COLOR[m.kind];
+        const big = quiet ? (m.kind === "bot" ? 0.2 : 0.24) : 0.32;
+        const asGlyph = look.others === "glyph" && m.kind === "visitor";
         return (
           <group key={m.id}>
-            <mesh position={[m.x, y, m.z]}>
-              <sphereGeometry args={[big, 16, 12]} />
-              <meshBasicMaterial color={color} depthTest={false} transparent opacity={m.stale ? 0.4 : 0.95} />
-            </mesh>
-            {/* a unit cylinder scaled to the height: the height in `args` would make r3f build (and throw away) a new
-                geometry every time a marker's time moved — with 22 bots, ~22 geometries a second (2026-10-30) */}
-            <mesh position={[m.x, y / 2, m.z]} scale={[1, Math.max(y, 0.001), 1]}>
-              <cylinderGeometry args={[0.03, 0.03, 1, 6]} />
-              <meshBasicMaterial color={color} transparent opacity={0.5} />
-            </mesh>
-            <mesh position={[m.x, 0.02, m.z]} rotation={[-Math.PI / 2, 0, 0]}>
-              <ringGeometry args={[0.35, 0.5, 24]} />
-              <meshBasicMaterial color={color} transparent opacity={0.7} />
-            </mesh>
+            {asGlyph ? (
+              <OtherGlyph id={m.id} x={m.x} y={y} z={m.z} color={color} />
+            ) : (
+              <mesh position={[m.x, y, m.z]}>
+                <sphereGeometry args={[big, 16, 12]} />
+                <meshBasicMaterial color={color} depthTest={false} transparent opacity={m.stale ? 0.4 : 0.95} />
+              </mesh>
+            )}
+            {/* the quiet others have no line and no ring: the wall's vertical lines are the buildings' again */}
+            {!quiet && (
+              <>
+                {/* a unit cylinder scaled to the height: the height in `args` would make r3f build (and throw away) a new
+                    geometry every time a marker's time moved — with 22 bots, ~22 geometries a second (2026-10-30) */}
+                <mesh position={[m.x, y / 2, m.z]} scale={[1, Math.max(y, 0.001), 1]}>
+                  <cylinderGeometry args={[0.03, 0.03, 1, 6]} />
+                  <meshBasicMaterial color={color} transparent opacity={0.5} />
+                </mesh>
+                <mesh position={[m.x, 0.02, m.z]} rotation={[-Math.PI / 2, 0, 0]}>
+                  <ringGeometry args={[0.35, 0.5, 24]} />
+                  <meshBasicMaterial color={color} transparent opacity={0.7} />
+                </mesh>
+              </>
+            )}
             {labels && (
-              <Html position={[m.x, y + big + 0.25, m.z]} center style={{ pointerEvents: "none" }}>
+              <Html position={[m.x, y + big + 0.25 + (asGlyph ? 0.8 : 0), m.z]} center style={{ pointerEvents: "none" }}>
                 <div className="whitespace-nowrap font-mono text-[10px] leading-3" style={{ color }}>
-                  {m.kind === "me" ? (m.stale ? "me (silent)" : "me") : m.kind === "bot" ? m.id : "visitor"} · {m.role}
+                  {m.kind === "bot" ? m.id : "visitor"} · {m.role}
                 </div>
               </Html>
             )}
@@ -3622,6 +3862,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const [active, setActive] = useState(0);
   const [meStatus, setMeStatus] = useState<MeStatus>({ id: null, silentSec: null });
   const topRef = useRef(0);
+  /** The block's top as drawn (stats.top; the newest time while the model has none) — where "me"'s line up and column end. */
+  const blockTop = useRef(0);
   const focusRef = useRef(0);
 
   /** move orbit target and camera together along y (the time axis), keeping the viewer's own angle/distance */
@@ -4391,8 +4633,19 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     savable("마커", {
       names: { value: false, label: "봇 이름 보이기" },
       byKind: { value: false, label: "성격별 색 (정착 파랑 · 유랑 주황 · 순회 초록 · 혼자 회색)" },
+      // "ME" ON THE WALL — the proposals of docs/me-marker.md (the artist, 2026-11-22), tried here on the real wall
+      meStyle: { options: { "수직선 (지금)": "line", "수면 (내 시간 높이의 수평 고리)": "plane", "빛기둥 (나에서 내 위의 미래까지)": "column", "기호 (내 이름의 멜로디 · 내 박자로 깜빡임)": "glyph", "위로 (선이 내 위에 쌓인 것으로)": "up" }, value: "line" as MeStyle, label: "\"나\"의 표시" },
+      meScale: { value: 1, min: 0.5, max: 3, step: 0.1, label: "\"나\"의 크기 (×)" },
+      meColor: { options: { "주황 (지금)": "orange", "흰색 (색은 자연에만)": "white" }, value: "orange", label: "\"나\"의 색" },
+      mePulse: { value: false, label: "내 박자로 깜빡임 (내 멜로디의 온셋 · 2 s 마디)" },
+      others: { options: { "지금 (파랑 · 검정 공 + 바닥 선)": "now", "무채색 작게 (봇 회색 점 · 타인 밝은 점 · 선 없음)": "quiet", "무채색 작게 · 타인은 작은 기호": "glyph" }, value: "now" as OthersStyle, label: "봇 · 타인" },
+      meTrialMid: { value: false, label: "시험: 나를 블록 가운데 높이에 그리기 (표시만 · 기록은 그대로 · 관객이 블록 시간에 앉을 때까지)" },
     }),
     { order: lab ? 7.2 : 1.55 },
+  );
+  const meLook = useMemo<MeLook>(
+    () => ({ style: mk.meStyle as MeStyle, scale: mk.meScale, white: mk.meColor === "white", pulse: mk.mePulse, others: mk.others as OthersStyle, trialMid: mk.meTrialMid }),
+    [mk.meStyle, mk.meScale, mk.meColor, mk.mePulse, mk.others, mk.meTrialMid],
   );
   // BROUGHT OVER (the artist, 2026-11-12: "길 로직은 예전 버전 따를 수 있나?" — judged on the ground, between
   // buildings: walkways.ts): the old walkways, on the density's buildings
@@ -5400,6 +5653,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   const c = { ...tAxis, showEdges: v.showEdges, wear: wx.wear && !REDESIGN, follow: !hero.on && ((v.follow && !REDESIGN) || (rising && !!world.camRise)), markers: v.markers && !hero.on, markerHold: v.markerHold };
   // heights on the time axis, read by the "toLatest" / "toMe" buttons
   topRef.current = Math.max(stats.top, (stats.t / c.secPerUnit) * c.unit);
+  blockTop.current = stats.top > 0 ? stats.top : topRef.current;
   focusRef.current = (stats.focusS / c.secPerUnit) * c.unit;
   const spaceFold = useMemo(() => ({ ...fold, emptyGapSec: c.emptyGapSec }), [fold, c.emptyGapSec]);
   // whether a Leva value of the groups that shape the world changed after the page settled (the readout's "tab-modified")
@@ -5527,6 +5781,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           followLift={camView.camLift}
           link={camLink}
           followWho={cam.camFollow as FollowWho}
+          meTrialMid={mk.meTrialMid}
           quietSec={cam.camQuietSec}
           controls={controls}
           onStats={setStats}
@@ -5603,7 +5858,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
             (no composer); with the composer on (priority 1, it renders the scene) the overlay follows at 2. */}
         {c.markers && !futureOnly() && (
           <Hud key={composerOn ? "after-composer" : "plain"} renderPriority={composerOn ? 2 : 1}>
-            <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} labels={!hideUi && mk.names} tint={mk.byKind} onActive={setActive} onMe={setMeStatus} />
+            <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} labels={!hideUi && mk.names} tint={mk.byKind} look={meLook} topRef={blockTop} onActive={setActive} onMe={setMeStatus} />
           </Hud>
         )}
       </Canvas>

@@ -1,11 +1,17 @@
 "use client";
 /**
- * RecPlayer — plays one recording: play / pause, a progress bar with the record's moments as dots (a tap goes
- * there), and the lines themselves (a tap goes there too). From the Worker first, then this device's own copy.
+ * RecPlayer — the page the specimen card's QR opens (the design canvas's "QR로 여는 페이지", mixed in 2026-11-22: the
+ * artist, "재생 누르면 분기점 지나거나 클릭할 때만 아래 한 줄 ui로 계속 바뀌면서 정보 보여주고, 그 아래는 요약본(발굴노트)이랑
+ * 웹포스터로 가는 링크"): the title and the day, the being's number and melody, the player — play / pause, a bar with
+ * the record's moments as marks (a tap goes there) — and under it ONE line: the moment last passed while playing, or
+ * the one tapped. Then the ways on: the 발굴노트 (/rec/<id>/note), the web poster, the gallery. From the Worker first,
+ * then this device's own copy.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { RECORDING_ID, fmtBytes, fmtRecClock, type RecordingMarker, type RecordingMeta } from "@/lib/sound/recorder";
+import { Sheet, SheetFoot, SheetHead, SheetLinks, SHEET_WORDS, WEB_POSTER } from "@/components/parliament/RecSheet";
+import { asLang, individualNo as individualNoOf } from "@/lib/parliament";
+import { RECORDING_ID, fmtRecClock, type RecordingMarker, type RecordingMeta } from "@/lib/sound/recorder";
 import { getRecording } from "@/lib/sound/recordingStore";
 import { recordingAudioUrl, recordingMetaUrl } from "@/lib/sound/recordingUpload";
 
@@ -31,6 +37,8 @@ export default function RecPlayer({ id }: { id: string }) {
   const audio = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [t, setT] = useState(0);
+  /** The one line under the player: the moment last passed while playing, or the one tapped (-1: none yet). */
+  const [shown, setShown] = useState(-1);
   const [dur, setDur] = useState(0);
 
   useEffect(() => {
@@ -77,6 +85,10 @@ export default function RecPlayer({ id }: { id: string }) {
   // a MediaRecorder file may not say how long it is (WebM: Infinity): the markers' file does
   const length = Number.isFinite(dur) && dur > 0 ? dur : (source?.meta?.seconds ?? 0);
   const events = source?.meta?.events ?? [];
+  const note = source?.meta?.note;
+  const lang = asLang(typeof note?.lang === "string" ? note.lang : null);
+  const W = SHEET_WORDS[lang];
+  const startedAt = source?.meta?.startedAt ? Date.parse(source.meta.startedAt) : 0;
 
   const seek = useCallback((to: number) => {
     const a = audio.current;
@@ -99,78 +111,99 @@ export default function RecPlayer({ id }: { id: string }) {
     seek(((e.clientX - r.left) / r.width) * length);
   };
 
-  // the line being heard now: the last one at or before t
-  let at = -1;
-  for (let i = 0; i < events.length; i++) if (events[i].t <= t + 0.05) at = i;
+  // while playing, the line follows the moments as they are passed
+  const onTime = (now: number) => {
+    setT(now);
+    if (!playing) return;
+    let at = -1;
+    for (let i = 0; i < events.length; i++) if (events[i].t <= now + 0.05) at = i;
+    // (a moment at the same second as the one shown — the one just tapped — does not take the line from it)
+    if (at >= 0 && at !== shown && !(shown >= 0 && events[shown] && Math.abs(events[at].t - events[shown].t) < 0.5)) setShown(at);
+  };
+
+  const line = shown >= 0 && events[shown] ? events[shown] : null;
 
   return (
-    <main className="min-h-[100dvh] bg-black px-4 py-6 font-mono text-[14px] leading-[1.45] text-white">
-      <div className="mx-auto w-full max-w-[34rem]">
-        <div className="flex items-baseline justify-between gap-4">
-          <div className="text-[#8c8c8c]">기록된 소리 · {id}</div>
-          {/* the posted lives, this one among them if it was posted (LivesGallery) */}
-          <a href="/exhibition/gallery" className="text-white/80 underline decoration-white/30 underline-offset-4">
-            갤러리
-          </a>
-        </div>
-        {state === "loading" && <div className="mt-8 text-[#8c8c8c]">불러오는 중…</div>}
-        {state === "waiting" && <div className="mt-8 text-[#8c8c8c]">녹음이 올라오기를 기다리는 중… 삶의 잔향이 다 울리면 올라옵니다.</div>}
-        {state === "missing" && <div className="mt-8">이 기록은 아직 없습니다.</div>}
-        {state === "ready" && source && (
-          <>
-            <audio
-              ref={audio}
-              src={source.src}
-              preload="metadata"
-              playsInline
-              onPlay={() => setPlaying(true)}
-              onPause={() => setPlaying(false)}
-              onEnded={() => setPlaying(false)}
-              onTimeUpdate={(e) => setT(e.currentTarget.currentTime)}
-              onLoadedMetadata={(e) => setDur(e.currentTarget.duration)}
-              onDurationChange={(e) => setDur(e.currentTarget.duration)}
-            />
-            <div className="mt-6 flex items-center gap-4">
-              <button type="button" onClick={toggle} className="w-20 border border-white px-3 py-2 text-center active:bg-white active:text-black">
-                {playing ? "멈춤" : "재생"}
-              </button>
-              <div className="tabular-nums">
-                {fmtRecClock(t)} / {fmtRecClock(length)}
+    <Sheet>
+      <SheetHead lang={lang} me={RECORDING_ID.test(id) ? id : ""} at={startedAt} />
+      {state === "loading" && <div className="text-[#6b6b66]">{W.loading}</div>}
+      {state === "waiting" && <div className="text-[#6b6b66]">{W.waiting}</div>}
+      {state === "missing" && <div>{W.missing}</div>}
+      {state === "ready" && source && (
+        <div className="flex flex-col gap-3">
+          <audio
+            ref={audio}
+            src={source.src}
+            preload="metadata"
+            playsInline
+            onPlay={() => setPlaying(true)}
+            onPause={() => setPlaying(false)}
+            onEnded={() => setPlaying(false)}
+            onTimeUpdate={(e) => onTime(e.currentTarget.currentTime)}
+            onLoadedMetadata={(e) => setDur(e.currentTarget.duration)}
+            onDurationChange={(e) => setDur(e.currentTarget.duration)}
+          />
+          <div className="flex items-center gap-4 border-y border-[#111111] py-4">
+            <button
+              type="button"
+              onClick={toggle}
+              aria-label={playing ? W.pause : W.play}
+              className="flex h-11 w-11 shrink-0 items-center justify-center border border-[#111111] bg-white outline-none active:bg-[#111111] active:text-white"
+            >
+              <svg viewBox="0 0 12 12" aria-hidden className="block h-3.5 w-3.5">
+                {playing ? <path d="M2 1h3v10H2zM7 1h3v10H7z" fill="currentColor" /> : <path d="M2 1l9 5-9 5z" fill="currentColor" />}
+              </svg>
+            </button>
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
+              <span>{RECORDING_ID.test(id) ? W.who(id ? individualNoOf(id) : "") : ""}</span>
+              <span className="text-[#6b6b66]">{W.listen}</span>
+              {/* the bar, the record's moments as marks on it (the bigger the moment, the taller); a tap goes there */}
+              <div className="relative h-6 cursor-pointer touch-none select-none" onPointerDown={onBar}>
+                <div className="absolute inset-x-0 top-1/2 h-[2px] -translate-y-1/2 bg-[#d9d9d4]" />
+                <div className="absolute left-0 top-1/2 h-[2px] -translate-y-1/2 bg-[#111111]" style={{ width: `${length ? Math.min(100, (t / length) * 100) : 0}%` }} />
+                {length > 0 &&
+                  events.map((e, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      aria-label={`${fmtRecClock(e.t)} ${markerText(e)}`}
+                      onPointerDown={(ev) => {
+                        ev.stopPropagation();
+                        setShown(i);
+                        seek(e.t);
+                      }}
+                      className="absolute top-0 flex h-6 w-3 -translate-x-1/2 items-center justify-center outline-none"
+                      style={{ left: `${Math.min(100, (e.t / length) * 100)}%` }}
+                    >
+                      <span className={`block ${i === shown ? "bg-[#111111]" : (e.level ?? 0) >= 1 ? "bg-[#111111]" : "bg-[#9a9a94]"} ${(e.level ?? 0) >= 2 ? "h-4 w-[3px]" : (e.level ?? 0) === 1 ? "h-3 w-[2px]" : "h-2 w-px"}`} />
+                    </button>
+                  ))}
               </div>
+              <span className="text-[11px] tabular-nums text-[#6b6b66]">
+                {fmtRecClock(t)} / {fmtRecClock(length)}
+                {source.from === "local" ? ` · ${W.local}` : ""}
+              </span>
             </div>
-            <div className="relative mt-5 h-10 cursor-pointer touch-none select-none" onPointerDown={onBar}>
-              <div className="absolute inset-x-0 top-1/2 h-px bg-[#555]" />
-              <div className="absolute left-0 top-1/2 h-[3px] -translate-y-1/2 bg-white" style={{ width: `${length ? Math.min(100, (t / length) * 100) : 0}%` }} />
-              {length > 0 &&
-                events.map((e, i) => (
-                  <div
-                    key={i}
-                    className={`absolute top-1/2 -translate-x-1/2 -translate-y-1/2 ${e.level === 2 ? "h-4 w-[3px] bg-white" : e.level === 1 ? "h-3 w-[2px] bg-white" : "h-2 w-px bg-[#8c8c8c]"}`}
-                    style={{ left: `${Math.min(100, (e.t / length) * 100)}%` }}
-                  />
-                ))}
-            </div>
-            <ol className="mt-4 border-t border-[#333]">
-              {events.map((e, i) => (
-                <li key={i}>
-                  <button
-                    type="button"
-                    onClick={() => seek(e.t)}
-                    className={`flex w-full gap-3 border-b border-[#222] py-1.5 text-left ${i === at ? "bg-white text-black" : (e.level ?? 0) >= 1 ? "text-white" : "text-[#8c8c8c]"}`}
-                  >
-                    <span className="shrink-0 tabular-nums">{fmtRecClock(e.t)}</span>
-                    <span className="min-w-0">{markerText(e)}</span>
-                  </button>
-                </li>
-              ))}
-            </ol>
-            <div className="mt-4 text-[12px] text-[#666]">
-              {source.meta ? `${new Date(source.meta.startedAt).toLocaleString("ko-KR")} · ${fmtBytes(source.meta.bytes)}` : ""}
-              {source.from === "local" ? " · 이 기기에 보관된 사본" : ""}
-            </div>
-          </>
-        )}
-      </div>
-    </main>
+          </div>
+          {/* the one line: the moment just passed, or tapped */}
+          <div className="flex min-h-[1.5em] gap-3" aria-live="polite">
+            {line && (
+              <>
+                <span className="shrink-0 tabular-nums text-[#6b6b66]">{fmtRecClock(line.t)}</span>
+                <span className="min-w-0">{markerText(line)}</span>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+      <SheetLinks
+        links={[
+          { href: `/rec/${encodeURIComponent(id)}/note`, label: W.note, sub: W.noteSub },
+          { href: WEB_POSTER, label: W.poster, sub: W.posterSub, external: true },
+          { href: "/exhibition/gallery", label: W.gallery, sub: W.gallerySub },
+        ]}
+      />
+      <SheetFoot lang={lang} />
+    </Sheet>
   );
 }

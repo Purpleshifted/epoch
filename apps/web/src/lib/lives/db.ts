@@ -80,3 +80,24 @@ export async function readLives(opts: { limit: number; before?: number; trials?:
   }[];
   return rows.map((r) => ({ id: r.id, card: r.card, look: r.look, via: r.via, venue: r.venue, recordingUrl: r.recording_url, postedAt: new Date(r.posted_at).getTime(), trial: r.trial }));
 }
+
+/** The posted life whose recording is `recId` (its page /rec/<recId>), or null: the 발굴노트 of a life posted before
+ * the summary went up with the recording. */
+export async function readLifeByRecording(recId: string): Promise<LifeRow | null> {
+  const conn = db();
+  if (!conn) return null;
+  const sql = await conn;
+  const rows = (await sql`SELECT id, card, look, via, venue, recording_url, posted_at, trial FROM lives
+    WHERE recording_url LIKE ${"%/rec/" + recId} ORDER BY posted_at DESC LIMIT 1`) as {
+    id: string;
+    card: Record<string, unknown>;
+    look: Record<string, unknown>;
+    via: LifeVia;
+    venue: string | null;
+    recording_url: string | null;
+    posted_at: string | Date;
+    trial: boolean;
+  }[];
+  const r = rows[0];
+  return r ? { id: r.id, card: r.card, look: r.look, via: r.via, venue: r.venue, recordingUrl: r.recording_url, postedAt: new Date(r.posted_at).getTime(), trial: r.trial } : null;
+}

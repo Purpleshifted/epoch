@@ -29,16 +29,18 @@ export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 
 /**
  * Audio first, then the markers (a page with audio and no markers still plays; the other way round it does not).
- * Resolves true when both are up; throws with a short reason otherwise.
+ * Resolves true when both are up; throws with a short reason otherwise. A part already there (409: an upload cut off
+ * between the two, or one that went up from another try) counts as up — so a retry finishes what a cut-off upload
+ * left half done (2026-11-22: a recording on the Worker without its markers could never get them).
  */
 export async function uploadRecording(id: string, blob: Blob, meta: RecordingMeta, signal?: AbortSignal): Promise<true> {
   if (!RECORDING_ID.test(id)) throw new Error("id");
   if (blob.size > MAX_UPLOAD_BYTES) throw new Error("too large");
   if (blob.size === 0) throw new Error("empty");
   const a = await fetch(recordingAudioUrl(id), { method: "PUT", body: blob, headers: { "Content-Type": blob.type || meta.mime.split(";")[0] }, signal });
-  if (!a.ok) throw new Error(`audio ${a.status}`);
+  if (!a.ok && a.status !== 409) throw new Error(`audio ${a.status}`);
   const m = await fetch(recordingMetaUrl(id), { method: "PUT", body: JSON.stringify(meta), headers: { "Content-Type": "application/json" }, signal });
-  if (!m.ok) throw new Error(`meta ${m.status}`);
+  if (!m.ok && m.status !== 409) throw new Error(`meta ${m.status}`);
   return true;
 }
 

@@ -62,6 +62,7 @@ import { FootprintMap } from "./FootprintMap";
 import { Glyph } from "./Glyph";
 import { qrModules } from "@/lib/qr";
 import { emitLifeEvent } from "./lifeEvents";
+import { setLifeNote } from "./useLifeRecording";
 import { SpecimenCard, printCard, saveCard, type CardAct } from "./SpecimenCard";
 import type { CardVisual } from "./usePersonalVisuals";
 import type { LifeSession } from "./useLifeSession";
@@ -152,6 +153,9 @@ function Centre({ className = "", children }: { className?: string; children: Re
   );
 }
 
+/** How long 갤러리 보기 waits for the recording to finish going up before it leaves anyway (ms). */
+const GALLERY_WAIT_MS = 30_000;
+
 /** The gallery from the end card: its language, the venue (the gallery machine's gallery comes back by itself) and the
  * way back to this experience, as it was opened. */
 function galleryHref(lang: Lang, venue: string | null | undefined): string {
@@ -195,6 +199,7 @@ export function SessionHud({
   cardUrl,
   uploadRecording,
   onAnswer,
+  onFound,
 }: {
   session: LifeSession;
   witnessRef: React.MutableRefObject<Observation | null>;
@@ -232,6 +237,8 @@ export function SessionHud({
   uploadRecording?: () => Promise<string | null>;
   /** The visitor answered someone: it leaves a seed head (RoleField). */
   onAnswer?: () => void;
+  /** A word another left was found (the record's `word.found`): whose it is — the headset plays their melody once. */
+  onFound?: (o: string) => void;
 }) {
   const { phase, page, phaseAt, attempt, stopOn, stopHint, attemptFailed, attempts } = session;
   // the end's screens have their own KR / EN (the visitor's pick), set in the Korean pixel face either way
@@ -270,7 +277,8 @@ export function SessionHud({
       const obs = witnessRef.current;
       if (!obs || obs === lastObs.current) return;
       lastObs.current = obs;
-      log.push(obs);
+      // a word another left, found: its melody sounds once (ParliamentScene → SoundEngine.found)
+      for (const e of log.push(obs)) if (e.key === "word.found" && e.args.who) onFound?.(e.args.who.o);
       // the ledger's lines go into the same record
       const L = ledgerRef.current;
       if (L) for (const e of watch.feed(L, obs.surface, log.roleOf)) log.note(e);
@@ -281,7 +289,7 @@ export function SessionHud({
       setRec({ me: obs.me, entries: [...log.entries], status: log.status(), near: log.nearNow(), ledger: L, t: obs.t, ...log.summary(), asking: log.asking(), controls });
     }, POLL_MS);
     return () => clearInterval(id);
-  }, [phase, witnessRef, ledgerRef, log, watch, locked, coarse, session.lifeRef]);
+  }, [phase, witnessRef, ledgerRef, log, watch, locked, coarse, session.lifeRef, onFound]);
 
   // 살아가기: into the world, taking the pointer on the way (a click or a key is what the browser wants for that); the
   // keys count only once the name has been up a moment, so a key pressed for the headset does not go straight through
@@ -334,7 +342,7 @@ export function SessionHud({
     for (const e of rec.entries) {
       if (emitted.current.has(e)) continue;
       emitted.current.add(e);
-      emitLifeEvent({ kind: e.key, text: formatEntry(e, lang).text.replace(/\{\}/g, "♪"), level: e.level, lifeT: e.t });
+      emitLifeEvent({ kind: e.key, text: formatEntry(e, lang).text.replace(/\{\}/g, "♪"), level: e.level, lifeT: e.t, who: (e.args as { who?: { o?: string } } | undefined)?.who?.o });
     }
   }, [rec.entries, lang]);
 
@@ -378,6 +386,16 @@ export function SessionHud({
       qr: qrUrl ? qrModules(qrUrl) : null,
     };
   }, [phase, cause, rec, lang, lived, venue, phaseAt, qrUrl]);
+  // the life's summary goes up with its recording: the 발굴노트 its QR page links to (the record's numbers, not the
+  // worldline's trail and cells)
+  useEffect(() => {
+    if (!plate) return;
+    const note: Record<string, unknown> = { ...plate };
+    delete note.trail;
+    delete note.cells;
+    delete note.qr;
+    setLifeNote(plate.me, note);
+  }, [plate]);
   const [paper, setPaper] = useState<PlateTheme | null>(null);
   const [turned, setTurned] = useState<PlateOrient | null>(null);
   const theme = paper ?? card.theme;
@@ -441,6 +459,20 @@ export function SessionHud({
   const printKept = acts.print === "done" && kept.current;
   /** The life is in the gallery now: the way there opens (the artist, 2026-11-22). */
   const inGallery = acts.post === "done" || printKept;
+  /** 갤러리 보기 pressed: the recording goes up first — leaving the page now would cut its upload off (it would go up
+   * only behind the next life, and the card's QR would find nothing until then). At most GALLERY_WAIT_MS. */
+  const [leaving, setLeaving] = useState(false);
+  const toGallery = useCallback(
+    async (e: React.MouseEvent<HTMLAnchorElement>) => {
+      e.preventDefault();
+      if (leaving) return;
+      const href = e.currentTarget.href;
+      setLeaving(true);
+      if (uploadRecording) await Promise.race([uploadRecording().catch(() => null), new Promise((r) => setTimeout(r, GALLERY_WAIT_MS))]);
+      window.location.href = href;
+    },
+    [leaving, uploadRecording],
+  );
 
   return (
     <div className={`${mono.className} pointer-events-none absolute inset-0 select-none text-white`}>
@@ -666,10 +698,11 @@ export function SessionHud({
             {inGallery && (
               <a
                 href={galleryHref(lang, venue)}
+                onClick={toGallery}
                 data-hud-control
                 className="pointer-events-auto border border-white px-4 py-1 text-white outline-none"
               >
-                {S.ended.viewGallery}
+                {leaving ? S.ended.galleryWait : S.ended.viewGallery}
               </a>
             )}
             <button type="button" data-hud-control onClick={() => setStep("record")} className="pointer-events-auto border border-white/40 px-3 py-1 text-white/70 outline-none">
@@ -736,7 +769,6 @@ export function SessionHud({
                     {S.ended.act[a]}
                   </button>
                 ))}
-                {kept.current && <span className="ml-2 text-[#8c8c8c]">{S.ended.actState("post", "done")}</span>}
               </div>
             )}
             {helpLine && cause === "suicide" && <div className="pt-3 text-[#8c8c8c]">{S.ended.help}</div>}
