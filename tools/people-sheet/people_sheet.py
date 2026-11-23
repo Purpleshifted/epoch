@@ -116,15 +116,15 @@ def edge_colour(im: np.ndarray, a: np.ndarray, bg: np.ndarray) -> np.ndarray:
 
 def nearest_body(a: np.ndarray) -> np.ndarray:
     """In a window round one person: the blob nearest the window's middle (a neighbour reaching in is dropped)."""
-    solid = (a > 0.5).astype(np.uint8)
+    # (pieces a few pixels apart are one body: a thin ankle broken by the key left the feet behind — the dancer, 2026-11-23)
+    solid = cv2.dilate((a > 0.5).astype(np.uint8), np.ones((9, 9), np.uint8))
     n, lab, stats, cents = cv2.connectedComponentsWithStats(solid, 8)
     if n <= 1:
         return a
     h, w = a.shape
     big = [i for i in range(1, n) if stats[i, cv2.CC_STAT_AREA] > 0.01 * h * w] or list(range(1, n))
     k = min(big, key=lambda i: abs(cents[i][0] - w / 2) + 0.3 * abs(cents[i][1] - h / 2))
-    keep = cv2.dilate((lab == k).astype(np.uint8), np.ones((5, 5), np.uint8))
-    return a * keep
+    return a * (lab == k)
 
 
 class Track:
@@ -157,7 +157,8 @@ def follow(path: str) -> tuple:
             a = key(im, bg)
         else:
             a = matte
-        solid = (a > 0.5).astype(np.uint8)
+        # (pieces a pixel or two apart are one body here too: feet cut off at a thin ankle left the box short of them)
+        solid = cv2.dilate((a > 0.5).astype(np.uint8), np.ones((5, 5), np.uint8))
         n, lab, stats, cents = cv2.connectedComponentsWithStats(solid, 8)
         boxes = []
         for i in range(1, n):
@@ -237,6 +238,28 @@ def stitch(tracks: list, W: int) -> list:
             host.cuts += t.cuts
             host.feet += t.feet
             host.masks += t.masks
+    # a clip with one person at a time (no two pieces share a frame): all its pieces are that one person — a dancer's
+    # kicks throw the feet too far for the stitch above (Johnny, 2026-11-23)
+    big = [t for t in out if len(t.frames) >= 10]
+    if len(big) > 1:
+        seen: set = set()
+        overlap = False
+        for t in big:
+            fs = set(t.frames)
+            if seen & fs:
+                overlap = True
+                break
+            seen |= fs
+        if not overlap:
+            big.sort(key=lambda t: t.frames[0])
+            one = big[0]
+            for t in big[1:]:
+                one.frames += t.frames
+                one.boxes += t.boxes
+                one.cuts += t.cuts
+                one.feet += t.feet
+                one.masks += t.masks
+            return [one]
     return out
 
 
@@ -334,10 +357,21 @@ def main() -> None:
         jobs = []
         for k, t in enumerate(people):
             start, L, score, walking = loop_of(t)
-            idx = [t.frames[start + int(round(i * L / COLS))] for i in range(COLS)]
-            boxes = {t.frames[start + int(round(i * L / COLS))]: (t.boxes[start + int(round(i * L / COLS))], t.cuts[start + int(round(i * L / COLS))]) for i in range(COLS)}
-            hmax = max(b[3] - b[1] for b in t.boxes[start:start + L + 1])
-            jobs.append((k, t, idx, boxes, hmax, L / FPS, score, walking))
+            sel = [start + int(round(i * L / COLS)) for i in range(COLS)]
+            idx = [t.frames[j] for j in sel]
+            # the window's middle smoothed over a few frames (a kick or a swung arm does not throw the body sideways)
+            cxs = np.array([(b[0] + b[2]) / 2 for b in t.boxes], np.float32)
+            csm = np.convolve(np.pad(cxs, 3, mode="edge"), np.ones(7) / 7, mode="valid")
+            boxes = {t.frames[j]: (t.boxes[j], t.cuts[j], float(csm[j])) for j in sel}
+            seg = t.boxes[start:start + L + 1]
+            hmax = max(b[3] - b[1] for b in seg)
+            # the widest pose fits whole (a dancer's leg or arm out was cut at the window's sides — 2026-11-23): the window
+            # is as tall as the body or as the widest pose needs; `fill` = the body's share of it (the app enlarges the
+            # card by its inverse, so the body keeps its height)
+            wmax = max(max(b[2] - csm[j], csm[j] - b[0]) for j, b in zip(range(start, start + L + 1), seg)) * 2
+            win_h = max(hmax * 1.05, wmax * 1.1 * CELL_H / CELL_W)
+            fill = hmax * 1.05 / win_h
+            jobs.append((k, t, idx, boxes, (win_h, fill), L / FPS, score, walking))
         need = {f for j in jobs for f in j[2]}
         W, H, _ = probe(path)
         s = H / lh
@@ -347,13 +381,13 @@ def main() -> None:
                 continue
             im, matte = split_rgba(im4)
             bg = backdrop(im) if matte is None else np.array([1.0, 1.0, 1.0], np.float32)
-            for k, t, idx, boxes, hmax, _, _, _ in jobs:
+            for k, t, idx, boxes, (win_h, _), _, _, _ in jobs:
                 if f not in boxes:
                     continue
-                b, (cl, cr) = boxes[f]
-                bh = int(hmax * s * 1.05)
+                b, (cl, cr), cmid = boxes[f]
+                bh = int(win_h * s)
                 bw = int(bh * CELL_W / CELL_H)
-                cx, bot = (b[0] + b[2]) / 2 * s, b[3] * s + 0.02 * bh
+                cx, bot = cmid * s, b[3] * s + 0.02 * bh
                 x0, y0 = int(cx - bw / 2), int(bot - bh)
                 win = np.zeros((bh, bw, 3), np.float32) + bg
                 wa = np.zeros((bh, bw), np.float32)
@@ -373,7 +407,7 @@ def main() -> None:
                 for i, ff in enumerate(idx):
                     if ff == f:
                         cells[k][:, i * CELL_W:(i + 1) * CELL_W] = rgba
-        for k, t, idx, boxes, hmax, sec, score, walking in jobs:
+        for k, t, idx, boxes, (win_h, fill), sec, score, walking in jobs:
             row = cells[k]
             al = row[..., 3:4]
             rgb = np.where(al > 0.004, row[..., :3] / np.maximum(al, 1e-3), 0.0).clip(0, 1)
@@ -396,7 +430,7 @@ def main() -> None:
                     spreads.append((xs.max() - xs.min()) / CELL_H)
             # (only a walk: a dancer's kick or a talker's stance spreads the feet too)
             side = walking and bool(spreads) and float(np.percentile(spreads, 80)) > 0.24
-            meta.append({"id": rid, "view": "side" if side and not m else view, "strideSec": round(sec, 3), "loop": round(score, 2), "lum": round(lum, 2), "walking": walking, "source": name.split("-")[0].lower()})
+            meta.append({"id": rid, "view": "side" if side and not m else view, "strideSec": round(sec, 3), "loop": round(score, 2), "lum": round(lum, 2), "walking": walking, "fill": round(float(fill), 3), "source": name.split("-")[0].lower()})
             print(f"{rid}: {view}, loop {sec:.2f} s (periodic {score:.2f})")
     sheet = np.concatenate(rows, 0)
     bgra = np.dstack([sheet[..., 2], sheet[..., 1], sheet[..., 0], sheet[..., 3]])
