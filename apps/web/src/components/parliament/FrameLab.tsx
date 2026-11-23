@@ -119,7 +119,7 @@ interface Look {
   /** THE DISTANCE HIERARCHY (the artist, 2026-11-23: "한 번 잘 위계화 해봐"): near / middle / far by the distance from the eye,
    *  blended over `band` m at r1 and r2 — each tier multiplies the afterimages, the ink, adds blur and scales the flowing
    *  colour; far off, cards may face the eye and profile clips walk across. */
-  tier: { r1: number; r2: number; band: number; farEye: boolean; farSide: boolean; stillNear: boolean; sideNear: boolean; sideCross: number; trail: [number, number, number]; betweenMax: [number, number, number]; ink: [number, number, number]; blur: [number, number, number]; grad: [number, number, number] };
+  tier: { r1: number; r2: number; band: number; farEye: boolean; farSide: boolean; stillNear: boolean; useSide: boolean; sideNear: boolean; sideCross: number; trail: [number, number, number]; betweenMax: [number, number, number]; ink: [number, number, number]; blur: [number, number, number]; grad: [number, number, number] };
   /** How fast people go: 0 by the clips' sets, 1 each their own speed — spread from speedMin to speedMax, crowded towards
    *  the slow end by speedSkew — and the clip whose matched speed is nearest (within ±speedTol). */
   speedMode: number;
@@ -152,6 +152,8 @@ interface Look {
   thickInk: number;
   /** The least angle (°) a card standing to its way keeps to my line of sight (0 = none: it may stand edge-on). */
   minAng: number;
+  /** How a card standing to its way fades as it turns edge-on (0 = it does not; 0.35 ≈ gone within ~20° of side-on). */
+  sideFade: number;
   /** What the face along the way shows (0 the silhouette squeezed · 1 streaks · 2 silhouette at the card, streaks
    *  beyond) and how far the streaks carry (card widths). */
   dragKind: number;
@@ -215,6 +217,7 @@ const VERT = /* glsl */ `
 uniform float uCols;
 uniform float uRows;
 uniform float uMinAng;     // the least angle (rad) a card standing to its way keeps to my line of sight
+uniform float uSideFade;   // a card standing to its way fades as it turns edge-on to me (the width of the fade; 0 = none)
 uniform float uThick;      // the frame's thickness (m), and whether it reaches back to the copy before
 uniform float uThickFill;
 #ifdef SIDE
@@ -310,6 +313,18 @@ void main() {
   vSide = e >= 0.0 ? 1.0 : -1.0;
 #endif
   vAlpha = iA.w;
+#ifndef SIDE
+  // PAPER-THIN, IT GOES AS IT TURNS AWAY (the artist, 2026-11-23: "그냥 옆모습으로 바뀌는 걸 없애는 게 나을지도? 작품 의의
+  // 생각해보면… 어차피 중간에 없어지도록 하는 거면"): a front shot standing to its way, seen more and more side-on, fades out
+  // instead of thinning to a knife edge
+  if (fac > 0.5 && uSideFade > 0.0) {
+    vec3 te = cameraPosition - feet;
+    te.y = 0.0;
+    vec3 nrm2 = vec3(-right.z, 0.0, right.x);
+    float k = abs(dot(nrm2, normalize(te + vec3(1e-5, 0.0, 0.0))));
+    vAlpha *= smoothstep(0.0, uSideFade, k);
+  }
+#endif
   // (the frame's row and column, and the mirror: flat, the same over the card)
   vRow = iB.x;
   vFrame = floor(mod(iB.y, uCols));
@@ -486,6 +501,7 @@ function makeMaterial(): THREE.ShaderMaterial {
       uThickFill: { value: 0 },
       uThickInk: { value: 0.6 },
       uMinAng: { value: 0 },
+      uSideFade: { value: 0 },
       uDragKind: { value: 2 },
       uDragLen: { value: 1.5 },
       uSheet: { value: null },
@@ -816,7 +832,7 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
       // one frame (the knob "프레임 재생은 가까이에서만"); near and talking — the talk clip plays.
       // (by speed: the profile clips whose matched speed is nearest the person's)
       const sideRows = L.speedMode === 1 && L.pickBySpeed && sideAll.length ? bySpeed(CL, sideAll, w.speed, L.speedTol) : sideRowsOf(CL[w.home]?.state ?? "walk");
-      const walksAcross = !w.standing && MOVING.includes(CL[w.home]?.state ?? "walk") && (L.tier.sideNear ? crossing(w, s, isNow) : far > 0.5 && Math.abs(acrossOf(s)) > 0.6);
+      const walksAcross = L.tier.useSide && !w.standing && MOVING.includes(CL[w.home]?.state ?? "walk") && (L.tier.sideNear ? crossing(w, s, isNow) : far > 0.5 && Math.abs(acrossOf(s)) > 0.6);
       if (CL[w.home]?.profile && walksAcross) return { row: w.home, mirror: profileMirror(w.home), profile: true };
       if ((L.tier.sideNear || (L.tier.farSide && far > 0.5)) && sideRows.length && walksAcross) {
         const row = byHash(sideRows, w.hash * 1.7);
@@ -1020,6 +1036,7 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
     u.uThickFill.value = L.thickFill ? 1 : 0;
     u.uThickInk.value = L.thickInk;
     u.uMinAng.value = (L.minAng * Math.PI) / 180;
+    u.uSideFade.value = L.sideFade;
     u.uDragKind.value = L.dragKind;
     u.uDragLen.value = L.dragLen;
   });
@@ -1287,6 +1304,7 @@ export default function FrameLab() {
           flFacing: { options: FACINGS, value: "across" as Facing, label: "프레임이 서는 방향" },
           flYaw: { value: 0, min: -90, max: 90, step: 1, label: "판 기울기 (°)" },
           // (seen from the side, cards standing to their way are knife edges: this turns them towards me just enough)
+          flSideFade: { value: 0.35, min: 0, max: 1, step: 0.01, label: "옆으로 설 때 옅어짐 (0 = 끔 · 클수록 일찍)" },
           flMinAng: { value: 0, min: 0, max: 90, step: 1, label: "옆에서 볼 때 판이 나를 향하는 최소 각도 (°, 0 = 없음 · 90 = 늘 나를 향함)" },
           flEdge: { value: 0.15, min: 0, max: 0.95, step: 0.01, label: "테두리 지우기 — 알파 문턱" },
           flEdgeW: { value: 0.15, min: 0.005, max: 0.8, step: 0.005, label: "테두리 단단함 (작을수록 칼같이)" },
@@ -1355,15 +1373,18 @@ export default function FrameLab() {
           flR2: { value: 15, min: 2, max: 60, step: 0.5, label: "중간 → 멀리 (m)" },
           flBand: { value: 3, min: 0.2, max: 10, step: 0.1, label: "섞이는 폭 (m)" },
           flFarEye: { value: true, label: "멀리: 판이 나를 향함" },
-          flFarSide: { value: true, label: "멀리: 가로지르면 옆모습" },
+          // (the artist, 2026-11-23: "그냥 옆모습으로 바뀌는 걸 없애는 게 나을지도?" — off by default: front shots only, fading
+          // as they turn edge-on — "늘어놓기 · 테두리 › 옆으로 설 때 옅어짐")
+          flUseSide: { value: false, label: "옆모습 클립 쓰기 (끄면 정면만)" },
+          flFarSide: { value: true, label: "멀리: 가로지르면 옆모습", render: (get) => !!get(`${G}.거리 위계 — 가까이 · 중간 · 멀리.flUseSide`) },
           // (the artist, 2026-11-23: "가만히 있는 건 가까이 있는 거 아니면 굳이 프레임 재생 안 해도")
           flStillNear: { value: true, label: "서 있기·소통: 프레임 재생은 가까이에서만" },
           // (the artist, 2026-11-23: "사람이 나를 통과해서 지나갈 때 fps 가 순간적으로 확 떨어지는데")
           flNearCut: { value: 0.8, min: 0, max: 4, step: 0.05, label: "나를 통과할 때: 사라지는 거리 (m)" },
           flNearBand: { value: 0.8, min: 0.05, max: 4, step: 0.05, label: "나를 통과할 때: 옅어지는 폭 (m)" },
           // (the artist, 2026-11-23: "3번하자" — someone crossing right beside me walks in profile too)
-          flSideNear: { value: true, label: "가로지를 때는 가까이도 옆모습" },
-          flSideCross: { value: 0.8, min: 0.4, max: 0.98, step: 0.01, label: "옆모습으로 바뀌는 가로지름 (1 = 정확히 옆)" },
+          flSideNear: { value: true, label: "가로지를 때는 가까이도 옆모습", render: (get) => !!get(`${G}.거리 위계 — 가까이 · 중간 · 멀리.flUseSide`) },
+          flSideCross: { value: 0.8, min: 0.4, max: 0.98, step: 0.01, label: "옆모습으로 바뀌는 가로지름 (1 = 정확히 옆)", render: (get) => !!get(`${G}.거리 위계 — 가까이 · 중간 · 멀리.flUseSide`) },
           "가까이": folder(
             {
               flNTrail: { value: 1, min: 0, max: 2, step: 0.05, label: "잔상 ×" },
@@ -1414,9 +1435,10 @@ export default function FrameLab() {
       band: Number(c.flBand),
       farEye: !!c.flFarEye,
       stillNear: c.flStillNear !== false,
-      sideNear: c.flSideNear !== false,
+      useSide: !!c.flUseSide,
+      sideNear: !!c.flUseSide && c.flSideNear !== false,
       sideCross: Number(c.flSideCross ?? 0.8),
-      farSide: !!c.flFarSide,
+      farSide: !!c.flUseSide && !!c.flFarSide,
       trail: [Number(c.flNTrail), Number(c.flMTrail), Number(c.flFTrail)],
       betweenMax: [Number(c.flNBetMax ?? 12), Number(c.flMBetMax ?? 6), Number(c.flFBetMax ?? 2)],
       ink: [Number(c.flNInk), Number(c.flMInk), Number(c.flFInk)],
@@ -1454,6 +1476,7 @@ export default function FrameLab() {
     thickFill: !!c.flThickFill,
     thickInk: Number(c.flThickInk ?? 0.6),
     minAng: Number(c.flMinAng ?? 0),
+    sideFade: Number(c.flSideFade ?? 0.35),
     dragKind: Number(c.flDragKind ?? 2),
     dragLen: Number(c.flDragLen ?? 1.5),
     edgeTh: Number(c.flEdge),
