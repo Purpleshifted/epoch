@@ -109,7 +109,7 @@ interface Look {
   /** THE DISTANCE HIERARCHY (the artist, 2026-11-23: "한 번 잘 위계화 해봐"): near / middle / far by the distance from the eye,
    *  blended over `band` m at r1 and r2 — each tier multiplies the afterimages, the ink, adds blur and scales the flowing
    *  colour; far off, cards may face the eye and profile clips walk across. */
-  tier: { r1: number; r2: number; band: number; farEye: boolean; farSide: boolean; stillNear: boolean; trail: [number, number, number]; ink: [number, number, number]; blur: [number, number, number]; grad: [number, number, number] };
+  tier: { r1: number; r2: number; band: number; farEye: boolean; farSide: boolean; stillNear: boolean; trail: [number, number, number]; betweenMax: [number, number, number]; ink: [number, number, number]; blur: [number, number, number]; grad: [number, number, number] };
   /** How fast people go: 0 by the clips' sets, 1 each their own speed (base ± variety); faster than runFrom they run. */
   speedMode: number;
   speedBase: number;
@@ -518,7 +518,8 @@ function onPath(w: Walker, L: Look, i: number, n: number): { x: number; z: numbe
   return { x: w.x, z: w.z, h: w.h };
 }
 
-function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string | null> }) {
+function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefObject<string | null>; readoutRef: React.RefObject<HTMLDivElement | null> }) {
+  const meter = useRef({ at: 0, frames: 0, fps: 0 });
   const { camera, gl } = useThree();
   const controls = useRef<OrbitControlsImpl>(null);
   const geom = useMemo(() => {
@@ -854,7 +855,9 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
           // 되어야"): one card for each time a frame of the clip is held between the two copies — at the place the body
           // was then, the clip's next frame each (the phase counted on by time, never the short way round); 2 — a count
           const span = Math.max(0, s.t - prev.t);
-          const nIn = L.between === 3 ? Math.min(80, Math.max(0, Math.round(span / Math.max(1e-3, w.gap)) - 1)) : Math.round(T.betweenN * Q.trail);
+          // (capped by the walker's distance tier — the budget for a phone, 2026-11-23: near 12, middle 6, far 2 by default)
+          const capT = L.tier.betweenMax[Q.far > 0.5 ? 2 : Q.mid > 0.5 ? 1 : 0];
+          const nIn = Math.min(capT, L.between === 3 ? Math.min(80, Math.max(0, Math.round(span / Math.max(1e-3, w.gap)) - 1)) : Math.round(T.betweenN * Q.trail));
           for (let k = 1; k <= nIn; k++) {
             const f = k / (nIn + 1);
             const mid = lerpStamp(prev, s, f);
@@ -874,6 +877,17 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
     geom.instanceCount = n;
     // (a readout for the console, like __street)
     (window as unknown as { __frames?: unknown }).__frames = { cards: n, walkers: W.length, sheet: I ? I.sheet.rows.length : 0, thick: L.thick, fill: L.thickFill };
+    // the readout on screen, twice a second: cards (and with the thickness, twice that drawn), people, frames a second
+    const M = meter.current;
+    M.frames++;
+    if (now - M.at >= 0.5) {
+      M.fps = M.frames / Math.max(1e-3, now - M.at);
+      M.at = now;
+      M.frames = 0;
+      const el = readoutRef.current;
+      const thickOn = (L.thick > 0 || L.thickFill) && L.thickInk > 0;
+      if (el) el.textContent = `카드 ${n}${thickOn ? ` (+두께 ${n})` : ""} · 사람 ${W.length} · 한 사람당 ${W.length ? Math.round(n / W.length) : 0} · ${M.fps.toFixed(0)} fps${n > 500 ? " · 폰에선 무거움 (500장 넘음)" : ""}`;
+    }
     for (const name of ["iA", "iB", "iC", "iD", "iE", "iF"]) {
       const at = geom.getAttribute(name) as THREE.InstancedBufferAttribute;
       at.addUpdateRange(0, n * 4);
@@ -956,6 +970,7 @@ const FACINGS: Record<string, Facing> = { "진행 방향대로 (걷는 방향에
 export default function FrameLab() {
   const G = LAB_GROUP.frames;
   const viewRef = useRef<string | null>("side");
+  const readoutRef = useRef<HTMLDivElement | null>(null);
   // THE CLIPS' OWN SETS (the artist, 2026-11-23: "영상마다 골라서 이동거리랑 프레임 간격 세트로 저장"): for each clip of the
   // sheet, how far a frame carries the body (m) and how long a frame is held (s) — speed = distance / interval. Saved with
   // the group, a pair of knobs a clip (keys by the clip's name, so a clip keeps its set when others are added)
@@ -1214,6 +1229,7 @@ export default function FrameLab() {
           "가까이": folder(
             {
               flNTrail: { value: 1, min: 0, max: 2, step: 0.05, label: "잔상 ×" },
+              flNBetMax: { value: 12, min: 0, max: 40, step: 1, label: "사이 프레임 최대" },
               flNInk: { value: 1, min: 0, max: 1.5, step: 0.05, label: "진하기 ×" },
               flNBlur: { value: 0, min: 0, max: 0.4, step: 0.005, label: "흐림 +" },
               flNGrad: { value: 1, min: 0, max: 1, step: 0.05, label: "색 출렁임 ×" },
@@ -1223,6 +1239,7 @@ export default function FrameLab() {
           "중간": folder(
             {
               flMTrail: { value: 0.5, min: 0, max: 2, step: 0.05, label: "잔상 ×" },
+              flMBetMax: { value: 6, min: 0, max: 40, step: 1, label: "사이 프레임 최대" },
               flMInk: { value: 0.85, min: 0, max: 1.5, step: 0.05, label: "진하기 ×" },
               flMBlur: { value: 0.04, min: 0, max: 0.4, step: 0.005, label: "흐림 +" },
               flMGrad: { value: 0.7, min: 0, max: 1, step: 0.05, label: "색 출렁임 ×" },
@@ -1232,6 +1249,7 @@ export default function FrameLab() {
           "멀리": folder(
             {
               flFTrail: { value: 0.15, min: 0, max: 2, step: 0.05, label: "잔상 ×" },
+              flFBetMax: { value: 2, min: 0, max: 40, step: 1, label: "사이 프레임 최대" },
               flFInk: { value: 0.6, min: 0, max: 1.5, step: 0.05, label: "진하기 ×" },
               flFBlur: { value: 0.12, min: 0, max: 0.4, step: 0.005, label: "흐림 +" },
               flFGrad: { value: 0.3, min: 0, max: 1, step: 0.05, label: "색 출렁임 ×" },
@@ -1260,6 +1278,7 @@ export default function FrameLab() {
       stillNear: c.flStillNear !== false,
       farSide: !!c.flFarSide,
       trail: [Number(c.flNTrail), Number(c.flMTrail), Number(c.flFTrail)],
+      betweenMax: [Number(c.flNBetMax ?? 12), Number(c.flMBetMax ?? 6), Number(c.flFBetMax ?? 2)],
       ink: [Number(c.flNInk), Number(c.flMInk), Number(c.flFInk)],
       blur: [Number(c.flNBlur), Number(c.flMBlur), Number(c.flFBlur)],
       grad: [Number(c.flNGrad), Number(c.flMGrad), Number(c.flFGrad)],
@@ -1309,8 +1328,10 @@ export default function FrameLab() {
   };
   return (
     <div className="absolute inset-0 bg-white">
+      {/* (how many cards are drawn and how fast — the phone's budget is ~300–500 cards, 2026-11-23) */}
+      <div ref={readoutRef} className="pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded bg-black/70 px-2 py-1 font-mono text-[10px] text-white" />
       <Canvas camera={{ position: [10, 1.5, -6], fov: 45, near: 0.05, far: 400 }} dpr={[1, 2]} gl={{ antialias: true }} onCreated={({ gl }) => gl.setClearColor("#ffffff", 1)}>
-        <Scene L={L} viewRef={viewRef} />
+        <Scene L={L} viewRef={viewRef} readoutRef={readoutRef} />
       </Canvas>
     </div>
   );
