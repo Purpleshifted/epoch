@@ -136,6 +136,10 @@ interface Look {
   thickFill: boolean;
   thickInk: number;
   thickSoft: number;
+  /** What the face along the way shows (0 the silhouette squeezed · 1 streaks · 2 silhouette at the card, streaks
+   *  beyond) and how far the streaks carry (card widths). */
+  dragKind: number;
+  dragLen: number;
   edgeTh: number;
   /** The cut's softness above the threshold; the colour's contrast and brightness. */
   edgeW: number;
@@ -198,6 +202,9 @@ uniform float uCols;
 uniform float uRows;
 uniform float uThick;      // the frame's thickness (m), and whether it reaches back to the copy before
 uniform float uThickFill;
+#ifdef SIDE
+flat varying vec2 vLoHi;
+#endif
 uniform float uAspect;
 uniform float uFacing;     // 0 eye · 1 along the path · 2 across it
 uniform float uStretch;
@@ -249,7 +256,9 @@ void main() {
   float sx = position.x < 0.0 ? lo : hi;
   vec3 p = feet + nrm * sx + vec3(0.0, position.y * h + iC.w, 0.0);
   gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
-  vUv = vec2(position.x + 0.5, position.y);
+  // (u: card widths from the card along its normal; the face's two ends, the same way)
+  vUv = vec2(sx / max(w, 1e-4), position.y);
+  vLoHi = vec2(lo, hi) / max(w, 1e-4);
   vSide = 1.0;
 #else
   // the move to the copy before, across the card (in card widths): the stretch reaches towards it
@@ -334,14 +343,36 @@ vec4 cellB(float u, float v) {
 #ifdef SIDE
 uniform float uThickInk;
 uniform float uThickSoft;
-// the thickness's face: the frame's own silhouette again, squeezed into the thickness — seen from the side the body keeps
-// its shape (the artist, 2026-11-23: "이것봐, 모양이 다 죽어" — the first face filled each height with the body's width,
-// a blank block)
+uniform float uDragKind;   // 0 the silhouette squeezed into the face · 1 streaks · 2 the silhouette turned at the card, streaks beyond
+uniform float uDragLen;    // how far the streaks carry (card widths)
+flat varying vec2 vLoHi;
+// THE FACE ALONG THE WAY — THICKNESS AND DRAG (the artist, 2026-11-23: "이것봐, 모양이 다 죽어" → "공간에서 드래그해서
+// 부피 생기도록 못하나? 전에 없앴던 띠랑 합친다거나"): a front shot has no shape seen side-on, so the face never fills
+// heights with a width (the blank block): at the card the silhouette itself, turned square, and from it to the copy before
+// the body's middle dragged out in lines, as a long exposure smears it
 void main() {
-  vec4 t = cell(vUv.x, vUv.y);
-  // (fading towards its two ends by the softness: a blur through the space in front and behind)
-  float d = abs(vUv.x - 0.5) * 2.0;
-  float a = t.a * vAlpha * uThickInk * (1.0 - uThickSoft * smoothstep(0.0, 1.0, d));
+  float xc = vUv.x;              // card widths from the card, along its normal
+  vec4 t;
+  float a;
+  if (uDragKind < 0.5) {
+    float f = (xc - vLoHi.x) / max(1e-4, vLoHi.y - vLoHi.x);
+    t = cell(f, vUv.y);
+    // (fading towards its two ends by the softness: a blur through the space in front and behind)
+    a = t.a * (1.0 - uThickSoft * smoothstep(0.0, 1.0, abs(f - 0.5) * 2.0));
+  } else {
+    float beyond = uDragKind > 1.5 ? abs(xc) - 0.5 : abs(xc);
+    if (beyond <= 0.0) {
+      t = cell(0.5 + xc, vUv.y);
+      a = t.a;
+    } else {
+      // the body's middle (three columns, so a line is not one pixel's luck), fading with the distance
+      vec4 c0 = cell(0.42, vUv.y), c1 = cell(0.5, vUv.y), c2 = cell(0.58, vUv.y);
+      float s = c0.a + c1.a + c2.a;
+      t = vec4(s > 1e-3 ? (c0.rgb * c0.a + c1.rgb * c1.a + c2.rgb * c2.a) / s : vec3(1.0), max(c1.a, (c0.a + c2.a) * 0.5));
+      a = t.a * exp(-beyond / max(0.05, uDragLen));
+    }
+  }
+  a *= vAlpha * uThickInk;
   if (a < 0.004) discard;
 #else
 void main() {
@@ -433,6 +464,8 @@ function makeMaterial(): THREE.ShaderMaterial {
       uThickFill: { value: 0 },
       uThickInk: { value: 0.6 },
       uThickSoft: { value: 0.5 },
+      uDragKind: { value: 2 },
+      uDragLen: { value: 1.5 },
       uSheet: { value: null },
       uCols: { value: 16 },
       uRows: { value: 1 },
@@ -920,6 +953,8 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
     u.uThickFill.value = L.thickFill ? 1 : 0;
     u.uThickInk.value = L.thickInk;
     u.uThickSoft.value = L.thickSoft;
+    u.uDragKind.value = L.dragKind;
+    u.uDragLen.value = L.dragLen;
   });
 
   return (
@@ -1174,11 +1209,14 @@ export default function FrameLab() {
           flBright: { value: 0, min: -0.6, max: 0.6, step: 0.01, label: "밝기 ±" },
           flMultiply: { value: true, label: "곱하기로 겹침" },
           // (the artist, 2026-11-23: "프레임 자체에 두께를 좀 둘 수 있나? 아니면 블러가 앞뒤 공간으로도")
-          "두께 (옆에서 본 빈 공간 메우기)": folder({
+          // (+ "공간에서 드래그해서 부피 생기도록 … 띠랑 합친다거나": the band is back as this face's drag)
+          "두께 · 끌기 (옆에서 본 빈 공간 메우기)": folder({
             flThick: { value: 0, min: 0, max: 1.5, step: 0.01, label: "두께 (m, 0 = 없음)" },
-            flThickFill: { value: false, label: "앞 잔상까지 이어 채우기" },
-            flThickInk: { value: 0.6, min: 0, max: 1, step: 0.05, label: "두께 진하기" },
-            flThickSoft: { value: 0.5, min: 0, max: 1, step: 0.05, label: "앞뒤로 흐려짐" },
+            flThickFill: { value: false, label: "앞 잔상까지 끌기" },
+            flDragKind: { options: { "실루엣 + 끌린 줄 (카드엔 몸, 사이엔 줄)": 2, "끌린 줄만": 1, "실루엣을 눌러 펼침": 0 }, value: 2, label: "보이는 것" },
+            flDragLen: { value: 1.5, min: 0.1, max: 8, step: 0.1, label: "줄이 이어지는 길이 (프레임 폭)", render: (get) => Number(get(`${G}.늘어놓기 · 테두리.두께 · 끌기 (옆에서 본 빈 공간 메우기).flDragKind`)) > 0 },
+            flThickInk: { value: 0.6, min: 0, max: 1, step: 0.05, label: "진하기" },
+            flThickSoft: { value: 0.5, min: 0, max: 1, step: 0.05, label: "앞뒤로 흐려짐", render: (get) => Number(get(`${G}.늘어놓기 · 테두리.두께 · 끌기 (옆에서 본 빈 공간 메우기).flDragKind`)) === 0 },
           }),
           "늘어짐 · 슬릿 (나를 향하거나 진행 방향을 따라 설 때)": folder(
             {
@@ -1305,6 +1343,8 @@ export default function FrameLab() {
     thickFill: !!c.flThickFill,
     thickInk: Number(c.flThickInk ?? 0.6),
     thickSoft: Number(c.flThickSoft ?? 0.5),
+    dragKind: Number(c.flDragKind ?? 2),
+    dragLen: Number(c.flDragLen ?? 1.5),
     edgeTh: Number(c.flEdge),
     edgeW: Number(c.flEdgeW),
     con: Number(c.flCon),
