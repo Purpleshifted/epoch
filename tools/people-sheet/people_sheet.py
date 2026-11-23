@@ -132,6 +132,7 @@ class Track:
         self.frames = [f]
         self.boxes = [box]  # x0, y0, x1, y1 (low res)
         self.cuts = []  # (left, right) x where the neighbours begin (low res; ±1e9 = none)
+        self.feet = []  # the feet's x (low res)
         self.masks = []
 
     @property
@@ -165,7 +166,7 @@ def follow(path: str) -> tuple:
                 continue
             boxes.extend(split_wide((x, y, x + w, y + h), a))
         boxes.sort(key=lambda b: (b[0] + b[2]) / 2)
-        live = [t for t in tracks if f - t.frames[-1] <= 3]
+        live = [t for t in tracks if f - t.frames[-1] <= 10]
         used = set()
         # where each person ends: halfway to the next one along the same band of the frame (people standing close)
         def cut_of(j: int) -> tuple:
@@ -176,13 +177,14 @@ def follow(path: str) -> tuple:
             right = min([c for c in same if c > cx], default=1e9)
             return ((cx + left) / 2 if left > -1e9 else -1e9, (cx + right) / 2 if right < 1e9 else 1e9)
         for j, b in enumerate(boxes):
-            cx, cy = (b[0] + b[2]) / 2, b[3]
-            best, bd = None, 0.06 * W
+            # (by the feet — the lowest tenth of the blob — which stay put while arms and a kicking leg swing out)
+            cx, cy = feet_x(a, b), b[3]
+            best, bd = None, 0.12 * W
             for t in live:
                 if id(t) in used:
                     continue
                 lb = t.last
-                d = abs((lb[0] + lb[2]) / 2 - cx) + 0.5 * abs(lb[3] - cy)
+                d = abs(t.feet[-1] - cx) + 0.5 * abs(lb[3] - cy)
                 if d < bd:
                     best, bd = t, d
             if best is None:
@@ -191,6 +193,7 @@ def follow(path: str) -> tuple:
             else:
                 best.frames.append(f)
                 best.boxes.append(b)
+            best.feet.append(cx)
             best.cuts.append(cut_of(j))
             used.add(id(best))
             # a small normalised mask of this person this frame (feet at the bottom), for the loop
@@ -203,7 +206,38 @@ def follow(path: str) -> tuple:
             if xe > xs:
                 m[:, xs - x0:xe - x0] = a[b[1]:b[3], xs:xe]
             best.masks.append(cv2.resize(m, (32, 64), interpolation=cv2.INTER_AREA))
-    return tracks, count, size
+    return stitch(tracks, size[0] if size else 1), count, size
+
+
+def feet_x(a: np.ndarray, b: tuple) -> float:
+    """The middle of the blob's lowest tenth (the feet)."""
+    x0, y0, x1, y1 = b
+    y = max(y0, int(y1 - 0.1 * (y1 - y0)))
+    cols = np.where(a[y:y1, x0:x1].max(0) > 0.5)[0]
+    return float(x0 + cols.mean()) if len(cols) else (x0 + x1) / 2
+
+
+def stitch(tracks: list, W: int) -> list:
+    """A person lost for a moment (a gesture, a kick, two touching) comes back as a new track: join a track to one that
+    begins soon after it ends, near where it ended."""
+    tracks = sorted(tracks, key=lambda t: t.frames[0])
+    out: list = []
+    for t in tracks:
+        host = None
+        for o in out:
+            gap = t.frames[0] - o.frames[-1]
+            if 0 < gap <= 20 and abs(o.feet[-1] - t.feet[0]) < 0.15 * W:
+                host = o
+                break
+        if host is None:
+            out.append(t)
+        else:
+            host.frames += t.frames
+            host.boxes += t.boxes
+            host.cuts += t.cuts
+            host.feet += t.feet
+            host.masks += t.masks
+    return out
 
 
 def split_wide(b: tuple, a: np.ndarray) -> list:
@@ -257,7 +291,7 @@ def main() -> None:
         view = m.group(1) if m else "front"
         tracks, count, (lw, lh) = follow(path)
         usable_frames = max(1, len({f for t in tracks for f in t.frames}))
-        people = [t for t in tracks if len(t.frames) >= max(2 * FPS // 3, 0.5 * usable_frames)]
+        people = [t for t in tracks if len(t.frames) >= max(int(1.2 * FPS), 0.3 * usable_frames)]
         # the people in reading order (rows of the frame, then left to right), as many as asked, spread evenly
         people.sort(key=lambda t: (round(np.median([b[3] for b in t.boxes]) / (0.25 * lh)), np.median([(b[0] + b[2]) / 2 for b in t.boxes])))
         if len(people) > per_clip:
@@ -319,7 +353,15 @@ def main() -> None:
             rid = name if len(jobs) == 1 else f"{name}#{k + 1}"
             body = al[..., 0] > 0.6
             lum = float((row[..., :3][body] @ np.array([0.299, 0.587, 0.114])).mean()) if body.any() else 0.0
-            meta.append({"id": rid, "view": view, "strideSec": round(sec, 3), "loop": round(score, 2), "lum": round(lum, 2), "source": name.split("-")[0].lower()})
+            # walking in profile (the artist: not used — front shots stand square to the way they go): the feet spread wide
+            spreads = []
+            for i in range(COLS):
+                feet = al[int(CELL_H * 0.88):, i * CELL_W:(i + 1) * CELL_W, 0] > 0.5
+                xs = np.where(feet.any(0))[0]
+                if len(xs):
+                    spreads.append((xs.max() - xs.min()) / CELL_H)
+            side = bool(spreads) and float(np.percentile(spreads, 80)) > 0.24
+            meta.append({"id": rid, "view": "side" if side and not m else view, "strideSec": round(sec, 3), "loop": round(score, 2), "lum": round(lum, 2), "source": name.split("-")[0].lower()})
             print(f"{rid}: {view}, loop {sec:.2f} s (periodic {score:.2f})")
     sheet = np.concatenate(rows, 0)
     bgra = np.dstack([sheet[..., 2], sheet[..., 1], sheet[..., 0], sheet[..., 3]])

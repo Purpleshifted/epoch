@@ -20,6 +20,8 @@
  * Each clip keeps its own set: the distance a frame carries the body and how long a frame is held, what state it is for
  * (standing, moving, moving fast, talking, or unused), and how it looks (height, width, ink, feet, colour, reversed, start).
  * Front shots only, square to the way they go — a silhouette's front and back are one (the artist, 2026-11-23).
+ * Inside the silhouettes a colour may flow (a three-colour gradient that waves along the height, through space, or with
+ * a copy's age).
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -79,6 +81,16 @@ interface Look {
   ageScatter: number;
   ageTurn: number;
   ageDesat: number;
+  /** The colour flowing inside: how much, three colours, the size of a wave, its speed, along what (0 height · 1 space ·
+   *  2 age), how much it wavers. */
+  gradAmt: number;
+  gradA: string;
+  gradB: string;
+  gradC: string;
+  gradScale: number;
+  gradSpeed: number;
+  gradDir: number;
+  gradWarp: number;
   /** The side fill between frames (0 … 1). */
   fill: number;
   stamp: boolean;
@@ -150,6 +162,8 @@ flat varying float vFrame;
 flat varying float vMirror;
 flat varying float vDesat;
 flat varying vec4 vTint;
+varying vec3 vWorld;
+flat varying float vAge;
 void main() {
   vec3 feet = vec3(iA.x, 0.0, iA.y);
   vec3 right;
@@ -181,6 +195,8 @@ void main() {
   vMirror = iB.z;
   vDesat = iD.x;
   vTint = vec4(iE.rgb, iD.y);
+  vWorld = p;
+  vAge = iD.z;
 }`;
 
 const FRAG = /* glsl */ `
@@ -199,6 +215,8 @@ flat varying float vFrame;
 flat varying float vMirror;
 flat varying float vDesat;
 flat varying vec4 vTint;
+varying vec3 vWorld;
+flat varying float vAge;
 vec4 cell(float u, float v) {
   float uu = vMirror < 0.0 ? 1.0 - u : u;
   return texture2D(uSheet, vec2((vFrame + clamp(uu, 0.001, 0.999)) / uCols, (uRows - 1.0 - vRow + clamp(v, 0.001, 0.999)) / uRows));
@@ -229,10 +247,47 @@ void main() {
   a *= vAlpha;
   if (a < 0.004) discard;
   t.rgb = mix(t.rgb, vTint.rgb, vTint.a);
+  t.rgb = mix(t.rgb, gradAt(vWorld, vUv.y, vAge), uGradAmt);
   t.rgb = mix(t.rgb, vec3(dot(t.rgb, vec3(0.299, 0.587, 0.114))), vDesat);
   if (uMultiply > 0.5) gl_FragColor = vec4(mix(vec3(1.0), t.rgb, a), 1.0);
   else gl_FragColor = vec4(t.rgb, a);
 }`;
+
+/** THE COLOUR FLOWING INSIDE (the artist, 2026-11-23: "안에 그래디언트로 색 출렁이는 효과 한 번 넣어보자"): inside the
+ *  silhouettes, a gradient of three colours that waves — along the height, through space as they walk, or with a
+ *  copy's age — warped a little so it never runs straight. Mixed over the body's own colour by an amount. */
+const GRAD_GLSL = /* glsl */ `
+uniform float uGradAmt;
+uniform vec3 uGradA;
+uniform vec3 uGradB;
+uniform vec3 uGradC;
+uniform float uGradScale;
+uniform float uGradSpeed;
+uniform float uGradDir;
+uniform float uGradWarp;
+uniform float uTime;
+vec3 gradAt(vec3 world, float v, float age) {
+  float x = uGradDir < 0.5 ? v * 1.7 : (uGradDir < 1.5 ? (world.x + world.z) * 0.35 : age * 2.0);
+  x = x * uGradScale + uTime * uGradSpeed * 0.25;
+  x += uGradWarp * 0.25 * sin(world.y * 3.1 + uTime * 0.9 + world.x * 1.3) + uGradWarp * 0.15 * sin(v * 9.0 - uTime * 1.7);
+  float t = 0.5 + 0.5 * sin(x * 6.2831853);
+  float t2 = 0.5 + 0.5 * sin(x * 6.2831853 * 0.5 + 1.7);
+  return mix(mix(uGradA, uGradB, t), uGradC, t2 * t2);
+}`;
+
+function gradUniforms(): Record<string, THREE.IUniform> {
+  return {
+    uGradAmt: { value: 0 },
+    uGradA: { value: new THREE.Color() },
+    uGradB: { value: new THREE.Color() },
+    uGradC: { value: new THREE.Color() },
+    uGradScale: { value: 1 },
+    uGradSpeed: { value: 1 },
+    uGradDir: { value: 0 },
+    uGradWarp: { value: 0.6 },
+    uTime: { value: 0 },
+  };
+}
 
 const BAND_VERT = /* glsl */ `
 attribute vec4 bA;         // from x, z; to x, z
@@ -245,9 +300,11 @@ flat varying float vRow;
 flat varying float vFA;
 flat varying float vFB;
 flat varying vec4 vTint;
+varying vec3 vWorld;
 void main() {
   vec3 A = vec3(bA.x, 0.0, bA.y), B = vec3(bA.z, 0.0, bA.w);
   vec3 p = mix(A, B, position.x) + vec3(0.0, position.y * bC.x, 0.0);
+  vWorld = p;
   gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
   vXY = position.xy;
   vAlpha = mix(bC.y, bC.z, position.x);
@@ -268,6 +325,8 @@ flat varying float vRow;
 flat varying float vFA;
 flat varying float vFB;
 flat varying vec4 vTint;
+varying vec3 vWorld;
+${GRAD_GLSL}
 // a frame's row at height v: how much of it is body (its widest), and the body's mean colour there
 vec4 profileAt(float frame, float v) {
   float amax = 0.0, ws = 0.0;
@@ -285,6 +344,7 @@ void main() {
   vec4 pa = profileAt(vFA, vXY.y), pb = profileAt(vFB, vXY.y);
   vec4 p = mix(pa, pb, vXY.x);
   p.rgb = mix(p.rgb, vTint.rgb, vTint.a);
+  p.rgb = mix(p.rgb, gradAt(vWorld, vXY.y, 0.5), uGradAmt);
   float a = p.a * vAlpha;
   if (a < 0.004) discard;
   if (uMultiply > 0.5) gl_FragColor = vec4(mix(vec3(1.0), p.rgb, a), 1.0);
@@ -293,7 +353,7 @@ void main() {
 
 function makeBandMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
-    uniforms: { uSheet: { value: null }, uCols: { value: 16 }, uRows: { value: 1 }, uMultiply: { value: 1 } },
+    uniforms: { uSheet: { value: null }, uCols: { value: 16 }, uRows: { value: 1 }, uMultiply: { value: 1 }, ...gradUniforms() },
     vertexShader: BAND_VERT,
     fragmentShader: BAND_FRAG,
     side: THREE.DoubleSide,
@@ -317,9 +377,11 @@ function makeMaterial(): THREE.ShaderMaterial {
       uStretchKind: { value: 0 },
       uStreakSoft: { value: 0.6 },
       uMultiply: { value: 1 },
+      ...gradUniforms(),
     },
     vertexShader: VERT,
-    fragmentShader: FRAG,
+    // (the flowing colour's chunk, put in when the material is made — GRAD_GLSL is declared further down)
+    fragmentShader: FRAG.replace("vec4 cell(", `${GRAD_GLSL}\nvec4 cell(`),
     side: THREE.DoubleSide,
     depthTest: false,
     depthWrite: false,
@@ -558,6 +620,7 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
       C[n * 4 + 3] = L.ageRise * u + (set?.lift ?? 0);
       Dd[n * 4] = L.ageDesat * u;
       Dd[n * 4 + 1] = set?.tintAmt ?? 0;
+      Dd[n * 4 + 2] = u;
       Ee[n * 4] = set?.tint[0] ?? 0;
       Ee[n * 4 + 1] = set?.tint[1] ?? 0;
       Ee[n * 4 + 2] = set?.tint[2] ?? 0;
@@ -580,9 +643,16 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
         const s0 = w.stamps[0];
         for (let k = w.stamps.length - 1; k >= 1; k--) list.push({ s: w.stamps[k], age: now - w.stamps[k - 1].t });
         if (s0) {
-          const e = smooth01((now - s0.t) / Math.max(0.02, L.dashSec));
+          // the sweep at an even pace (an eased one pulsed every sample — the artist, 2026-11-23: "0.5로 맞춰도 0.02일 때처럼
+          // 부드럽지는 않아"), and the walk's frames running on through it: the phase at the moment the place stands for
+          const e = Math.min(1, Math.max(0, (now - s0.t) / Math.max(0.02, L.dashSec)));
           const from = w.stamps[1] ?? s0;
-          list.push({ s: { ...s0, x: from.x + (s0.x - from.x) * e, z: from.z + (s0.z - from.z) * e }, age: 0 });
+          let dh = s0.h - from.h;
+          dh = ((((dh + Math.PI) % TAU) + TAU) % TAU) - Math.PI;
+          const tAt = from.t + (s0.t - from.t) * e;
+          const set = CL[w.home];
+          const ph = from.ph + (tAt - from.t) / Math.max(1e-3, (set?.gap ?? 0.04) * cols);
+          list.push({ s: { t: tAt, x: from.x + (s0.x - from.x) * e, z: from.z + (s0.z - from.z) * e, h: from.h + dh * e, ph }, age: 0 });
         }
       } else {
         for (let k = L.copies; k >= 1; k--) {
@@ -660,6 +730,18 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
       at.needsUpdate = true;
     }
     bandMat.uniforms.uMultiply.value = L.multiply ? 1 : 0;
+    for (const m of [mat, bandMat]) {
+      const g = m.uniforms;
+      g.uGradAmt.value = L.gradAmt;
+      (g.uGradA.value as THREE.Color).set(L.gradA).convertSRGBToLinear();
+      (g.uGradB.value as THREE.Color).set(L.gradB).convertSRGBToLinear();
+      (g.uGradC.value as THREE.Color).set(L.gradC).convertSRGBToLinear();
+      g.uGradScale.value = L.gradScale;
+      g.uGradSpeed.value = L.gradSpeed;
+      g.uGradDir.value = L.gradDir;
+      g.uGradWarp.value = L.gradWarp;
+      g.uTime.value = now;
+    }
     const u = mat.uniforms;
     u.uFacing.value = L.facing === "eye" ? 0 : L.facing === "along" ? 1 : 2;
     u.uStretch.value = L.stretch;
@@ -699,11 +781,11 @@ export default function FrameLab() {
   // THE CLIPS' OWN SETS (the artist, 2026-11-23: "영상마다 골라서 이동거리랑 프레임 간격 세트로 저장"): for each clip of the
   // sheet, how far a frame carries the body (m) and how long a frame is held (s) — speed = distance / interval. Saved with
   // the group, a pair of knobs a clip (keys by the clip's name, so a clip keeps its set when others are added)
-  const [clips, setClips] = useState<{ id: string; strideSec: number; loop: number; lum: number }[]>([]);
+  const [clips, setClips] = useState<{ id: string; strideSec: number; loop: number; lum: number; side: boolean }[]>([]);
   useEffect(() => {
     loadSpriteSheet()
       .then(({ index }) =>
-        setClips(index.sheet.rows.map((r) => ({ id: r.id, strideSec: r.strideSec, loop: (r as { loop?: number }).loop ?? 1, lum: (r as { lum?: number }).lum ?? 0 }))),
+        setClips(index.sheet.rows.map((r) => ({ id: r.id, strideSec: r.strideSec, loop: (r as { loop?: number }).loop ?? 1, lum: (r as { lum?: number }).lum ?? 0, side: r.view === "side" }))),
       )
       .catch(() => undefined);
   }, []);
@@ -717,7 +799,8 @@ export default function FrameLab() {
       // (defaults: what looked natural with the man's clip — 3.9 m/s with the frames at 3 × the clip's own tempo)
       const gap = c.strideSec / 16 / 3;
       s[`${i + 1} · ${c.id}`] = folder({
-        [`ct_${ck(c.id)}`]: { options: STATES, value: (c.loop < 0.6 ? "none" : "walk") as ClipState, label: "언제 쓰나 (상태 · 미지정 = 안 씀)" },
+        // (walking in profile — the pipeline sees the feet spread wide — is not used by default: front shots only)
+        [`ct_${ck(c.id)}`]: { options: STATES, value: (c.side || c.loop < 0.6 ? "none" : "walk") as ClipState, label: "언제 쓰나 (상태 · 미지정 = 안 씀)" },
         [`cf_${ck(c.id)}`]: { value: false, label: "좌우 뒤집기" },
         [`ch_${ck(c.id)}`]: { value: 1.72, min: 0.8, max: 2.3, step: 0.01, label: "키 (m)" },
         [`cw_${ck(c.id)}`]: { value: 1, min: 0.5, max: 1.8, step: 0.01, label: "폭 ×" },
@@ -810,6 +893,16 @@ export default function FrameLab() {
         flSlit: { value: 1, min: 0.05, max: 1, step: 0.01, label: "슬릿 — 프레임의 가운데 몫만 (1 = 전체)" },
         flMultiply: { value: true, label: "곱하기로 겹침 (끄면 보통 겹침)" },
       }),
+      "안쪽 색 출렁임": folder({
+        flGradAmt: { value: 0.8, min: 0, max: 1, step: 0.05, label: "세기 (0 = 원래 색)" },
+        flGradA: { value: "#ff4a2e", label: "색 1" },
+        flGradB: { value: "#2b5dff", label: "색 2" },
+        flGradC: { value: "#ffd23a", label: "색 3" },
+        flGradDir: { options: { "높이를 따라 (세로로 흐르는 띠)": 0, "공간을 따라 (걸어가며 바뀜)": 1, "잔상의 나이를 따라 (지금 → 오래된 것)": 2 }, value: 0, label: "흐르는 방향" },
+        flGradScale: { value: 1, min: 0.1, max: 6, step: 0.05, label: "물결 크기 (작을수록 넓게)" },
+        flGradSpeed: { value: 1, min: 0, max: 6, step: 0.05, label: "출렁이는 속도" },
+        flGradWarp: { value: 0.6, min: 0, max: 3, step: 0.05, label: "일렁임" },
+      }),
       "잔상의 나이에 따라": folder({
         flAgeScale: { value: 1, min: 0.3, max: 2, step: 0.01, label: "크기 × (가장 오래된 것)" },
         flAgeRise: { value: 0, min: -1.5, max: 1.5, step: 0.01, label: "떠오름 (+) · 가라앉음 (−) (m)" },
@@ -837,6 +930,14 @@ export default function FrameLab() {
     ageScatter: Number(c.flAgeScatter),
     ageTurn: (Number(c.flAgeTurn) * Math.PI) / 180,
     ageDesat: Number(c.flAgeDesat),
+    gradAmt: Number(c.flGradAmt),
+    gradA: String(c.flGradA),
+    gradB: String(c.flGradB),
+    gradC: String(c.flGradC),
+    gradScale: Number(c.flGradScale),
+    gradSpeed: Number(c.flGradSpeed),
+    gradDir: Number(c.flGradDir),
+    gradWarp: Number(c.flGradWarp),
     fill: Number(c.flFill),
     stamp: !!c.flStamp,
     sampleSec: Number(c.flSample),
