@@ -267,69 +267,27 @@ export default function FrameLab() {
       .catch(() => undefined);
   }, []);
   const ck = (id: string) => id.replace(/[^A-Za-z0-9]/g, "_");
-  const [names, setNames] = useState<string[]>([]);
   // ── THE PANEL, MADE EASIER (the artist, 2026-11-23: "전반적으로 지금 레바 쓰기가 너무 힘듦"): one clip, one state, one
   // colour combination shown at a time (a picker over each; every value is kept and saved as before), the folders in the
   // order they are used, the rare ones folded. Keys unchanged: the saved values stay.
   const OLD_CLIP_ROOT = `${G}.클립 — 이동거리 · 프레임 간격`;
   const clipRoot = `${G}.클립`;
+  // UNIFORM CLIPS (the artist, 2026-11-24: "클립 획일화하자! 레바에서 다 치워봐"): a clip says only WHEN it is used — its
+  // height, width, colour, playback and step are one for all (framePeople.setsFromValues); her names stay as labels
+  // (read from what was saved — the name fields are gone with the rest)
   const clipSchema = useMemo(() => {
-    // (the artist's own name for a clip when she gave one — "레바로 파일 이름도 지정하게": the file keeps its name, so
-    // its saved set stays; the name is what the pickers show)
-    const opts = Object.fromEntries(clips.map((c, i) => [`${i + 1} · ${names[i] || c.id}`, i + 1]));
+    const label = (c: { id: string }, i: number) => `${i + 1} · ${String(savedValue(clipRoot, `cn_${ck(c.id)}`, [OLD_CLIP_ROOT]) ?? "").trim() || c.id}`;
+    const opts = Object.fromEntries(clips.map((c, i) => [label(c, i), i + 1]));
     const s: Record<string, unknown> = {
       clipPick: { options: { "상태로 자동 (사람마다 그 상태의 클립)": 0, ...opts }, value: 0, label: "사람들이 쓰는 클립" },
-      clipEdit: { options: opts, value: 1, label: "▶ 편집할 클립" },
     };
     clips.forEach((c, i) => {
-      // (defaults: what looked natural with the man's clip — 3.9 m/s with the frames at 3 × the clip's own tempo)
-      const gap = c.strideSec / 16 / 3;
-      const k = ck(c.id);
-      const name = `${i + 1} · ${c.id}`;
-      const shown = (get: (path: string) => unknown) => Number(get(`${clipRoot}.clipEdit`)) === i + 1;
-      s[name] = folder(
-        {
-          // (walking in profile is not used by default: front shots only; a clip whose legs do not walk starts as standing)
-          [`cn_${k}`]: { value: "", label: `이름 (파일: ${c.id})` },
-          [`ct_${k}`]: { options: STATES, value: (c.side ? "none" : c.walking ? "walk" : "stand") as ClipState, label: "언제 쓰나 (미지정 = 안 씀)" },
-          [`ch_${k}`]: { value: 1.72, min: 0.8, max: 2.3, step: 0.01, label: "키 (m)" },
-          [`cp_${k}`]: { value: 1, min: 0.05, max: 4, step: 0.01, label: "재생 빠르기 ×" },
-          [`cb_${k}`]: { value: false, label: "왕복 재생 (a → 거꾸로 → a)" },
-          // (the distance only for a moving clip: standing or talking, the frames' time and the playback speed say it all)
-          [`cd_${k}`]: {
-            value: +(3.9 * gap).toFixed(3),
-            min: 0.001,
-            max: 0.4,
-            step: 0.001,
-            label: "걸음: 영상 한 장에 가는 거리 (m)",
-            render: (get: (path: string) => unknown) => ["walk", "brisk", "run"].includes(String(get(`${clipRoot}.${name}.ct_${k}`))),
-          },
-          [`cg_${k}`]: { value: +gap.toFixed(3), min: 0.005, max: 0.5, step: 0.001, label: "영상 한 장이 머무는 시간 (s)" },
-          [`ci_${k}`]: { value: 1, min: 0, max: 1.5, step: 0.05, label: "진하기 ×" },
-          // (the silhouette painted one colour: a white matte is invisible on white paper — dark by default for those)
-          [`ca_${k}`]: { value: c.lum > 0.7 ? 1 : 0, min: 0, max: 1, step: 0.05, label: "실루엣 색 바꾸기 — 세기 (0 = 영상 색)" },
-          [`cc_${k}`]: { value: "#141414", label: "실루엣 색 바꾸기 — 색" },
-          "세부": folder(
-            {
-              [`cw_${k}`]: { value: 1, min: 0.5, max: 1.8, step: 0.01, label: "폭 ×" },
-              [`cy_${k}`]: { value: 0, min: -0.4, max: 0.4, step: 0.005, label: "발 높이 보정 (m)" },
-              [`cf_${k}`]: { value: false, label: "좌우 뒤집기" },
-              [`cr_${k}`]: { value: false, label: "거꾸로 재생" },
-              [`co_${k}`]: { value: 0, min: 0, max: 1, step: 0.01, label: "시작 위상 (0 … 1)" },
-              [`cs_${k}`]: { value: c.side, label: "멀리서 옆모습으로 쓰기" },
-              [`cf2_${k}`]: { options: { "자동 (시트에서 판별)": 0, "오른쪽": 1, "왼쪽": -1 }, value: 0, label: "옆모습이 향하는 쪽" },
-            },
-            { collapsed: true },
-          ),
-        },
-        { render: shown },
-      );
+      s[`ct_${ck(c.id)}`] = { options: STATES, value: (c.side ? "none" : c.walking ? "walk" : "stand") as ClipState, label: label(c, i) };
     });
     return s;
-  }, [clips, names]);
-  const cs = useControls(clipRoot, savable(clipRoot, clipSchema, [OLD_CLIP_ROOT]) as Parameters<typeof useControls>[1], { collapsed: false, order: 2 }, [clips.length, names.join("\u0001")]) as unknown as Record<string, number>;
-  const nameKey = clips.map((cl) => String((cs as unknown as Record<string, unknown>)[`cn_${ck(cl.id)}`] ?? "").trim()).join("\u0001");
-  useEffect(() => setNames(nameKey.split("\u0001")), [nameKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clips]);
+  const cs = useControls(clipRoot, savable(clipRoot, clipSchema, [OLD_CLIP_ROOT]) as Parameters<typeof useControls>[1], { collapsed: false, order: 2 }, [clips.length]) as unknown as Record<string, number>;
   const pick = Number(cs.clipPick ?? 0);
   const sets: ClipSet[] = setsFromValues(cs as unknown as Record<string, unknown>, clips);
 
@@ -376,19 +334,15 @@ export default function FrameLab() {
           flPath: { options: PATHS, value: "across" as Path, label: "길" },
           flCount: { value: 3, min: 1, max: 24, step: 1, label: "사람 수" },
           flStand: { value: 0, min: 0, max: 1, step: 0.05, label: "서 있는 사람의 몫" },
-          // (the artist, 2026-11-23: "키랑 폭 통일 … 봇마다 키는 랜덤지정해서 그 배율에는 따르게"; "잔걸음 너무 어색해서")
-          flUnify: { value: true, label: "클립 키·폭 통일 (사람마다 키 배율만)" },
-          flHeightBase: { value: 1.72, min: 1.2, max: 2.1, step: 0.01, label: "키 (m)", render: (get) => get(`${G}.사람.flUnify`) !== false },
-          flHeightVar: { value: 0.08, min: 0, max: 0.3, step: 0.01, label: "사람마다 키 차이 (±)", render: (get) => get(`${G}.사람.flUnify`) !== false },
-          flGait: { value: true, label: "걸음 박자: 사람 보폭 모델 (빠를수록 큰 걸음 · 잔걸음 없음)" },
-          flSpeedMode: { options: { "클립 세트대로 (클립 맞추기)": 0, "사람마다 빠르기 — 그 빠르기에 맞춘 클립": 1 }, value: 0, label: "빠르기" },
-          flSpeedMin: { value: 0.5, min: 0.05, max: 3, step: 0.05, label: "가장 느린 사람 (m/s)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 },
-          flSpeedMax: { value: 2.6, min: 0.3, max: 8, step: 0.05, label: "가장 빠른 사람 (m/s)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 },
-          flSpeedSkew: { value: 1.8, min: 0.3, max: 4, step: 0.05, label: "느린 쪽으로 몰림 (1 = 고르게)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 },
-          flBriskFrom: { value: 1.55, min: 0.3, max: 8, step: 0.05, label: "경보 문턱 (m/s)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 && !get(`${G}.사람.flPickBySpeed`) },
-          flRunFrom: { value: 2.5, min: 0.3, max: 8, step: 0.05, label: "뛰기 문턱 (m/s)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 && !get(`${G}.사람.flPickBySpeed`) },
-          flPickBySpeed: { value: false, label: "클립을 빠르기에 맞춰 고르기 (끄면 한 사람 = 한 클립)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 },
-          flSpeedTol: { value: 0.25, min: 0.02, max: 1, step: 0.01, label: "클립 빠르기와 맞는 폭 (±, 0.25 = ±25%)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 && !!get(`${G}.사람.flPickBySpeed`) },
+          // (one height for all, each person their own factor; a person's speed picks walk / brisk / run by the thresholds,
+          // the legs' tempo from a walking person's stride — the clips are uniform, 2026-11-24)
+          flHeightBase: { value: 1.72, min: 1.2, max: 2.1, step: 0.01, label: "키 (m)" },
+          flHeightVar: { value: 0.08, min: 0, max: 0.3, step: 0.01, label: "사람마다 키 차이 (±)" },
+          flSpeedMin: { value: 0.5, min: 0.05, max: 3, step: 0.05, label: "가장 느린 사람 (m/s)" },
+          flSpeedMax: { value: 2.6, min: 0.3, max: 8, step: 0.05, label: "가장 빠른 사람 (m/s)" },
+          flSpeedSkew: { value: 1.8, min: 0.3, max: 4, step: 0.05, label: "느린 쪽으로 몰림 (1 = 고르게)" },
+          flBriskFrom: { value: 1.55, min: 0.3, max: 8, step: 0.05, label: "경보 문턱 (m/s)" },
+          flRunFrom: { value: 2.5, min: 0.3, max: 8, step: 0.05, label: "뛰기 문턱 (m/s)" },
           flSpread: { value: 1.6, min: 0, max: 6, step: 0.1, label: "사람 사이 간격 (m)" },
           flDist: { value: 6, min: 1, max: 20, step: 0.5, label: "나와의 거리 (m)" },
         },

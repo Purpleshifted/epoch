@@ -1058,20 +1058,22 @@ export function lookFromValues(c: Record<string, unknown>, sets: ClipSet[], pick
       blur: [num("flNBlur", 0), num("flMBlur", 0.04), num("flFBlur", 0.12)],
       grad: [num("flNGrad", 1), num("flMGrad", 0.7), num("flFGrad", 0.3)],
     },
-    speedMode: num("flSpeedMode", 0),
+    // (uniform clips, 2026-11-24: each person their own speed, the clip by the state thresholds, the stride model, one
+    // height — the knobs that chose otherwise are gone)
+    speedMode: 1,
     speedMin: Number(c.flSpeedMin ?? 0.5),
     speedMax: Number(c.flSpeedMax ?? 2.6),
     speedSkew: Number(c.flSpeedSkew ?? 1.8),
     speedTol: Number(c.flSpeedTol ?? 0.25),
-    pickBySpeed: !!c.flPickBySpeed,
+    pickBySpeed: false,
     briskFrom: Number(c.flBriskFrom ?? 1.55),
     runFrom: Number(c.flRunFrom ?? 2.5),
     nearCut: Number(c.flNearCut ?? 0.8),
     nearBand: Number(c.flNearBand ?? 0.8),
-    unify: c.flUnify !== false,
+    unify: true,
     heightBase: num("flHeightBase", 1.72),
     heightVar: num("flHeightVar", 0.08),
-    gait: c.flGait !== false,
+    gait: true,
     yaw: (num("flYaw", 0) * Math.PI) / 180,
     between: num("flBetween", 2),
     trails: Object.fromEntries(
@@ -1117,32 +1119,34 @@ export function lookFromValues(c: Record<string, unknown>, sets: ClipSet[], pick
     floor: !!c.flFloor,
   };}
 
-/** Each clip's set from the clip group's values (keys by the clip's name). */
+/** Each clip's set: only WHEN it is used comes from the values (keys by the clip's name) — every clip is otherwise the
+ *  same (the artist, 2026-11-24: "클립 획일화하자! 레바에서 다 치워봐"): one height and width, its own colour (a white
+ *  matte darkened, or it vanishes on the paper), played at its own pace forward, profile as the sheet found it. */
 export function setsFromValues(raw: Record<string, unknown>, clips: readonly ClipInfo[]): ClipSet[] {
   return clips.map((cl) => {
     const k = clipKey(cl.id);
     return {
       id: cl.id,
       state: (raw[`ct_${k}`] as ClipState) ?? (cl.side ? "none" : cl.walking ? "walk" : "stand"),
-      flip: !!raw[`cf_${k}`],
-      dist: Number(raw[`cd_${k}`] ?? 0.15),
-      gap: Number(raw[`cg_${k}`] ?? 0.04),
-      height: Number(raw[`ch_${k}`] ?? 1.72),
-      width: Number(raw[`cw_${k}`] ?? 1),
-      ink: Number(raw[`ci_${k}`] ?? 1),
-      lift: Number(raw[`cy_${k}`] ?? 0),
-      tint: hexLin(String(raw[`cc_${k}`] ?? "#141414")),
-      tintAmt: Number(raw[`ca_${k}`] ?? (cl.lum > 0.7 ? 1 : 0)),
-      reverse: !!raw[`cr_${k}`],
-      play: Number(raw[`cp_${k}`] ?? 1),
-      pingpong: !!raw[`cb_${k}`],
+      flip: false,
+      dist: 0.1,
+      gap: cl.strideSec / 16,
+      height: 1.72,
+      width: 1,
+      ink: 1,
+      lift: 0,
+      tint: hexLin("#141414"),
+      tintAmt: cl.lum > 0.7 ? 1 : 0,
+      reverse: false,
+      play: 1,
+      pingpong: false,
       fill: cl.fill,
-      farSide: !!(raw[`cs_${k}`] ?? cl.side),
-      profile: cl.side || !!raw[`cs_${k}`],
-      faces: Number(raw[`cf2_${k}`] ?? 0) || cl.faces || 1,
+      farSide: cl.side,
+      profile: cl.side,
+      faces: cl.faces || 1,
       stride: cl.strideSec,
       ds0: (cl.ds?.[0] ?? 0) / 16,
-      offset: Number(raw[`co_${k}`] ?? 0),
+      offset: 0,
     };
   });
 }
