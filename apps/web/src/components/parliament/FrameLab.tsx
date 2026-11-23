@@ -258,11 +258,11 @@ export default function FrameLab() {
   // THE CLIPS' OWN SETS (the artist, 2026-11-23: "영상마다 골라서 이동거리랑 프레임 간격 세트로 저장"): for each clip of the
   // sheet, how far a frame carries the body (m) and how long a frame is held (s) — speed = distance / interval. Saved with
   // the group, a pair of knobs a clip (keys by the clip's name, so a clip keeps its set when others are added)
-  const [clips, setClips] = useState<{ id: string; strideSec: number; loop: number; lum: number; side: boolean; walking: boolean; fill: number; faces: number }[]>([]);
+  const [clips, setClips] = useState<{ id: string; strideSec: number; loop: number; lum: number; side: boolean; walking: boolean; fill: number; faces: number; ds?: number[] }[]>([]);
   useEffect(() => {
     loadSpriteList()
       .then((sheet) =>
-        setClips(sheet.rows.map((r) => ({ id: r.id, strideSec: r.strideSec, loop: (r as { loop?: number }).loop ?? 1, lum: (r as { lum?: number }).lum ?? 0, side: r.view === "side", walking: (r as { walking?: boolean }).walking ?? true, fill: (r as { fill?: number }).fill ?? 1, faces: (r as { faces?: number }).faces ?? 0 }))),
+        setClips(sheet.rows.map((r) => ({ id: r.id, strideSec: r.strideSec, loop: (r as { loop?: number }).loop ?? 1, lum: (r as { lum?: number }).lum ?? 0, side: r.view === "side", walking: (r as { walking?: boolean }).walking ?? true, fill: (r as { fill?: number }).fill ?? 1, faces: (r as { faces?: number }).faces ?? 0, ds: (r as { ds?: number[] }).ds }))),
       )
       .catch(() => undefined);
   }, []);
@@ -376,6 +376,11 @@ export default function FrameLab() {
           flPath: { options: PATHS, value: "across" as Path, label: "길" },
           flCount: { value: 3, min: 1, max: 24, step: 1, label: "사람 수" },
           flStand: { value: 0, min: 0, max: 1, step: 0.05, label: "서 있는 사람의 몫" },
+          // (the artist, 2026-11-23: "키랑 폭 통일 … 봇마다 키는 랜덤지정해서 그 배율에는 따르게"; "잔걸음 너무 어색해서")
+          flUnify: { value: true, label: "클립 키·폭 통일 (사람마다 키 배율만)" },
+          flHeightBase: { value: 1.72, min: 1.2, max: 2.1, step: 0.01, label: "키 (m)", render: (get) => get(`${G}.사람.flUnify`) !== false },
+          flHeightVar: { value: 0.08, min: 0, max: 0.3, step: 0.01, label: "사람마다 키 차이 (±)", render: (get) => get(`${G}.사람.flUnify`) !== false },
+          flGait: { value: true, label: "걸음 박자: 사람 보폭 모델 (빠를수록 큰 걸음 · 잔걸음 없음)" },
           flSpeedMode: { options: { "클립 세트대로 (클립 맞추기)": 0, "사람마다 빠르기 — 그 빠르기에 맞춘 클립": 1 }, value: 0, label: "빠르기" },
           flSpeedMin: { value: 0.5, min: 0.05, max: 3, step: 0.05, label: "가장 느린 사람 (m/s)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 },
           flSpeedMax: { value: 2.6, min: 0.3, max: 8, step: 0.05, label: "가장 빠른 사람 (m/s)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 },
@@ -393,7 +398,10 @@ export default function FrameLab() {
       "잔상 남기기": folder(
         {
           flStandMode: { value: true, label: "도착마다 그 자리에 섰다 사라짐 (원본 속도)" },
-          flStandCarry: { value: true, label: "도착 사이엔 지금 몸이 그 속도·방향으로 걸어감", render: (get) => !!get(`${G}.잔상 남기기.flStandMode`) },
+          flStandCarry: { value: true, label: "도착 사이엔 지금 몸이 걸어감", render: (get) => !!get(`${G}.잔상 남기기.flStandMode`) },
+          // (the artist, 2026-11-24: "1초 사이에 몇걸음인지 어림해서 그 사이를 움직이는 프레임으로 잡을 수 있잖아" — the
+          // frames where both feet are down come from tools/people-sheet/steps.py)
+          flCarryKind: { options: { "한 박자 늦게 — 도착 사이를 걸음 수대로 (두 발 디딜 때 도착)": 2, "앞으로 이어감 — 지연 없음": 1 }, value: 2, label: "걸어가는 방식", render: (get) => !!get(`${G}.잔상 남기기.flStandMode`) && !!get(`${G}.잔상 남기기.flStandCarry`) },
           flStamp: { value: true, label: "표본마다 슉 (끄면 이어 걷고 일정 시간마다)", render: (get) => !get(`${G}.잔상 남기기.flStandMode`) },
           flSample: { value: 0.5, min: 0.1, max: 2, step: 0.05, label: "위치가 도착하는 간격 (s · 실제 봇은 1초)", render: (get) => !!get(`${G}.잔상 남기기.flStamp`) || !!get(`${G}.잔상 남기기.flStandMode`) },
           flDash: { value: 0.12, min: 0.02, max: 0.5, step: 0.01, label: "쓸려 가는 시간 (s)", render: (get) => !!get(`${G}.잔상 남기기.flStamp`) && !get(`${G}.잔상 남기기.flStandMode`) },

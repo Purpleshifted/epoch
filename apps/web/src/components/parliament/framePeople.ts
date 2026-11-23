@@ -44,6 +44,8 @@ export interface ClipSet {
   faces: number;
   /** The clip's own stride (s): its 16 frames over this long are the original video's pace. */
   stride: number;
+  /** Where in its loop (0 … 1) both feet are first down — two steps a loop, the next half a loop on. */
+  ds0: number;
   /** A clip seen in profile (found so by the sheet, or used as one far off): it has a way it walks on screen. */
   profile: boolean;
 }
@@ -107,6 +109,15 @@ export interface Look {
    *  screen, its afterimages and blur over every pixel, dropped the frame rate ("나를 통과해서 지나갈 때 fps 가 … 확"). */
   nearCut: number;
   nearBand: number;
+  /** Every clip one height and width (heightBase m), each person their own height by a random factor within ±heightVar
+   *  (the artist, 2026-11-23: "키랑 폭 통일해서 속도 맞춰서 골라도 안 이상하게" — "봇마다 키는 랜덤지정해서 그 배율에는
+   *  따르게"). */
+  unify: boolean;
+  heightBase: number;
+  heightVar: number;
+  /** The legs' tempo from a walking person's stride — longer the faster they go — not from each clip's distance a frame
+   *  ("잔걸음 너무 어색해서 미쳐버릴것 같아": a short distance a frame at walking speed made quick little steps). */
+  gait: boolean;
   /** The card turned from its walking direction (rad); what fills between two copies (0 none · 2 a count of frames · 3 one per frame time). */
   yaw: number;
   between: number;
@@ -144,6 +155,10 @@ export interface Look {
    *  artist, 2026-11-23: "생각보다 너무 정신사나운데 — 다음위치 들어오기 전까진 그 속도랑 방향대로 움직이고 있어야 하나").
    *  The bot server writes a place a second, so a relay pulled harder would bring nothing new. */
   standCarry: boolean;
+  /** 2: one arrival span behind, the body walks from each arrival to the next in a whole number of steps — the distance
+   *  over its step length — landing with both feet down at each ("1초 사이에 몇걸음인지 어림해서 그 사이를 움직이는
+   *  프레임으로"); 1: on from the latest arrival, no delay. */
+  carryKind: number;
   sampleSec: number;
   dashSec: number;
   fall: number;
@@ -163,6 +178,8 @@ export interface Stamp {
   z: number;
   h: number;
   ph: number;
+  /** Its phase set by the steps from the arrival before (both feet down at each arrival). */
+  pa?: boolean;
 }
 
 export interface Walker {
@@ -595,6 +612,41 @@ export const TRAIL_DEFAULTS: Record<StateKey, Omit<Trail, "turn"> & { turn: numb
 };
 
 
+/** A person's height (m): one height for every clip and their own factor, or their clip's height (and a touch of their
+ *  own). */
+export function personHeight(L: Look, w: Walker, set: ClipSet | undefined): number {
+  const own = 2 * frac(w.hash * 17.31) - 1;
+  return L.unify ? L.heightBase * (1 + L.heightVar * own) : (set?.height ?? 1.72) * (1 + 0.03 * own);
+}
+
+/** One stride (two steps, m) of a person this tall going this fast (m/s): about 1.4 m at 1.4 m/s for 1.72 m, longer
+ *  as they hurry, a running stride past 2.5 m/s — so the step's tempo rises gently, never in quick little steps. */
+export function strideOf(v: number, height: number): number {
+  const s = v < 2.5 ? 0.7 + 0.5 * v : 1.95 + 0.35 * (v - 2.5);
+  return Math.min(3.2, Math.max(0.8, s)) * (height / 1.72);
+}
+
+/** Each arrival's phase, once (marked `pa`): the one before's plus the steps between them — the distance over this person's step
+ *  at that pace, a whole number of them (none standing), two steps a loop — so both feet are down at every arrival. */
+function stepPhases(L: Look, w: Walker, unit: number): void {
+  const S = w.stamps;
+  const set = L.clips[w.home];
+  for (let k = S.length - 1; k >= 0; k--) {
+    const st = S[k];
+    if (st.pa) continue;
+    const prev = S[k + 1];
+    if (!prev) st.ph = set?.ds0 ?? 0;
+    else {
+      const d = Math.hypot(st.x - prev.x, st.z - prev.z) / unit;
+      const span = Math.max(0.05, st.t - prev.t);
+      const step = strideOf(d / span, personHeight(L, w, set)) / 2;
+      const n = w.standing || d < 0.05 ? 0 : Math.max(1, Math.round(d / step));
+      st.ph = prev.ph + n / 2;
+    }
+    st.pa = true;
+  }
+}
+
 /** A walker's state for its afterimages and colours: standing (talking, when its clip is for talking) or moving (fast,
  *  when its clip runs). */
 export function stateOfWalker(L: Look, w: Walker): StateKey {
@@ -644,7 +696,7 @@ export function prepareWalkers(W: Walker[], L: Look, cols: number, own: (w: Walk
     const still = w.standing || !set || set.state === "stand" || set.state === "talk";
     w.speed = still ? 0 : L.speedMode === 1 ? vOwn : set.dist / Math.max(1e-3, set.gap);
     // (the frames follow the speed: a frame for each of the clip's own steps, so the feet keep to the ground)
-    w.gap = !set ? 0.04 : w.speed > 0 && L.speedMode === 1 ? set.dist / w.speed : set.gap;
+    w.gap = !set ? 0.04 : w.speed > 0 && L.speedMode === 1 ? (L.gait ? strideOf(w.speed, personHeight(L, w, set)) / 16 : set.dist) / w.speed : set.gap;
     // the clip's playback speed: its frames faster or slower (moving by the clip's set, the pace with them — the feet
     // stay matched); a ping-pong loop takes twice the frames a cycle
     const play = Math.max(0.05, set?.play ?? 1);
@@ -762,8 +814,8 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
     A[n * 4] = s.x + Math.sin(seedA) * T.scatter * u * unit;
     A[n * 4 + 1] = s.z + Math.cos(seedA) * T.scatter * u * unit;
     // (a clip standing in — a profile one crossing my view — takes the person's own height: "크기는 옆모습 사이즈랑 연동")
-    const tall = CL[w.home]?.height ?? set?.height ?? 1.72;
-    A[n * 4 + 2] = (tall / Math.max(0.2, set?.fill ?? 1)) * (0.97 + 0.06 * w.hash) * (1 + (T.scale - 1) * u) * unit;
+    const tall = personHeight(L, w, CL[w.home] ?? set);
+    A[n * 4 + 2] = (tall / Math.max(0.2, set?.fill ?? 1)) * (1 + (T.scale - 1) * u) * unit;
     A[n * 4 + 3] = alpha * (set?.ink ?? 1) * Q.ink;
     B[n * 4] = slot;
     // standing or talking past the near band: one still frame of their own (no frames run where nobody reads them)
@@ -775,7 +827,7 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
     // (stand mode: the clip at the original video's pace from the moment the frame stood — each its own start)
     const phStand = set ? (now - s.t) / Math.max(0.05, set.stride * (set.pingpong ? 2 : 1)) + frac(w.hash * 3.71 + s.t * 0.37) : 0;
     // (the body now, carried between arrivals, steps by its own pace; the frames left at arrivals by the original's)
-    const ph = still ? frac(w.hash * 5.37) : L.standMode && u > 0 ? (set?.reverse ? -phStand : phStand) + (set?.offset ?? 0) : (set?.reverse ? -s.ph : s.ph) * swap + (set?.offset ?? 0);
+    const ph = still ? frac(w.hash * 5.37) : L.standMode && L.standCarry && L.carryKind === 2 ? (set?.reverse ? -s.ph : s.ph) + (set?.offset ?? 0) : L.standMode && u > 0 ? (set?.reverse ? -phStand : phStand) + (set?.offset ?? 0) : (set?.reverse ? -s.ph : s.ph) * swap + (set?.offset ?? 0);
     const pf = ((ph % 1) + 1) % 1;
     // (ping-pong: the frames forward, then back — the artist, 2026-11-23: "a->a리버스->a 로 재생해서 루프")
     // (a profile clip walking never plays back: its ping-pong's return half walked backwards — the cycle's two halves
@@ -807,7 +859,7 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
     Ee[n * 4] = set?.tint[0] ?? 0;
     Ee[n * 4 + 1] = set?.tint[1] ?? 0;
     Ee[n * 4 + 2] = set?.tint[2] ?? 0;
-    Ee[n * 4 + 3] = set?.width ?? 1;
+    Ee[n * 4 + 3] = L.unify ? 1 : set?.width ?? 1;
     n++;
   };
   const lerpStamp = (a: Stamp, b: Stamp, f: number): Stamp => {
@@ -826,6 +878,35 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
     if (L.standMode) {
       // each arrival a frame standing where it came, facing its way, fading with its age; the newest is the body now
       const carry = L.standCarry && w.stamps.length > 0;
+      if (carry && L.carryKind === 2) {
+        // ONE ARRIVAL SPAN BEHIND: the body between the two arrivals round that moment, its steps counted; the frames it
+        // has reached left standing, playing on from the pose it left them in
+        stepPhases(L, w, unit);
+        const lag = Math.max(0.2, L.sampleSec);
+        const tb = now - lag;
+        const S = w.stamps;
+        const set = CL[w.home];
+        const cyc = Math.max(0.05, (set?.stride ?? 1.2) * (set?.pingpong ? 2 : 1));
+        let a = -1;
+        for (let k = 0; k < S.length; k++) {
+          if (S[k].t <= tb) {
+            a = k;
+            break;
+          }
+        }
+        for (let k = S.length - 1; k >= 0; k--) {
+          if (S[k].t > tb) continue;
+          list.push({ s: { ...S[k], ph: S[k].ph + (tb - S[k].t) / cyc }, age: Math.max(1e-4, tb - S[k].t) });
+        }
+        const sA = a >= 0 ? S[a] : S[S.length - 1];
+        const sB = a > 0 ? S[a - 1] : null;
+        let body: Stamp = { t: tb, x: sA.x, z: sA.z, h: sA.h, ph: sA.ph };
+        if (sB) {
+          const e = Math.min(1, Math.max(0, (tb - sA.t) / Math.max(1e-3, sB.t - sA.t)));
+          body = { t: tb, x: sA.x + (sB.x - sA.x) * e, z: sA.z + (sB.z - sA.z) * e, h: sB.h, ph: sA.ph + (sB.ph - sA.ph) * e };
+        }
+        list.push({ s: body, age: 0 });
+      } else {
       for (let k = w.stamps.length - 1; k >= 0; k--) list.push({ s: w.stamps[k], age: Math.max(1e-4, now - w.stamps[k].t), newest: !carry && k === 0 });
       if (carry) {
         // the body now: on from the latest arrival at the pace and way the last two arrivals gave (standing: where it is),
@@ -839,6 +920,7 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
           z += ((s0.z - s1.z) / span) * e;
         }
         list.push({ s: { t: now, x, z, h: s0.h, ph: w.ph }, age: 0 });
+      }
       }
     } else if (L.stamp) {
       // "슉": each sample left where it came; the body now sweeps from the last sample to where it is
@@ -986,6 +1068,10 @@ export function lookFromValues(c: Record<string, unknown>, sets: ClipSet[], pick
     runFrom: Number(c.flRunFrom ?? 2.5),
     nearCut: Number(c.flNearCut ?? 0.8),
     nearBand: Number(c.flNearBand ?? 0.8),
+    unify: c.flUnify !== false,
+    heightBase: num("flHeightBase", 1.72),
+    heightVar: num("flHeightVar", 0.08),
+    gait: c.flGait !== false,
     yaw: (num("flYaw", 0) * Math.PI) / 180,
     between: num("flBetween", 2),
     trails: Object.fromEntries(
@@ -1017,6 +1103,7 @@ export function lookFromValues(c: Record<string, unknown>, sets: ClipSet[], pick
     stamp: c.flStamp !== false,
     standMode: c.flStandMode !== false,
     standCarry: c.flStandCarry !== false,
+    carryKind: num("flCarryKind", 2),
     sampleSec: num("flSample", 0.5),
     dashSec: num("flDash", 0.12),
     fall: num("flFall", 1.3),
@@ -1054,6 +1141,7 @@ export function setsFromValues(raw: Record<string, unknown>, clips: readonly Cli
       profile: cl.side || !!raw[`cs_${k}`],
       faces: Number(raw[`cf2_${k}`] ?? 0) || cl.faces || 1,
       stride: cl.strideSec,
+      ds0: (cl.ds?.[0] ?? 0) / 16,
       offset: Number(raw[`co_${k}`] ?? 0),
     };
   });
@@ -1069,6 +1157,8 @@ export interface ClipInfo {
   walking: boolean;
   fill: number;
   faces: number;
+  /** The frames where both feet are down (tools/people-sheet/steps.py). */
+  ds?: number[];
 }
 
 /** A clip's key in the saved values (its name, letters and digits). */

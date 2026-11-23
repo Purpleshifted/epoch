@@ -7,7 +7,8 @@
  * afterimage life; between arrivals the body now walks on at the pace and way the last two arrivals gave. Which clip, how
  * tall, what colour flows inside, the distance hierarchy, fading when passing through me or turning edge-on — all as
  * decided on /lab/mobile/frames (read from its saved values, framePeople.ts draws them). A bot standing still leaves a
- * frame where it stands once an arrival span.
+ * frame where it stands once an arrival span. By default the body runs one arrival span behind, walking from each to
+ * the next in a whole number of steps, both feet down as it arrives.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -84,7 +85,7 @@ export function FramePeopleLayer({ getList, playerPosRef, unit }: { getList: () 
         const G = LAB_GROUP.frames;
         const clips: ClipInfo[] = sheet.rows.map((r) => {
           const x = r as unknown as Record<string, unknown>;
-          return { id: r.id, strideSec: r.strideSec, loop: Number(x.loop ?? 1), lum: Number(x.lum ?? 0), side: r.view === "side", walking: x.walking !== false, fill: Number(x.fill ?? 1), faces: Number(x.faces ?? 0) };
+          return { id: r.id, strideSec: r.strideSec, loop: Number(x.loop ?? 1), lum: Number(x.lum ?? 0), side: r.view === "side", walking: x.walking !== false, fill: Number(x.fill ?? 1), faces: Number(x.faces ?? 0), ds: Array.isArray(x.ds) ? (x.ds as number[]) : undefined };
         });
         const main = savedGroup(G);
         const sets = setsFromValues(savedGroup(`${G}.클립`, [`${G}.클립 — 이동거리 · 프레임 간격`]), clips);
