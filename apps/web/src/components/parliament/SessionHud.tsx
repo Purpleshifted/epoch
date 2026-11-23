@@ -193,6 +193,7 @@ export function SessionHud({
   noticeLineSec = NOTICE_LINE_SEC,
   coarse = false,
   footprint = true,
+  logPlace = "bottom",
   card = { theme: "paper", orient: "portrait" },
   venue = null,
   recordingUrl,
@@ -213,6 +214,10 @@ export function SessionHud({
   lifeSec: number;
   /** The language the apparatus speaks (the machine log stays English). */
   lang?: Lang;
+  /** 길거리 (2026-11-22 evening, the artist: "폰에서는 로그가 위쪽에 뜨는 게 맞는 것 같고 랩탑은 왼쪽에 패널처럼"): where the LIVE
+   *  record stands — "bottom" as it was; "left", a column at the left edge, the newest line lowest and the old ones fading
+   *  upwards, the middle of the view left empty; "top", a short strip under the top edge with the newest line first. */
+  logPlace?: "bottom" | "left" | "top";
   /** After a suicide, one line of where to get help (the artist's call). */
   helpLine?: boolean;
   /** How long X is held to stop living (what the banner says). */
@@ -589,7 +594,15 @@ export function SessionHud({
           apparatus's language; the level says how much a line matters (LEVEL_CLASS); a line about someone's melody
           writes it down beside the words */}
       {phase === "live" && (
-        <div className="absolute inset-x-0 bottom-0 flex justify-center px-4 pb-4">
+        <div
+          className={
+            logPlace === "left"
+              ? "absolute bottom-24 left-4 top-20 flex w-[min(24vw,22rem)] flex-col justify-end [mask-image:linear-gradient(to_bottom,transparent,black_30%)]"
+              : logPlace === "top"
+                ? "absolute inset-x-0 top-14 flex justify-center px-3 [&>div>div:nth-child(2)]:flex [&>div>div:nth-child(2)]:max-h-[4.6rem] [&>div>div:nth-child(2)]:min-h-0 [&>div>div:nth-child(2)]:flex-col-reverse [&>div>div:nth-child(2)]:justify-end [&>div>div:nth-child(2)]:overflow-hidden"
+                : "absolute inset-x-0 bottom-0 flex justify-center px-4 pb-4"
+          }
+        >
           <div className="w-full max-w-[36rem] border border-white bg-black text-[15px] leading-[1.25] tracking-[0.04em]">
             {rec.me && (
               <div className="flex items-center gap-3 border-b border-white px-3 py-2 text-white">

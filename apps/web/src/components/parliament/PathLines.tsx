@@ -12,6 +12,7 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { nearestImage, wrapCell, type Snapshot } from "@/lib/parliament";
+import { streetGround } from "./streetLook";
 
 const MAX_SEGS = 8000;
 const MIN_P = 0.08;
@@ -40,6 +41,12 @@ export function PathLines({
   useEffect(() => () => geom.dispose(), [geom]);
 
   useFrame((_, dt) => {
+    // 흰 바탕 (streetLook.ts): the line language is given up — the worn ground (DitherGround) carries the path
+    if (streetGround.on && streetGround.paper) {
+      if (geom.drawRange.count !== 0) geom.setDrawRange(0, 0);
+      timer.current = 10;
+      return;
+    }
     timer.current += dt;
     if (timer.current < 0.5) return;
     timer.current = 0;
