@@ -120,12 +120,13 @@ interface Look {
    *  blended over `band` m at r1 and r2 — each tier multiplies the afterimages, the ink, adds blur and scales the flowing
    *  colour; far off, cards may face the eye and profile clips walk across. */
   tier: { r1: number; r2: number; band: number; farEye: boolean; farSide: boolean; stillNear: boolean; sideNear: boolean; sideCross: number; trail: [number, number, number]; betweenMax: [number, number, number]; ink: [number, number, number]; blur: [number, number, number]; grad: [number, number, number] };
-  /** How fast people go: 0 by the clips' sets, 1 each their own speed (base ± variety); faster than runFrom they run. */
+  /** How fast people go: 0 by the clips' sets, 1 each their own speed — spread from speedMin to speedMax, crowded towards
+   *  the slow end by speedSkew — and the clip whose matched speed is nearest (within ±speedTol). */
   speedMode: number;
-  speedBase: number;
-  speedVar: number;
-  runFrom: number;
-  briskFrom: number;
+  speedMin: number;
+  speedMax: number;
+  speedSkew: number;
+  speedTol: number;
   /** The card turned from its walking direction (rad); what fills between two copies (0 none · 2 a count of frames · 3 one per frame time). */
   yaw: number;
   between: number;
@@ -543,6 +544,21 @@ function histAt(H: Stamp[], t: number): Stamp | null {
 }
 
 /** Where a walker is on its path at parameter s, and which way it goes. */
+/** A moving clip's matched speed (m/s): how far a frame carries the body ÷ how long it is held × its playback. */
+function clipSpeed(c: ClipSet): number {
+  return (c.dist / Math.max(1e-3, c.gap)) * Math.max(0.05, c.play);
+}
+
+/** Of `rows`, the clips whose matched speed is within ±tol of v (on a ratio scale: 0.25 takes 1.2 … 1.875 m/s for 1.5);
+ *  none: the nearest one. */
+function bySpeed(CL: ClipSet[], rows: number[], v: number, tol: number): number[] {
+  if (!rows.length || v <= 0) return rows;
+  const off = (i: number) => Math.abs(Math.log(clipSpeed(CL[i]) / v));
+  const near = rows.filter((i) => off(i) <= Math.log(1 + tol));
+  if (near.length) return near;
+  return [rows.reduce((a, b) => (off(a) <= off(b) ? a : b))];
+}
+
 function onPath(w: Walker, L: Look, i: number, n: number): { x: number; z: number; h: number } {
   const lane = (i - (n - 1) / 2) * L.spread;
   if (L.path === "across") {
@@ -645,15 +661,20 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
     const walkRows = rowsOf("walk"), briskRows = rowsOf("brisk"), runRows = rowsOf("run"), standRows = rowsOf("stand", "talk");
     const usedRows = rowsOf("walk", "brisk", "run", "stand", "talk");
     const first = (...lists: number[][]) => lists.find((l) => l.length) ?? usedRows;
+    // (by speed, a person's own clip is a front one when there are some: profile clips come in as they cross my view)
+    const frontMoving = rowsOf("walk", "brisk", "run").filter((i) => !CL[i].profile);
     for (const w of W) {
       w.standing = frac(w.hash * 5.1) < L.standShare;
       // THE SPEED (the artist, 2026-11-23: "속도 threshold 정해서 특정 수준 이상은 '뛰기'에 넣고, 뛰기 케이스는 내가 따로 지정"):
       // by the clips' own sets (for matching a clip), or each person their own speed — above the threshold they run, and
       // take a clip set as running
-      const vOwn = L.speedBase * Math.max(0.1, 1 + L.speedVar * (frac(w.hash * 11.3) * 2 - 1));
+      // CLIPS BY THE BOT'S SPEED, NOT BY A MODE (the artist, 2026-11-23: "봇 최하한 속도를 내리게 하고, 그 클립들은 그럼 모드가
+      // 아니라 봇 속도에 맞춰서 나오게"): each person a speed between the least and the most (more of them slow), and the
+      // moving clip whose matched speed (its distance a frame ÷ its hold × its playback) is nearest — no walk/brisk/run
+      // thresholds; the state a clip was given still sets its afterimages and colours
+      const vOwn = L.speedMin + Math.max(0, L.speedMax - L.speedMin) * Math.pow(frac(w.hash * 11.3), Math.max(0.2, L.speedSkew));
       // (the artist, 2026-11-23: "'경보'랑 '뛰기' 나눠줘" — a brisk walk between walking and running, each its own clips)
-      const pace = L.speedMode !== 1 || w.standing ? 0 : vOwn >= L.runFrom ? 2 : vOwn >= L.briskFrom ? 1 : 0;
-      const moving = pace === 2 ? first(runRows, briskRows, walkRows) : pace === 1 ? first(briskRows, walkRows, runRows) : first(walkRows, briskRows, runRows);
+      const moving = L.speedMode === 1 && !w.standing ? bySpeed(CL, frontMoving.length ? frontMoving : first(walkRows, briskRows, runRows), vOwn, L.speedTol) : first(walkRows, briskRows, runRows);
       w.home = L.row > 0 ? Math.min(CL.length, L.row) - 1 : w.standing ? byHash(standRows.length ? standRows : usedRows, w.hash) : byHash(moving, w.hash);
       if (L.row === 0 && !usedRows.length) w.home = -1;
       const set = CL[w.home];
@@ -780,7 +801,8 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
       // THE CASES (the artist, 2026-11-23): walking across my view — a walking profile clip (far off by "멀리: 가로지르면
       // 옆모습", near too by "가로지를 때는 가까이도 옆모습"); far off and still — its stand or talk clip, played or held on
       // one frame (the knob "프레임 재생은 가까이에서만"); near and talking — the talk clip plays.
-      const sideRows = sideRowsOf(CL[w.home]?.state ?? "walk");
+      // (by speed: the profile clips whose matched speed is nearest the person's)
+      const sideRows = L.speedMode === 1 && sideAll.length ? bySpeed(CL, sideAll, w.speed, L.speedTol) : sideRowsOf(CL[w.home]?.state ?? "walk");
       const walksAcross = !w.standing && MOVING.includes(CL[w.home]?.state ?? "walk") && (L.tier.sideNear ? crossing(w, s, isNow) : far > 0.5 && Math.abs(acrossOf(s)) > 0.6);
       if (CL[w.home]?.profile && walksAcross) return { row: w.home, mirror: profileMirror(w.home), profile: true };
       if ((L.tier.sideNear || (L.tier.farSide && far > 0.5)) && sideRows.length && walksAcross) {
@@ -1176,11 +1198,11 @@ export default function FrameLab() {
           flPath: { options: PATHS, value: "across" as Path, label: "길" },
           flCount: { value: 3, min: 1, max: 24, step: 1, label: "사람 수" },
           flStand: { value: 0, min: 0, max: 1, step: 0.05, label: "서 있는 사람의 몫" },
-          flSpeedMode: { options: { "클립 세트대로 (클립 맞추기)": 0, "사람마다 빠르기 — 문턱 넘으면 경보·뛰기": 1 }, value: 0, label: "빠르기" },
-          flSpeedBase: { value: 1.6, min: 0.2, max: 8, step: 0.05, label: "빠르기 (m/s)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 },
-          flSpeedVar: { value: 0.6, min: 0, max: 1, step: 0.05, label: "사람마다 차이 (±)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 },
-          flBriskFrom: { value: 1.9, min: 0.5, max: 8, step: 0.05, label: "경보 문턱 (m/s)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 },
-          flRunFrom: { value: 2.5, min: 0.5, max: 8, step: 0.05, label: "뛰기 문턱 (m/s)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 },
+          flSpeedMode: { options: { "클립 세트대로 (클립 맞추기)": 0, "사람마다 빠르기 — 그 빠르기에 맞춘 클립": 1 }, value: 0, label: "빠르기" },
+          flSpeedMin: { value: 0.5, min: 0.05, max: 3, step: 0.05, label: "가장 느린 사람 (m/s)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 },
+          flSpeedMax: { value: 2.6, min: 0.3, max: 8, step: 0.05, label: "가장 빠른 사람 (m/s)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 },
+          flSpeedSkew: { value: 1.8, min: 0.3, max: 4, step: 0.05, label: "느린 쪽으로 몰림 (1 = 고르게)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 },
+          flSpeedTol: { value: 0.25, min: 0.02, max: 1, step: 0.01, label: "클립 빠르기와 맞는 폭 (±, 0.25 = ±25%)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 },
           flSpread: { value: 1.6, min: 0, max: 6, step: 0.1, label: "사람 사이 간격 (m)" },
           flDist: { value: 6, min: 1, max: 20, step: 0.5, label: "나와의 거리 (m)" },
         },
@@ -1376,10 +1398,10 @@ export default function FrameLab() {
       grad: [Number(c.flNGrad), Number(c.flMGrad), Number(c.flFGrad)],
     },
     speedMode: Number(c.flSpeedMode),
-    speedBase: Number(c.flSpeedBase),
-    speedVar: Number(c.flSpeedVar),
-    runFrom: Number(c.flRunFrom),
-    briskFrom: Number(c.flBriskFrom),
+    speedMin: Number(c.flSpeedMin ?? 0.5),
+    speedMax: Number(c.flSpeedMax ?? 2.6),
+    speedSkew: Number(c.flSpeedSkew ?? 1.8),
+    speedTol: Number(c.flSpeedTol ?? 0.25),
     yaw: (Number(c.flYaw) * Math.PI) / 180,
     between: Number(c.flBetween),
     trails: Object.fromEntries(
