@@ -590,8 +590,9 @@ export default function FrameLab() {
       // (defaults: what looked natural with the man's clip — 3.9 m/s with the frames at 3 × the clip's own tempo)
       const gap = c.strideSec / 16 / 3;
       s[`${i + 1} · ${c.id}`] = folder({
-        [`cd_${ck(c.id)}`]: { value: +(3.9 * gap).toFixed(3), min: 0.005, max: 1, step: 0.005, label: "한 프레임에 가는 거리 (m)" },
-        [`cg_${ck(c.id)}`]: { value: +gap.toFixed(3), min: 0.01, max: 0.5, step: 0.005, label: "프레임 간격 (s)" },
+        // (finer steps — the artist: "한 프레임당 가는 거리 더 촘촘하게")
+        [`cd_${ck(c.id)}`]: { value: +(3.9 * gap).toFixed(3), min: 0.001, max: 0.4, step: 0.001, label: "한 프레임에 가는 거리 (m)" },
+        [`cg_${ck(c.id)}`]: { value: +gap.toFixed(3), min: 0.005, max: 0.5, step: 0.001, label: "프레임 간격 (s)" },
       });
     });
     return s;
