@@ -591,8 +591,8 @@ export default function FrameLab() {
       const gap = c.strideSec / 16 / 3;
       s[`${i + 1} · ${c.id}`] = folder({
         // (finer steps — the artist: "한 프레임당 가는 거리 더 촘촘하게")
-        [`cd_${ck(c.id)}`]: { value: +(3.9 * gap).toFixed(3), min: 0.001, max: 0.4, step: 0.001, label: "한 프레임에 가는 거리 (m)" },
-        [`cg_${ck(c.id)}`]: { value: +gap.toFixed(3), min: 0.005, max: 0.5, step: 0.001, label: "프레임 간격 (s)" },
+        [`cd_${ck(c.id)}`]: { value: +(3.9 * gap).toFixed(3), min: 0.001, max: 0.4, step: 0.001, label: "걷기: 영상 한 장 동안 가는 거리 (m)" },
+        [`cg_${ck(c.id)}`]: { value: +gap.toFixed(3), min: 0.005, max: 0.5, step: 0.001, label: "걷기: 영상 한 장이 머무는 시간 (s)" },
       });
     });
     return s;
@@ -630,16 +630,17 @@ export default function FrameLab() {
         flDist: { value: 6, min: 1, max: 20, step: 0.5, label: "나와의 거리 (m)" },
         flHeight: { value: 1.72, min: 1.2, max: 2.2, step: 0.01, label: "키 (m)" },
       }),
-      "프레임 남기기": folder({
-        flStamp: { value: true, label: "표본마다 슉 (끄면 일정 간격)" },
-        flSample: { value: 0.5, min: 0.1, max: 2, step: 0.05, label: "표본 간격 (s)" },
+      // (the clips' sets above say how a body WALKS; this folder only says when copies of it are left behind)
+      "잔상 남기기": folder({
+        flStamp: { value: true, label: "표본마다 슉 — 위치가 도착할 때 쓸려 가며 그 자리에 잔상 (끄면: 이어 걷고 일정 시간마다 잔상)" },
+        flSample: { value: 0.5, min: 0.1, max: 2, step: 0.05, label: "슉: 위치가 도착하는 간격 (s)" },
         flDash: { value: 0.12, min: 0.02, max: 0.5, step: 0.01, label: "슉 — 쓸려 가는 시간 (s)" },
-        flCopies: { value: 10, min: 0, max: 60, step: 1, label: "간격 모드: 남는 프레임 수" },
-        flGap: { value: 0.12, min: 0.02, max: 1, step: 0.01, label: "간격 모드: 프레임 간격 (s)" },
-        flLife: { value: 2, min: 0.1, max: 10, step: 0.1, label: "남는 시간 (s)" },
-        flFall: { value: 1.3, min: 0.3, max: 4, step: 0.05, label: "옅어지는 곡선" },
-        flInk: { value: 1, min: 0.1, max: 1, step: 0.05, label: "지금 프레임 진하기" },
-        flTrailInk: { value: 0.45, min: 0, max: 1, step: 0.05, label: "남은 프레임 진하기" },
+        flCopies: { value: 10, min: 0, max: 60, step: 1, label: "일정 시간마다: 남는 잔상 수" },
+        flGap: { value: 0.12, min: 0.02, max: 1, step: 0.01, label: "일정 시간마다: 잔상 사이 시간 (s)" },
+        flLife: { value: 2, min: 0.1, max: 10, step: 0.1, label: "잔상이 남는 시간 (s)" },
+        flFall: { value: 1.3, min: 0.3, max: 4, step: 0.05, label: "잔상이 옅어지는 곡선" },
+        flInk: { value: 1, min: 0.1, max: 1, step: 0.05, label: "지금 몸의 진하기" },
+        flTrailInk: { value: 0.45, min: 0, max: 1, step: 0.05, label: "잔상의 진하기" },
       }),
       "늘어놓기": folder({
         flFacing: { options: FACINGS, value: "across" as Facing, label: "프레임이 서는 방향" },
