@@ -163,7 +163,8 @@ def main() -> None:
         view = m.group(1) if m else "back"
         row, sec = row_of(path, view, bool(m and m.group(2)))
         rows.append(row)
-        meta.append({"id": name, "view": view, "strideSec": round(sec, 3), "source": "pexels" if "pexels" in name else "other"})
+        # the source is the name's first word (pexels-…, vecteezy-…, gemini-…): Vecteezy's free licence asks for a credit
+        meta.append({"id": name, "view": view, "strideSec": round(sec, 3), "source": name.split("-")[0].lower()})
         print(f"{name}: {view}, stride {sec:.2f} s")
     sheet = np.concatenate(rows, 0)
     bgra = np.dstack([sheet[..., 2], sheet[..., 1], sheet[..., 0], sheet[..., 3]])

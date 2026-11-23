@@ -7,7 +7,13 @@
    "id": "gemini-D839B006_front",
    "view": "front",
    "strideSec": 1.8,
-   "source": "other"
+   "source": "gemini"
+  },
+  {
+   "id": "vecteezy-76497518_front",
+   "view": "front",
+   "strideSec": 1.08,
+   "source": "vecteezy"
   }
  ]
 }
