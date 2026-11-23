@@ -601,10 +601,17 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
         const alpha = (isNow ? L.ink : L.trailInk) * fade;
         // between this copy and the one before: frames of its own in between (place, step, way and age carried over)
         let last = prev;
-        if (prev && L.between === 2 && L.betweenN > 0 && Math.hypot(s.x - prev.x, s.z - prev.z) > 1e-3) {
-          for (let k = 1; k <= L.betweenN; k++) {
-            const f = k / (L.betweenN + 1);
+        if (prev && (L.between === 2 || L.between === 3) && Math.hypot(s.x - prev.x, s.z - prev.z) > 1e-3) {
+          // 3 — BY THE CLIP'S OWN BEAT (the artist, 2026-11-23: "사이를 메우는 게, 걷는 속도랑 프레임 머무는 시간이랑 매치가
+          // 되어야"): one card for each time a frame of the clip is held between the two copies — at the place the body
+          // was then, the clip's next frame each (the phase counted on by time, never the short way round); 2 — a count
+          const set = CL[w.home];
+          const span = Math.max(0, s.t - prev.t);
+          const nIn = L.between === 3 ? Math.min(80, Math.max(0, Math.round(span / Math.max(1e-3, set?.gap ?? 0.04)) - 1)) : L.betweenN;
+          for (let k = 1; k <= nIn; k++) {
+            const f = k / (nIn + 1);
             const mid = lerpStamp(prev, s, f);
+            if (L.between === 3 && set) mid.ph = prev.ph + (f * span) / Math.max(1e-3, set.gap * cols);
             const ag = prevAge + (age - prevAge) * f;
             put(w, mid, (prevAlpha + (alpha - prevAlpha) * f) * L.betweenInk, last, Math.min(1, ag / life));
             last = mid;
@@ -792,8 +799,9 @@ export default function FrameLab() {
       "늘어놓기": folder({
         flFacing: { options: FACINGS, value: "across" as Facing, label: "프레임이 서는 방향" },
         flYaw: { value: 0, min: -90, max: 90, step: 1, label: "판 기울기 — 진행 방향에서 튼 각도 (°)" },
-        flBetween: { options: { "사이 프레임 — 위치·걸음·방향을 이어 받은 판들": 2, "띠 — 몸의 높이 윤곽으로 이음": 1, "없음": 0 }, value: 2, label: "잔상 사이 채우기" },
-        flBetweenN: { value: 6, min: 0, max: 30, step: 1, label: "사이 프레임 수" },
+        flBetween: { options: { "사이 프레임 — 클립 박자대로 (영상 한 장마다 한 판, 걷기 세트와 맞음)": 3, "사이 프레임 — 개수로": 2, "띠 — 몸의 높이 윤곽으로 이음": 1, "없음": 0 }, value: 3, label: "잔상 사이 채우기" },
+        // (by the clip's beat the count follows from the time between two copies and the clip's frame time)
+        flBetweenN: { value: 6, min: 0, max: 30, step: 1, label: "사이 프레임 수 (개수로일 때)" },
         flBetweenInk: { value: 0.5, min: 0, max: 1, step: 0.05, label: "사이 프레임 진하기 (잔상에 곱함)" },
         flFill: { value: 0.6, min: 0, max: 1, step: 0.05, label: "띠 진하기 (사이 채우기 = 띠일 때)" },
         flStretch: { value: 1, min: 0, max: 1.5, step: 0.05, label: "늘어짐 — 나를 향함·진행 방향을 따라일 때만 (이전 프레임까지, 상대 각도만큼)" },
