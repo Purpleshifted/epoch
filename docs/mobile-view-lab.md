@@ -116,7 +116,8 @@ animation in `labKnobsScanFuture.ts`; captures against 3 stills into `docs/img/m
   above the knee 0.8. It leaves the knee at slope 1, never darkens, and reaches white with slope 0, so highlights
   BLOW OUT into the white (the `밝은 쪽이 부드럽게 날아감` knob = how much of that lift). The grain is off on the blown
   white (`blownGrain`), so the paper stays a clean 255. After: (255,255,255), R−B 0, 97 % of the frame ≥ 250.
-  Code constants, not Leva values: they show without a re-save.
+  Code constants, not Leva values: they show without a re-save. **Approved by the artist on her local page
+  (2026-11-23: "깔끔해졌어").**
 - Capture: `docs/img/mobile-view-lab/scan-present/paper-before-after.png` (before · after · IMG_1580).
 - Left, for the asset sessions: `MobileLabStage.tsx` loading placeholder still `bg-[#f4f2ec]` (a brief cream before
   the canvas). The artist also said the long exposure meant the LOOK, not a feedback run in the browser (bot-present
