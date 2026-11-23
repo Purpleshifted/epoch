@@ -36,7 +36,21 @@ export function loadSpriteSheet(): Promise<{ index: SpriteIndex; texture: THREE.
   if (sheetPromise) return sheetPromise;
   sheetPromise = (async () => {
     const sheet = (await (await fetch("/people/people.json", { cache: "no-store" })).json()) as SpriteSheet;
-    const texture = await new THREE.TextureLoader().loadAsync(`/people/people.png?v=${sheet.rows.map((r) => r.id).join(",").length}-${sheet.rows.length}`);
+    const url = `/people/people.png?v=${sheet.rows.map((r) => r.id).join(",").length}-${sheet.rows.length}`;
+    // the colour at a soft edge must stay as it was drawn: a decoder that premultiplies by the alpha and back loses it
+    // at low alpha (it comes back black — the dark rim the artist saw, 2026-11-23). An ImageBitmap without
+    // premultiplication keeps it; a browser that cannot make one falls back to the plain loader.
+    let texture: THREE.Texture;
+    try {
+      const loader = new THREE.ImageBitmapLoader();
+      loader.setOptions({ imageOrientation: "flipY", premultiplyAlpha: "none", colorSpaceConversion: "none" });
+      const bitmap = await loader.loadAsync(url);
+      texture = new THREE.Texture(bitmap as unknown as HTMLImageElement);
+      texture.flipY = false;
+      texture.needsUpdate = true;
+    } catch {
+      texture = await new THREE.TextureLoader().loadAsync(url);
+    }
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.minFilter = THREE.LinearMipmapLinearFilter;
     texture.magFilter = THREE.LinearFilter;
