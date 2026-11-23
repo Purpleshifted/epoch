@@ -42,7 +42,7 @@ const TAU = Math.PI * 2;
 type Path = "across" | "circle" | "toward" | "wander";
 /** What a clip is for in the interaction (the artist, 2026-11-23: "서있을 때, 이동중일 때, 소통중일 때 등등 인터랙션 로직별
  *  케이스따라") — standing, moving, moving fast, talking (asking / answering), or not decided yet. */
-type ClipState = "none" | "stand" | "walk" | "run" | "talk";
+type ClipState = "none" | "stand" | "walk" | "brisk" | "run" | "talk";
 /** A clip's own set (the artist, 2026-11-23: front shots only, stood square to the way they go — a silhouette's front and
  *  back are the same, so no view): what it is for, mirrored, how a body walks in it, and how it looks — height, width,
  *  ink, foot level, a colour laid over it, played backwards, where its loop starts. */
@@ -62,8 +62,8 @@ interface ClipSet {
   offset: number;
 }
 type Facing = "eye" | "along" | "across";
-/** A walker's state for its afterimages: moving, moving fast, standing, talking. */
-type StateKey = "walk" | "run" | "stand" | "talk";
+/** A walker's state for its afterimages: walking, walking briskly, running, standing, talking. */
+type StateKey = "walk" | "brisk" | "run" | "stand" | "talk";
 /** How a state's afterimages are left and age: how long they stay (s), their ink, how many and how far apart in time
  *  (when copies are left by time, not by samples), the frames between two of them (count, ink ×), and with their age —
  *  size ×, rise (m), scatter (m), turn (rad), colour faded, blur (a share of the frame's width). */
@@ -96,6 +96,7 @@ interface Look {
   speedBase: number;
   speedVar: number;
   runFrom: number;
+  briskFrom: number;
   /** The card turned from its walking direction (rad); what fills between two copies (0 none · 2 a count of frames · 3 one per frame time). */
   yaw: number;
   between: number;
@@ -481,21 +482,23 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
      *  its clip runs). */
     const stateOf = (w: Walker): StateKey => {
       const st = CL[w.home]?.state;
-      return w.standing ? (st === "talk" ? "talk" : "stand") : st === "run" ? "run" : "walk";
+      return w.standing ? (st === "talk" ? "talk" : "stand") : st === "run" ? "run" : st === "brisk" ? "brisk" : "walk";
     };
     const keepSec = Math.max(...Object.values(L.trails).map((t) => Math.max(t.life, t.copies * t.gap)));
     // (a clip left 미지정 is never chosen — the artist, 2026-11-23: "미지정 하면 그 클립은 안 쓰는 걸로"; a state with no clip
     // of its own borrows any clip that is in use; none in use: nobody is drawn)
-    const walkRows = rowsOf("walk"), runRows = rowsOf("run"), standRows = rowsOf("stand", "talk");
-    const usedRows = rowsOf("walk", "run", "stand", "talk");
+    const walkRows = rowsOf("walk"), briskRows = rowsOf("brisk"), runRows = rowsOf("run"), standRows = rowsOf("stand", "talk");
+    const usedRows = rowsOf("walk", "brisk", "run", "stand", "talk");
+    const first = (...lists: number[][]) => lists.find((l) => l.length) ?? usedRows;
     for (const w of W) {
       w.standing = frac(w.hash * 5.1) < L.standShare;
       // THE SPEED (the artist, 2026-11-23: "속도 threshold 정해서 특정 수준 이상은 '뛰기'에 넣고, 뛰기 케이스는 내가 따로 지정"):
       // by the clips' own sets (for matching a clip), or each person their own speed — above the threshold they run, and
       // take a clip set as running
       const vOwn = L.speedBase * Math.max(0.1, 1 + L.speedVar * (frac(w.hash * 11.3) * 2 - 1));
-      const fast = L.speedMode === 1 && !w.standing && vOwn >= L.runFrom;
-      const moving = fast ? (runRows.length ? runRows : walkRows.length ? walkRows : usedRows) : walkRows.length ? walkRows : runRows.length ? runRows : usedRows;
+      // (the artist, 2026-11-23: "'경보'랑 '뛰기' 나눠줘" — a brisk walk between walking and running, each its own clips)
+      const pace = L.speedMode !== 1 || w.standing ? 0 : vOwn >= L.runFrom ? 2 : vOwn >= L.briskFrom ? 1 : 0;
+      const moving = pace === 2 ? first(runRows, briskRows, walkRows) : pace === 1 ? first(briskRows, walkRows, runRows) : first(walkRows, briskRows, runRows);
       w.home = L.row > 0 ? Math.min(CL.length, L.row) - 1 : w.standing ? byHash(standRows.length ? standRows : usedRows, w.hash) : byHash(moving, w.hash);
       if (L.row === 0 && !usedRows.length) w.home = -1;
       const set = CL[w.home];
@@ -718,17 +721,18 @@ const PALETTE_DEFAULTS: readonly (readonly [string, string, string])[] = [
   ["#111111", "#8a8a8a", "#f0f0f0"],
 ];
 
-const STATE_NAMES: Record<StateKey, string> = { walk: "이동 중", run: "빠르게 이동", stand: "서 있을 때", talk: "소통 중" };
+const STATE_NAMES: Record<StateKey, string> = { walk: "이동 중", brisk: "경보", run: "뛰기", stand: "서 있을 때", talk: "소통 중" };
 /** Each state's afterimages to begin with (the turn in degrees): walking and running leave a trail; standing ones blow
  *  away — rising, scattering, growing a little, fading and blurring (the artist: "서있을 때 잔상 날리는"). */
 const TRAIL_DEFAULTS: Record<StateKey, Omit<Trail, "turn"> & { turn: number }> = {
   walk: { life: 2, ink: 0.45, copies: 10, gap: 0.12, betweenN: 6, betweenInk: 0.5, scale: 1, rise: 0, scatter: 0, turn: 0, desat: 0, blur: 0.08 },
+  brisk: { life: 1.6, ink: 0.42, copies: 10, gap: 0.1, betweenN: 6, betweenInk: 0.5, scale: 1, rise: 0, scatter: 0, turn: 0, desat: 0, blur: 0.1 },
   run: { life: 1.2, ink: 0.4, copies: 10, gap: 0.08, betweenN: 6, betweenInk: 0.5, scale: 1, rise: 0, scatter: 0, turn: 0, desat: 0, blur: 0.12 },
   stand: { life: 3, ink: 0.35, copies: 8, gap: 0.35, betweenN: 4, betweenInk: 0.4, scale: 1.12, rise: 0.7, scatter: 0.5, turn: 12, desat: 0.4, blur: 0.22 },
   talk: { life: 2.5, ink: 0.4, copies: 8, gap: 0.3, betweenN: 4, betweenInk: 0.4, scale: 1.05, rise: 0.25, scatter: 0.25, turn: 0, desat: 0.2, blur: 0.15 },
 };
 
-const STATES: Record<string, ClipState> = { "이동 중 (걷기)": "walk", "빠르게 이동 (뛰기)": "run", "서 있을 때 (머무름)": "stand", "소통 중 (말 걸기 · 응답)": "talk", "미지정": "none" };
+const STATES: Record<string, ClipState> = { "이동 중 (걷기)": "walk", "경보 (빠른 걸음)": "brisk", "뛰기": "run", "서 있을 때 (머무름)": "stand", "소통 중 (말 걸기 · 응답)": "talk", "미지정": "none" };
 const PATHS: Record<string, Path> = { "가로지름 (옆으로 지나감)": "across", "원 (나를 둘러 돔)": "circle", "다가옴 · 멀어짐": "toward", "흩어진 산책": "wander" };
 // (the artist, 2026-11-23: "본인 진행방향대로 프레임이 서야지, 지금은 나랑 무조건 정면인데" — the default stands each frame as the
 // clip was shot: square to the way they walk; seen from the side the frames stand in a row along the path)
@@ -826,7 +830,8 @@ export default function FrameLab() {
         flSpeedMode: { options: { "클립 세트대로 (클립 맞추기)": 0, "사람마다 빠르기 지정 — 문턱 넘으면 뛰기": 1 }, value: 0, label: "빠르기 정하는 법" },
         flSpeedBase: { value: 1.6, min: 0.2, max: 8, step: 0.05, label: "빠르기 (m/s, 지정일 때)" },
         flSpeedVar: { value: 0.6, min: 0, max: 1, step: 0.05, label: "사람마다 빠르기 차이 (±)" },
-        flRunFrom: { value: 2.5, min: 0.5, max: 8, step: 0.05, label: "뛰기 문턱 (m/s) — 넘으면 '빠르게 이동' 클립" },
+        flBriskFrom: { value: 1.9, min: 0.5, max: 8, step: 0.05, label: "경보 문턱 (m/s) — 넘으면 '경보' 클립" },
+        flRunFrom: { value: 2.5, min: 0.5, max: 8, step: 0.05, label: "뛰기 문턱 (m/s) — 넘으면 '뛰기' 클립" },
         flPath: { options: PATHS, value: "across" as Path, label: "길" },
         flSpread: { value: 1.6, min: 0, max: 6, step: 0.1, label: "사람 사이 간격 (m)" },
         flDist: { value: 6, min: 1, max: 20, step: 0.5, label: "나와의 거리 (m)" },
@@ -908,6 +913,7 @@ export default function FrameLab() {
     speedBase: Number(c.flSpeedBase),
     speedVar: Number(c.flSpeedVar),
     runFrom: Number(c.flRunFrom),
+    briskFrom: Number(c.flBriskFrom),
     yaw: (Number(c.flYaw) * Math.PI) / 180,
     between: Number(c.flBetween),
     trails: Object.fromEntries(
