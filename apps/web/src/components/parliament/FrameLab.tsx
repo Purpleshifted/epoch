@@ -135,7 +135,8 @@ interface Look {
   thick: number;
   thickFill: boolean;
   thickInk: number;
-  thickSoft: number;
+  /** The least angle (°) a card standing to its way keeps to my line of sight (0 = none: it may stand edge-on). */
+  minAng: number;
   /** What the face along the way shows (0 the silhouette squeezed · 1 streaks · 2 silhouette at the card, streaks
    *  beyond) and how far the streaks carry (card widths). */
   dragKind: number;
@@ -200,6 +201,7 @@ interface Walker {
 const VERT = /* glsl */ `
 uniform float uCols;
 uniform float uRows;
+uniform float uMinAng;     // the least angle (rad) a card standing to its way keeps to my line of sight
 uniform float uThick;      // the frame's thickness (m), and whether it reaches back to the copy before
 uniform float uThickFill;
 #ifdef SIDE
@@ -243,6 +245,24 @@ void main() {
   } else {
     vec3 fwd = vec3(sin(iB.w), 0.0, cos(iB.w));
     right = fac < 1.5 ? fwd : vec3(fwd.z, 0.0, -fwd.x);
+    // NEVER EDGE-ON TO ME (the artist, 2026-11-23, on the dragged faces: "아니 이게 맞나"): a card standing to its way
+    // turns towards the eye just enough that it is never flatter than the angle to my line of sight — seen from the side
+    // the frames overlap in a row, a chronophotograph, instead of knife edges (the same way round: the picture never flips)
+    if (uMinAng > 0.0) {
+      vec3 toE = cameraPosition - feet;
+      toE.y = 0.0;
+      vec3 fe = normalize(toE + vec3(1e-5, 0.0, 0.0));
+      vec3 re = vec3(fe.z, 0.0, -fe.x);
+      if (dot(re, right) < 0.0) re = -re;
+      float ang = acos(clamp(dot(right, re), -1.0, 1.0));
+      float maxAng = 1.5707963 - uMinAng;
+      if (ang > maxAng) {
+        vec3 perp = right - re * dot(right, re);
+        float pl = length(perp);
+        perp = pl > 1e-5 ? perp / pl : vec3(-re.z, 0.0, re.x);
+        right = re * cos(maxAng) + perp * sin(maxAng);
+      }
+    }
   }
   float h = iA.z;
   float w = h * uAspect * (iE.w > 0.0 ? iE.w : 1.0);
@@ -342,24 +362,19 @@ vec4 cellB(float u, float v) {
 }
 #ifdef SIDE
 uniform float uThickInk;
-uniform float uThickSoft;
-uniform float uDragKind;   // 0 the silhouette squeezed into the face · 1 streaks · 2 the silhouette turned at the card, streaks beyond
+uniform float uDragKind;   // 1 streaks · 2 the silhouette turned at the card, streaks beyond
 uniform float uDragLen;    // how far the streaks carry (card widths)
 flat varying vec2 vLoHi;
 // THE FACE ALONG THE WAY — THICKNESS AND DRAG (the artist, 2026-11-23: "이것봐, 모양이 다 죽어" → "공간에서 드래그해서
 // 부피 생기도록 못하나? 전에 없앴던 띠랑 합친다거나"): a front shot has no shape seen side-on, so the face never fills
 // heights with a width (the blank block): at the card the silhouette itself, turned square, and from it to the copy before
-// the body's middle dragged out in lines, as a long exposure smears it
+// the body's middle dragged out in lines, as a long exposure smears it. (The silhouette squeezed into the face is gone —
+// "실루엣 눌러 펴는 건 진짜 별론데".)
 void main() {
   float xc = vUv.x;              // card widths from the card, along its normal
   vec4 t;
   float a;
-  if (uDragKind < 0.5) {
-    float f = (xc - vLoHi.x) / max(1e-4, vLoHi.y - vLoHi.x);
-    t = cell(f, vUv.y);
-    // (fading towards its two ends by the softness: a blur through the space in front and behind)
-    a = t.a * (1.0 - uThickSoft * smoothstep(0.0, 1.0, abs(f - 0.5) * 2.0));
-  } else {
+  {
     float beyond = uDragKind > 1.5 ? abs(xc) - 0.5 : abs(xc);
     if (beyond <= 0.0) {
       t = cell(0.5 + xc, vUv.y);
@@ -463,7 +478,7 @@ function makeMaterial(): THREE.ShaderMaterial {
       uThick: { value: 0 },
       uThickFill: { value: 0 },
       uThickInk: { value: 0.6 },
-      uThickSoft: { value: 0.5 },
+      uMinAng: { value: 0 },
       uDragKind: { value: 2 },
       uDragLen: { value: 1.5 },
       uSheet: { value: null },
@@ -952,7 +967,7 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
     u.uThick.value = L.thick;
     u.uThickFill.value = L.thickFill ? 1 : 0;
     u.uThickInk.value = L.thickInk;
-    u.uThickSoft.value = L.thickSoft;
+    u.uMinAng.value = (L.minAng * Math.PI) / 180;
     u.uDragKind.value = L.dragKind;
     u.uDragLen.value = L.dragLen;
   });
@@ -1203,6 +1218,8 @@ export default function FrameLab() {
         {
           flFacing: { options: FACINGS, value: "across" as Facing, label: "프레임이 서는 방향" },
           flYaw: { value: 0, min: -90, max: 90, step: 1, label: "판 기울기 (°)" },
+          // (seen from the side, cards standing to their way are knife edges: this turns them towards me just enough)
+          flMinAng: { value: 0, min: 0, max: 90, step: 1, label: "옆에서 볼 때 판이 나를 향하는 최소 각도 (°, 0 = 없음 · 90 = 늘 나를 향함)" },
           flEdge: { value: 0.15, min: 0, max: 0.95, step: 0.01, label: "테두리 지우기 — 알파 문턱" },
           flEdgeW: { value: 0.15, min: 0.005, max: 0.8, step: 0.005, label: "테두리 단단함 (작을수록 칼같이)" },
           flCon: { value: 1, min: 0.2, max: 4, step: 0.05, label: "색 대비 ×" },
@@ -1213,10 +1230,9 @@ export default function FrameLab() {
           "두께 · 끌기 (옆에서 본 빈 공간 메우기)": folder({
             flThick: { value: 0, min: 0, max: 1.5, step: 0.01, label: "두께 (m, 0 = 없음)" },
             flThickFill: { value: false, label: "앞 잔상까지 끌기" },
-            flDragKind: { options: { "실루엣 + 끌린 줄 (카드엔 몸, 사이엔 줄)": 2, "끌린 줄만": 1, "실루엣을 눌러 펼침": 0 }, value: 2, label: "보이는 것" },
+            flDragKind: { options: { "실루엣 + 끌린 줄 (카드엔 몸, 사이엔 줄)": 2, "끌린 줄만": 1 }, value: 2, label: "보이는 것" },
             flDragLen: { value: 1.5, min: 0.1, max: 8, step: 0.1, label: "줄이 이어지는 길이 (프레임 폭)", render: (get) => Number(get(`${G}.늘어놓기 · 테두리.두께 · 끌기 (옆에서 본 빈 공간 메우기).flDragKind`)) > 0 },
             flThickInk: { value: 0.6, min: 0, max: 1, step: 0.05, label: "진하기" },
-            flThickSoft: { value: 0.5, min: 0, max: 1, step: 0.05, label: "앞뒤로 흐려짐", render: (get) => Number(get(`${G}.늘어놓기 · 테두리.두께 · 끌기 (옆에서 본 빈 공간 메우기).flDragKind`)) === 0 },
           }),
           "늘어짐 · 슬릿 (나를 향하거나 진행 방향을 따라 설 때)": folder(
             {
@@ -1342,7 +1358,7 @@ export default function FrameLab() {
     thick: Number(c.flThick ?? 0),
     thickFill: !!c.flThickFill,
     thickInk: Number(c.flThickInk ?? 0.6),
-    thickSoft: Number(c.flThickSoft ?? 0.5),
+    minAng: Number(c.flMinAng ?? 0),
     dragKind: Number(c.flDragKind ?? 2),
     dragLen: Number(c.flDragLen ?? 1.5),
     edgeTh: Number(c.flEdge),
