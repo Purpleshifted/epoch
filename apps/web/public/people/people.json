@@ -1,19 +1,13 @@
 {
  "cols": 16,
- "cellW": 96,
- "cellH": 192,
+ "cellW": 160,
+ "cellH": 320,
  "rows": [
   {
    "id": "gemini-D839B006_front",
    "view": "front",
    "strideSec": 1.8,
    "source": "other"
-  },
-  {
-   "id": "pexels-31899051_back_props",
-   "view": "back",
-   "strideSec": 2.12,
-   "source": "pexels"
   }
  ]
 }

@@ -30,7 +30,7 @@ import tempfile
 import cv2
 import numpy as np
 
-COLS, CELL_W, CELL_H = 16, 96, 192
+COLS, CELL_W, CELL_H = 16, 160, 320
 FPS = 25
 
 
@@ -72,6 +72,27 @@ def body_only(a: np.ndarray) -> np.ndarray:
     return a * keep
 
 
+def clean_edge(a: np.ndarray) -> np.ndarray:
+    """A tighter edge (the artist, 2026-11-23: "테두리가 좀 덜 깔끔함"): the soft rim pulled in, one pixel eroded, a light
+    blur so the outline is smooth, not stepped."""
+    a = np.clip((a - 0.3) / 0.6, 0, 1)
+    a = cv2.erode(a, np.ones((3, 3), np.uint8))
+    return cv2.GaussianBlur(a, (0, 0), 0.8)
+
+
+def edge_colour(im: np.ndarray, a: np.ndarray, bg: np.ndarray) -> np.ndarray:
+    """The rim's colour taken from inside the body (the backdrop mixed into it is gone), and no green spill anywhere."""
+    out = im.copy()
+    if bg[1] > bg[0] + 0.08 and bg[1] > bg[2] + 0.08:
+        out[..., 1] = np.minimum(out[..., 1], np.maximum(out[..., 0], out[..., 2]))
+    solid = (a > 0.95).astype(np.float32)
+    pre = cv2.GaussianBlur(out * solid[..., None], (0, 0), 3)
+    w = cv2.GaussianBlur(solid, (0, 0), 3)[..., None]
+    inside = pre / np.maximum(w, 1e-4)
+    rim = ((a > 0.002) & (a <= 0.95))[..., None]
+    return np.where(rim & (w > 1e-3), inside, out)
+
+
 def stride(M: np.ndarray) -> tuple:
     """(start, frames a full stride): the legs' silhouette against itself; the best lag in 0.5 … 2.4 s."""
     H = M.shape[1]
@@ -105,7 +126,7 @@ def row_of(path: str, view: str, props: bool) -> tuple:
         for im, a in zip(ims, K):
             still = np.linalg.norm(im[cut:] - med[cut:], axis=-1) < 0.08
             a[cut:][still] = 0
-    M = np.stack([body_only(a) for a in K])
+    M = np.stack([clean_edge(body_only(a)) for a in K])
     if view == "stand":
         start, P = 0, len(M) - 1
     else:
@@ -120,7 +141,7 @@ def row_of(path: str, view: str, props: bool) -> tuple:
     row = np.zeros((CELL_H, CELL_W * COLS, 4), np.float32)
     for i, j in enumerate(idx):
         im = ims[j].copy()
-        im[..., 1] = np.minimum(im[..., 1], np.maximum(im[..., 0], im[..., 2]) * 1.02) if bg[1] > bg[0] + 0.08 else im[..., 1]
+        im = edge_colour(im, M[j], bg)
         rgba = np.concatenate([im, M[j][..., None]], -1)
         pad = np.zeros((H + 800, W + 1600, 4), np.float32)
         pad[400:400 + H, 800:800 + W] = rgba

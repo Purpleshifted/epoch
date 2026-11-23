@@ -37,7 +37,7 @@ interface Look {
   speed: number;
   spread: number;
   dist: number;
-  tempo: number;
+  frameRate: number;
   row: number;
   height: number;
   stamp: boolean;
@@ -344,7 +344,9 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
           w.stamps.length = 0;
         }
       }
-      w.ph = (w.ph + (dt / strideSec(0)) * L.tempo * (L.speed / 1.3)) % 1;
+      // the frames run at their own rate (× the clip's own tempo), apart from how fast the body travels — the artist finds
+      // each clip's best match of the two ("이동속도랑 프레임 속도 내가 조절할 수 있도록 … 클립별 베스트 매치")
+      w.ph = (w.ph + (dt / strideSec(L.row > 0 ? L.row - 1 : 0)) * L.frameRate) % 1;
       if (now - w.lastHist >= 1 / 30) {
         w.lastHist = now;
         w.hist.push({ t: now, x: w.x, z: w.z, h: w.h, ph: w.ph });
@@ -439,7 +441,9 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
 }
 
 const PATHS: Record<string, Path> = { "가로지름 (옆으로 지나감)": "across", "원 (나를 둘러 돔)": "circle", "다가옴 · 멀어짐": "toward", "흩어진 산책": "wander" };
-const FACINGS: Record<string, Facing> = { "나를 향함 (빌보드)": "eye", "진행 방향을 따라 (옆에서 정면)": "along", "진행 방향에 수직 (앞뒤에서 정면)": "across" };
+// (the artist, 2026-11-23: "본인 진행방향대로 프레임이 서야지, 지금은 나랑 무조건 정면인데" — the default stands each frame as the
+// clip was shot: square to the way they walk; seen from the side the frames stand in a row along the path)
+const FACINGS: Record<string, Facing> = { "진행 방향대로 (걷는 방향에 수직 — 영상이 찍힌 그대로)": "across", "진행 방향을 따라 (옆에서 정면)": "along", "나를 향함 (빌보드)": "eye" };
 
 export default function FrameLab() {
   const G = LAB_GROUP.frames;
@@ -468,10 +472,12 @@ export default function FrameLab() {
       "사람": folder({
         flCount: { value: 3, min: 1, max: 24, step: 1, label: "사람 수" },
         flPath: { options: PATHS, value: "across" as Path, label: "길" },
-        flSpeed: { value: 1.3, min: 0.2, max: 5, step: 0.05, label: "빠르기 (m/s)" },
+        // (the artist with the man's clip: speed ~3.9 looked natural when the frames ran with the speed — the defaults
+        // keep that look: 3.9 m/s and the frames at 3 × the clip's own tempo)
+        flSpeed: { value: 3.9, min: 0.2, max: 8, step: 0.05, label: "이동 속도 (m/s)" },
+        flFrame: { value: 3, min: 0.1, max: 6, step: 0.05, label: "프레임 속도 (× 원본 영상)" },
         flSpread: { value: 1.6, min: 0, max: 6, step: 0.1, label: "사람 사이 간격 (m)" },
         flDist: { value: 6, min: 1, max: 20, step: 0.5, label: "나와의 거리 (m)" },
-        flTempo: { value: 1, min: 0.3, max: 2.5, step: 0.05, label: "걸음 박자 ×" },
         flRow: { value: 0, min: 0, max: 8, step: 1, label: "클립 (0 = 보는 각도로 자동, 1… = 그 줄)" },
         flHeight: { value: 1.72, min: 1.2, max: 2.2, step: 0.01, label: "키 (m)" },
       }),
@@ -487,7 +493,7 @@ export default function FrameLab() {
         flTrailInk: { value: 0.45, min: 0, max: 1, step: 0.05, label: "남은 프레임 진하기" },
       }),
       "늘어놓기": folder({
-        flFacing: { options: FACINGS, value: "eye" as Facing, label: "프레임이 서는 방향" },
+        flFacing: { options: FACINGS, value: "across" as Facing, label: "프레임이 서는 방향" },
         flStretch: { value: 1, min: 0, max: 1.5, step: 0.05, label: "늘어짐 (이전 프레임까지, 상대 각도만큼)" },
         flKind: { options: { "번짐 — 몸 가운데가 옆으로 끌림": 0, "프레임 자체가 넓어짐": 1 }, value: 0, label: "늘어나는 방식" },
         flSoft: { value: 0.8, min: 0.05, max: 4, step: 0.05, label: "번짐 길이 (프레임 폭)" },
@@ -503,7 +509,7 @@ export default function FrameLab() {
     speed: Number(c.flSpeed),
     spread: Number(c.flSpread),
     dist: Number(c.flDist),
-    tempo: Number(c.flTempo),
+    frameRate: Number(c.flFrame),
     row: Number(c.flRow),
     height: Number(c.flHeight),
     stamp: !!c.flStamp,
