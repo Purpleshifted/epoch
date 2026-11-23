@@ -56,6 +56,49 @@ observers now run side by side (`FuturePresenceVisual.overlayOn` / `encounterOn`
 ## Per asset (to be filled by each asset's session)
 
 ### scan (future)
+
+**Status (2026-11-23): PAUSED by the coordinator (machine overloaded) after the reference study; nothing built, no
+question put to the artist yet.** Code untouched (`FuturePresence.tsx`, `futurePresence.ts`, `labKnobsScanFuture.ts` =
+HEAD). Resume = put the three directions below to her and build her pick.
+
+**What is on the page now** (headless capture 1080×1920, local bots ticked via `?knobs=all`, 100 s in): the layer is
+read (28 buildings, 177 parts kept, 2124 edges, 33 plant clouds) but **the screen is blank white** — the remains are 1 px
+`lineBasicMaterial` #8c8c8c, which InkPaper's depth rule (near blur mix 0.35, far blur 10.5 px, far pale) dissolves on
+the paper; the mounds are white points (invisible on white); only the visitor's own trace squares show (dark grey at
+the screen's sides). With `?botserver=0` alone the page has **no buildings at all** (0 for minutes: the field needs
+others) — the page needs a test scene of its own (a fixed future round the visitor, e.g. `?futuredemo=1`) before the
+artist can judge anything.
+
+**References and what they do** (`LAB_INFO["scan-future"]` + the folder):
+
+| still | what the line does |
+|---|---|
+| IMG_1601 | the one thin-line-on-white picture: hairlines (≈0.5–1 px, near black) unravel out of the masses as a **tangle of many near-parallel strokes** — density makes the tone (more strokes = darker), nothing has a fill; loose ends trail past the form; a straight thin grid behind, much lighter; green only for the moss |
+| IMG_1579 | one long pencil hairline on white, mid grey, slightly wavering, crossing everything — the line as a record, not a contour |
+| IMG_1586 / 1587 | the scan line: ONE straight line across the whole picture (red there, **white** by her decision 11/22); the only moving element |
+| IMG_1589 / 1597 / 1599 | disappearance: columns of the picture **drip down** (pixel-sorted vertical streaks) or break into blocks — her pick 11/22: "세로로 흘러내림이 흥미로움" |
+| IMG_1594 / 1567 | the transparent box: thin edges of a volume seen through, no faces |
+
+Common: hairlines, no fills, tone from **how many** lines cross (not from a grey colour); depth = fewer/lighter
+strokes far away; appearance by a sweep, disappearance by dripping.
+
+**Directions to put to her** (common to all: screen-space hairlines 0.6–1.0 px antialiased, graphite near the eye →
+paper at the fog's far by the exposure's own depth rule, steel/piles heavier, stripped parts broken; mounds as grey
+stipple or contour rings, dark earth as light stipple, own traces as thin-line squares; plants green points; the 2 s
+re-read eased ≥ 200 ms, never a pop):
+
+- **A · 도면** (1601's grid, 1579): one clean hairline per edge; new lines draw themselves end to end (≈0.4 s), gone
+  ones erase back. Quiet and architectural; risk: reads as CAD.
+- **B · 얽힌 선** (1601's unravelling — recommended): each re-read lays the edge once more, a hair off, and old strokes
+  fade over a few seconds — the long exposure of the re-reads. What lasts (steel, piles) piles up dark and tangled,
+  what is stripped keeps one or two strands; what goes **drips down** (1589/1597). Time accumulated, not a filter.
+- **C · 스캔 선** (1586/1587): every re-read a white scan line (a white gap with a faint grey hairline, so it reads on
+  paper) sweeps the view top to bottom (≈1.2 s) and develops the lines behind it; they fade until the next sweep — the
+  place breathes with the scan; going = drip.
+
+Build plan once picked: own instanced screen-space segment shader (LineSegments2/LineMaterial-style, per-segment
+birth/death/kind attributes for draw-on, drip and weight), fog-aware; knobs only colour, weight, fade, effect,
+animation in `labKnobsScanFuture.ts`; captures against 3 stills into `docs/img/mobile-view-lab/scan-future/`.
 ### scan (present)
 ### bot (present)
 ### bot (future)
