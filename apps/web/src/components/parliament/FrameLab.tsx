@@ -73,6 +73,8 @@ interface ClipSet {
   farSide: boolean;
   /** Which way the profile clip's walker faces in the picture: +1 right, -1 left. */
   faces: number;
+  /** A clip seen in profile (found so by the sheet, or used as one far off): it has a way it walks on screen. */
+  profile: boolean;
 }
 type Facing = "eye" | "along" | "across";
 /** A walker's state for its afterimages: walking, walking briskly, running, standing, talking. */
@@ -213,7 +215,8 @@ void main() {
   vec3 feet = vec3(iA.x, 0.0, iA.y);
   vec3 right;
   // (far off a card may face the eye whatever the knob says — the distance hierarchy)
-  float fac = iF.z > 0.5 ? 0.0 : uFacing;
+  // (2: a profile clip, along its own way whatever the knob)
+  float fac = iF.z > 1.5 ? 1.0 : iF.z > 0.5 ? 0.0 : uFacing;
   if (fac < 0.5) {
     vec3 toEye = cameraPosition - feet;
     toEye.y = 0.0;
@@ -631,20 +634,34 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
      *  one), mirrored by the clip's knob and, for variety, by the walker. */
     const cam = camera.position;
     const sideRows = CL.map((c, i) => (c.farSide ? i : -1)).filter((i) => i >= 0);
-    const rowFor = (w: Walker, s: Stamp, far: number): { row: number; mirror: number } => {
-      // far off and walking across the view: a profile clip, mirrored by the way they go
-      if (L.tier.farSide && far > 0.5 && sideRows.length && !w.standing) {
-        // (the artist, 2026-11-23: "멀리 있을 때는 본인 진행방향이랑 영상 방향 정렬을 따로") — which way they go across the
-        // card that faces me (its +x is the picture's right), against which way the clip's walker faces
-        const tx = cam.x - s.x, tz = cam.z - s.z, tl = Math.hypot(tx, tz) || 1;
-        const across = Math.sin(s.h) * (tz / tl) - Math.cos(s.h) * (tx / tl);
-        if (Math.abs(across) > 0.6) {
-          const row = byHash(sideRows, w.hash * 1.7);
-          const faces = CL[row]?.faces || 1;
-          return { row, mirror: (CL[row]?.flip ? -1 : 1) * faces * (across > 0 ? 1 : -1) };
-        }
+    // A PROFILE CLIP STANDS ALONG ITS OWN WAY, ALWAYS (the artist, 2026-11-23, round the circle: "가끔 문워크하는 구간이 생김
+    // … side clip 들" → "'옆' 클립은 무조건 진행방향 정렬을 해둬야 모드 전환돼도 확실하게"): its card lies along the heading,
+    // the picture's walker facing forward along it — seen from either side it walks the way it goes (from the back the
+    // picture is mirrored, and so is the way). Whatever the facing knob, the tier or the mode. (Before: mirrored by chance
+    // as a walker's own clip, or by my view on a card that was not facing me — half of them walked backwards.)
+    const profileMirror = (row: number) => (CL[row]?.flip ? -1 : 1) * (CL[row]?.faces || 1);
+    // (a front clip of the same state, for a profile walker coming straight at me or going away: its card would be edge-on)
+    const frontRows = (st: ClipState) => CL.map((c, i) => (!c.profile && c.state === st ? i : -1)).filter((i) => i >= 0);
+    const acrossOf = (s: Stamp) => {
+      const tx = cam.x - s.x, tz = cam.z - s.z, tl = Math.hypot(tx, tz) || 1;
+      return Math.sin(s.h) * (tz / tl) - Math.cos(s.h) * (tx / tl);
+    };
+    const rowFor = (w: Walker, s: Stamp, far: number): { row: number; mirror: number; profile: boolean } => {
+      // far off and walking across the view: a profile clip (the artist, 2026-11-23: "멀리 있을 때는 본인 진행방향이랑
+      // 영상 방향 정렬을 따로")
+      if (L.tier.farSide && far > 0.5 && sideRows.length && !w.standing && Math.abs(acrossOf(s)) > 0.6) {
+        const row = byHash(sideRows, w.hash * 1.7);
+        return { row, mirror: profileMirror(row), profile: true };
       }
-      return { row: w.home, mirror: (CL[w.home]?.flip ? -1 : 1) * (frac(w.hash * 3.3) > 0.5 ? -1 : 1) };
+      // the walker's own clip: a profile one moving goes its way (or, seen head-on, a front clip of its state if there is
+      // one); a front one (or standing) mirrored for variety
+      if (CL[w.home]?.profile && !w.standing) {
+        const fr = Math.abs(acrossOf(s)) < 0.5 ? frontRows(CL[w.home].state) : [];
+        if (!fr.length) return { row: w.home, mirror: profileMirror(w.home), profile: true };
+        const row = byHash(fr, w.hash * 2.3);
+        return { row, mirror: (CL[row]?.flip ? -1 : 1) * (frac(w.hash * 3.3) > 0.5 ? -1 : 1), profile: false };
+      }
+      return { row: w.home, mirror: (CL[w.home]?.flip ? -1 : 1) * (frac(w.hash * 3.3) > 0.5 ? -1 : 1), profile: false };
     };
     /** A walker's place in the distance hierarchy: the tiers' multipliers blended by its distance from the eye. */
     const tierOf = (w: Walker) => {
@@ -675,7 +692,10 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
       const ph = still ? frac(w.hash * 5.37) : (set?.reverse ? -s.ph : s.ph) + (set?.offset ?? 0);
       const pf = ((ph % 1) + 1) % 1;
       // (ping-pong: the frames forward, then back — the artist, 2026-11-23: "a->a리버스->a 로 재생해서 루프")
-      B[n * 4 + 1] = set?.pingpong ? (pf < 0.5 ? 2 * pf : 2 - 2 * pf) * (cols - 1) + 0.5 : pf * cols;
+      // (a profile clip walking never plays back: its ping-pong's return half walked backwards — the cycle's two halves
+      // both run forward instead, at the same frame rate)
+      const fwdOnly = pick.profile && !w.standing;
+      B[n * 4 + 1] = set?.pingpong ? (fwdOnly ? ((2 * pf) % 1) * cols : (pf < 0.5 ? 2 * pf : 2 - 2 * pf) * (cols - 1) + 0.5) : pf * cols;
       B[n * 4 + 2] = pick.mirror;
       B[n * 4 + 3] = s.h + L.yaw + T.turn * u;
       C[n * 4] = prev ? prev.x : 0;
@@ -685,7 +705,8 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
       Dd[n * 4] = T.desat * u;
       Ff[n * 4] = T.blur * u + Q.blur;
       Ff[n * 4 + 1] = Q.grad;
-      Ff[n * 4 + 2] = L.tier.farEye && Q.far > 0.5 ? 1 : 0;
+      // (2: along its own way — a profile clip, always; 1: facing me — far off, by the knob)
+      Ff[n * 4 + 2] = pick.profile ? 2 : L.tier.farEye && Q.far > 0.5 ? 1 : 0;
       Dd[n * 4 + 1] = set?.tintAmt ?? 0;
       Dd[n * 4 + 2] = u;
       // the colour combination: one for all, or each walker their own
@@ -940,6 +961,7 @@ export default function FrameLab() {
       pingpong: !!raw[`cb_${k}`],
       fill: cl.fill,
       farSide: !!raw[`cs_${k}`],
+      profile: cl.side || !!raw[`cs_${k}`],
       faces: Number(raw[`cf2_${k}`] ?? 0) || cl.faces || 1,
       offset: Number(raw[`co_${k}`] ?? 0),
     };
