@@ -639,7 +639,15 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
     /** The row a card shows and its mirror: the walker's own clip (front shots only — a silhouette's front and back are
      *  one), mirrored by the clip's knob and, for variety, by the walker. */
     const cam = camera.position;
-    const sideRows = CL.map((c, i) => (c.farSide ? i : -1)).filter((i) => i >= 0);
+    // (far off profile clips: only WALKING ones — a dancer or a talker found in profile once stood still in a walker's
+    // place, the artist, 2026-11-23: "멀리 있는 애가 걸을 때 side 로 정지해있는 경우는 뭐야?"; of the walker's own pace
+    // when there are some)
+    const MOVING: ClipState[] = ["walk", "brisk", "run"];
+    const sideAll = CL.map((c, i) => (c.farSide && MOVING.includes(c.state) ? i : -1)).filter((i) => i >= 0);
+    const sideRowsOf = (st: ClipState) => {
+      const own = sideAll.filter((i) => CL[i].state === st);
+      return own.length ? own : sideAll;
+    };
     // A PROFILE CLIP STANDS ALONG ITS OWN WAY, ALWAYS (the artist, 2026-11-23, round the circle: "가끔 문워크하는 구간이 생김
     // … side clip 들" → "'옆' 클립은 무조건 진행방향 정렬을 해둬야 모드 전환돼도 확실하게"): its card lies along the heading,
     // the picture's walker facing forward along it — seen from either side it walks the way it goes (from the back the
@@ -653,8 +661,12 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
       return Math.sin(s.h) * (tz / tl) - Math.cos(s.h) * (tx / tl);
     };
     const rowFor = (w: Walker, s: Stamp, far: number): { row: number; mirror: number; profile: boolean } => {
+      // THE CASES (the artist, 2026-11-23): far off and walking — a walking profile clip; far off and still — its stand or
+      // talk clip, played or held on one frame (the knob "프레임 재생은 가까이에서만"); near and talking — the talk clip
+      // plays.
       // far off and walking across the view: a profile clip (the artist, 2026-11-23: "멀리 있을 때는 본인 진행방향이랑
       // 영상 방향 정렬을 따로")
+      const sideRows = sideRowsOf(CL[w.home]?.state ?? "walk");
       if (L.tier.farSide && far > 0.5 && sideRows.length && !w.standing && Math.abs(acrossOf(s)) > 0.6) {
         const row = byHash(sideRows, w.hash * 1.7);
         return { row, mirror: profileMirror(row), profile: true };
@@ -663,7 +675,8 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
       // 있는 거 아니면 옆모습은 안 뜨게"), going its way; nearer, or head-on, a front clip of its state (any front clip
       // when its state has none; the profile one only when there is no front clip at all)
       if (CL[w.home]?.profile) {
-        if (far > 0.5 && Math.abs(acrossOf(s)) > 0.6) return { row: w.home, mirror: profileMirror(w.home), profile: !w.standing };
+        // (a profile clip only for a body that walks: one standing still is never shown side-on)
+        if (far > 0.5 && Math.abs(acrossOf(s)) > 0.6 && !w.standing && MOVING.includes(CL[w.home].state)) return { row: w.home, mirror: profileMirror(w.home), profile: true };
         let fr = frontRows(CL[w.home].state);
         if (!fr.length) fr = CL.map((c, i) => (!c.profile && c.state !== "none" ? i : -1)).filter((i) => i >= 0);
         if (fr.length) {
