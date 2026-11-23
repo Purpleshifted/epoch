@@ -145,6 +145,19 @@ animation in `labKnobsScanFuture.ts`; captures against 3 stills into `docs/img/m
 
 ### bot (present)
 
+**Evening, 2026-11-23 — 2D PEOPLE from real video become the default (`그리기 = 2D 사람`, mode `"sprites"`,
+`spritePeople.ts`).** The artist: "걍 3d 몸 버려야하나 … 후져 … 한계가 있어보여 … 2d 실루엣" → "Pexels 클립으로 먼저
+시험해봐" → "내가 찾을게". Pipeline: clips in `visual_reference_images/people_clips/` (gitignored; one person head to foot,
+green screen or plain backdrop; the name ends with the view `_back` / `_front` / `_side` / `_stand`) →
+`python3 -I tools/people-sheet/people_sheet.py <clips> apps/web/public/people` (key the backdrop, keep the largest body,
+drop what never moves near the feet, find one stride by the legs' rhythm, 16 frames in one box) → `people.png` +
+`people.json` (a row a clip, with its source). The app: a card a person facing the eye, the row by how they are seen
+(away/towards/across, mirrored), the frame by their stride; at each 슉 a few afterimages along the sweep, fading; clothes
+turned to another hue per person (coloured parts only), width by the archetype's girth, height by its height. Folder
+`2D 사람` (진하기, 키 ×, 잔상 수, 잔상 시간, 잔상 진하기, 옷 색 바꾸기, 채도); 움직임 applies. First row: Pexels 31899051 (a woman in a
+red dress walking on a treadmill, from behind; Pexels licence — free use, modification allowed). Checked: type check;
+headless text run (Chrome for Testing) — no errors, 60 fps at 540×960 with 24 people.
+
 **Later the same day — the POINT BODY with FIBERS becomes the default (`그리기 = 점 몸`, mode `"fibers"`, `fiberBody.ts`).**
 The artist: lag ("생각보다 랙이 심해서") → "3d 몸을 점으로 하면 td 랑도 비슷해지고 … 흩날리는 효과 … 잔흔 계산해서 다 남길필요
 없이 점 자체에 fiber 효과도"; "봇 속도 일정 이상이면 뛰어가야 … 경공술"; "제스처 다양하게"; "방향 돌거나 하는 것도 어색해서,

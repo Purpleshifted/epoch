@@ -184,8 +184,23 @@ export function runPose(J: Joints, S: Joints, amount: number): Joints {
   return J;
 }
 
-export const bodyTuning: { archetypes: Archetype[]; trail: TrailLook; view: ArchetypeView; fiber: FiberLook; move: MoveLook } = {
+/** THE 2D PEOPLE (spritePeople.ts — real people cut out of video): their ink, the afterimages each "슉" leaves along the
+ *  way (how many, how long, how strong), the clothes turned to other hues per person, saturation, height ×. */
+export interface SpriteLook {
+  ink: number;
+  copies: number;
+  sec: number;
+  trail: number;
+  hue: number;
+  sat: number;
+  scale: number;
+}
+
+export const DEFAULT_SPRITE: SpriteLook = { ink: 0.95, copies: 5, sec: 1.2, trail: 0.35, hue: 0.6, sat: 1, scale: 1 };
+
+export const bodyTuning: { archetypes: Archetype[]; trail: TrailLook; view: ArchetypeView; fiber: FiberLook; move: MoveLook; sprite: SpriteLook } = {
   archetypes: DEFAULT_ARCHETYPES.map((a) => ({ ...a })),
+  sprite: { ...DEFAULT_SPRITE },
   fiber: { ...DEFAULT_FIBER },
   move: { ...DEFAULT_MOVE },
   trail: { ...DEFAULT_TRAIL },

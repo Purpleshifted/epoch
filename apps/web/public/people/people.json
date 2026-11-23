@@ -1,0 +1,13 @@
+{
+ "cols": 16,
+ "cellW": 96,
+ "cellH": 192,
+ "rows": [
+  {
+   "id": "pexels-31899051_back",
+   "view": "back",
+   "strideSec": 2.12,
+   "source": "pexels"
+  }
+ ]
+}

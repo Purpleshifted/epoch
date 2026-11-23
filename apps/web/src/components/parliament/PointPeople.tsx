@@ -17,7 +17,8 @@
  * leaving AFTERIMAGES of itself where it was — fading, softening, a little more vivid in colour — drawn straight into the
  * scene as filters on the white (no browser exposure). The default since the same evening is the POINT BODY
  * (fiberBody.ts): points on each archetype's bones, each a fiber through three moments; at each sample the body sweeps
- * to it ("슉") unless 보간 is on; runs when fast; gestures when standing.
+ * to it ("슉") unless 보간 is on; runs when fast; gestures when standing. Then the 2D PEOPLE (spritePeople.ts, mode
+ * "sprites", the default): real people cut out of the clips the artist finds, a card a person, afterimages along each 슉.
  *
  * Nothing here decides who is there or where they stand (RoleField's seat and fold); this only draws.
  */
@@ -32,11 +33,12 @@ import { DEFAULT_BODY, DEFAULT_MOTION, WALK_CYCLES, WALK_STYLES, WAVE_STYLE, bak
 import { BodyPoses, cutOf, cycleOf, makeBodyGeometry, makeBodyMaterial, paletteIndexOf, poseOf, standOf, type BodyColours, type BodyGirth } from "./bodySheet";
 import { DEFAULT_ARCHETYPES, STAND_GESTURES, archetypeIndexOf, bodyTuning, hexToLinear, runPose, shapePose, strideScaleOf, type Archetype } from "./bodyArchetypes";
 import { makeFiberGeometry, makeFiberMaterial } from "./fiberBody";
+import { loadSpriteSheet, makeSpriteGeometry, makeSpriteMaterial, spriteRow, type SpriteIndex } from "./spritePeople";
 import { mobileLab } from "./mobileLab";
 import { streetGaze } from "./streetLook";
 import { onLifeEvent } from "./lifeEvents";
 
-export type PeopleMode = "boxes" | "points" | "fibers";
+export type PeopleMode = "boxes" | "points" | "fibers" | "sprites";
 
 export interface PeopleLook {
   /** How the others are drawn (the artist, 2026-11-22 night: "깜빡이는 상자 속에서 사람 실루엣이 걸어가는 것처럼 … 점 낭비 안 해도
@@ -124,7 +126,7 @@ export interface PeopleLook {
   meRest: number;
 }
 
-export const DEFAULT_PEOPLE: PeopleLook = { mode: "fibers", gait: "mocap", colour: 1, paper: false, ink: 1, blur: 3, fadeDist: 12, labelDist: 4, flicker: true, stretchGain: 1, shake: 2, blotDist: 8, bubble: true, aspectMin: 0.5, aspectMax: 1.3, tailSec: 1.6, exposure: 0.5, frame: 1, askTurn: true, ripple: true, paperVariety: 1, boxAspect: 0.55, boxRest: 0.22, cue: true, points: 480, pointsPhone: 200, scale: 2.5, dot: 0.07, maxPx: 6, grey: 0.78, height: 1.7, variety: 1, maxCadence: 2.2, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3, meBody: false, meRest: 0.4 };
+export const DEFAULT_PEOPLE: PeopleLook = { mode: "sprites", gait: "mocap", colour: 1, paper: false, ink: 1, blur: 3, fadeDist: 12, labelDist: 4, flicker: true, stretchGain: 1, shake: 2, blotDist: 8, bubble: true, aspectMin: 0.5, aspectMax: 1.3, tailSec: 1.6, exposure: 0.5, frame: 1, askTurn: true, ripple: true, paperVariety: 1, boxAspect: 0.55, boxRest: 0.22, cue: true, points: 480, pointsPhone: 200, scale: 2.5, dot: 0.07, maxPx: 6, grey: 0.78, height: 1.7, variety: 1, maxCadence: 2.2, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3, meBody: false, meRest: 0.4 };
 
 /** The visitor, for their own body: where they stand and look (the controller's yaw), and their melody. */
 export interface MeInput {
@@ -141,6 +143,8 @@ const MAX_COPIES = 8;
 const MAX_INSTANCES = MAX_PEOPLE * (1 + MAX_COPIES);
 /** 흰 바탕: the bodies drawn a frame — each person now (first), then their traces (bodyArchetypes TrailLook). */
 const MAX_BODIES = 1024;
+/** 2D 사람: the cards a frame (a person now and the afterimages of their last two sweeps). */
+const MAX_SPRITES = 96 * 12;
 /** A being gone from the list for this long (s) fades out and is dropped. */
 const GONE_SEC = 2.5;
 const FADE_SEC = 0.8;
@@ -688,6 +692,27 @@ export function PointPeople({
   const fiberMat = useMemo(() => makeFiberMaterial(poses), [poses]);
   useEffect(() => () => fiberGeom.dispose(), [fiberGeom]);
   useEffect(() => () => fiberMat.dispose(), [fiberMat]);
+  // 2D 사람 (spritePeople.ts): the cut-out people's sheet, loaded once
+  const spriteGeom = useMemo(() => makeSpriteGeometry(MAX_SPRITES), []);
+  const spriteMat = useMemo(() => makeSpriteMaterial(), []);
+  const spriteIdx = useRef<SpriteIndex | null>(null);
+  useEffect(() => {
+    let live = true;
+    loadSpriteSheet()
+      .then(({ index, texture }) => {
+        if (!live) return;
+        spriteIdx.current = index;
+        setUniforms(spriteMat.uniforms, { uSheet: texture, uCols: index.sheet.cols, uRows: Math.max(1, index.sheet.rows.length), uAspect: index.sheet.cellW / index.sheet.cellH });
+      })
+      .catch(() => {
+        /* no sheet yet: no 2D people */
+      });
+    return () => {
+      live = false;
+    };
+  }, [spriteMat]);
+  useEffect(() => () => spriteGeom.dispose(), [spriteGeom]);
+  useEffect(() => () => spriteMat.dispose(), [spriteMat]);
   // the crowd test scene
   const crowd = useRef<{ walkers: Walker[]; at: number; list: Other[]; real: readonly Other[] | null | undefined; both: Other[] }>({ walkers: [], at: -1, list: [], real: null, both: [] });
   const motion = useMemo<MotionConfig>(() => ({ ...DEFAULT_MOTION, maxSpeed: look.maxSpeed, stride: strideLength(heightU), maxCadence: look.maxCadence }), [look.maxSpeed, heightU, look.maxCadence]);
@@ -718,6 +743,8 @@ export function PointPeople({
     const archOf = (hash: number) => Math.max(0, archetypeIndexOf(hash, archs, view));
     const F = bodyTuning.fiber, M = bodyTuning.move;
     const fibers = look.mode === "fibers";
+    const sprites = look.mode === "sprites";
+    const SP = bodyTuning.sprite;
     // (the fibers' point count rebuilds their geometry — once, when the knob changes)
     const wantFiber = Math.max(64, Math.round(F.count * (phone ? 0.4 : 1)));
     if (fibers && wantFiber !== fiberCountRef.current) {
@@ -806,7 +833,7 @@ export function PointPeople({
     const iBox3 = boxGeom.getAttribute("iBox3") as THREE.InstancedBufferAttribute;
     const BW = iBox3.array as Float32Array;
     // (the windows stand for the 3D body and for the fibers alike)
-    const boxes = look.mode === "boxes" || fibers;
+    const boxes = look.mode === "boxes" || fibers || sprites;
     const pv = look.paperVariety;
     const paper = look.paper;
     const fadeU = Math.max(0.5, look.fadeDist);
@@ -817,6 +844,9 @@ export function PointPeople({
     const fA = (name: string) => fiberGeom.getAttribute(name) as THREE.InstancedBufferAttribute;
     const FN = fA("iNow").array as Float32Array, FM = fA("iMid").array as Float32Array, FO = fA("iOld").array as Float32Array, FR = fA("iRows").array as Float32Array;
     let nf = 0;
+    const sA = (name: string) => spriteGeom.getAttribute(name) as THREE.InstancedBufferAttribute;
+    const SA = sA("iA").array as Float32Array, SB = sA("iB").array as Float32Array, SC = sA("iC").array as Float32Array;
+    let ns = 0;
     // each archetype's girth, own colours, and its gait-free copy (the wave, the sine walk: proportions only)
     const archGirth: BodyGirth[] = archs.map((a) => ({ limbs: a.limbs, girth: a.girth, belly: a.belly, head: a.head }));
     const archCol: (BodyColours | null)[] = archs.map((a) => (a.fixedColour ? { top: hexToLinear(a.top), pants: hexToLinear(a.pants) } : null));
@@ -1008,7 +1038,7 @@ export function PointPeople({
       }
       const ai = archOf(p.hash);
       const arch = archs[ai];
-      if (paper && fibers && M.stamp && p.stamps.length) {
+      if (paper && (fibers || sprites) && M.stamp && p.stamps.length) {
         // the fibers' "슉": at each sample the body sweeps to it in dashSec and holds there; the window, the label and the
         // bubble follow
         const s0 = p.stamps[0], s1 = p.stamps[1] ?? s0;
@@ -1082,7 +1112,7 @@ export function PointPeople({
       const askUntil = asking.current.get(id);
       const cue = look.cue && askUntil !== undefined && nowMs < askUntil ? 1 : 0;
       // the body's way, written down for its traces
-      if (paper && (fibers ? !M.stamp : T.on)) {
+      if (paper && (fibers || sprites ? !M.stamp : T.on)) {
         const b = p.body;
         if (now - p.lastHistAt >= HIST_EVERY) {
           p.lastHistAt = now;
@@ -1166,6 +1196,66 @@ export function PointPeople({
               FR[nf * 4 + 3] = A;
               nbody += 3;
               nf++;
+            }
+          } else if (paper && sprites) {
+            // 2D 사람: the person now as a card of the cut-out video, and the afterimages their last two sweeps left
+            const idx = spriteIdx.current;
+            if (idx) {
+              const A = Math.min(1, BW[baseNb * 4 + 1] * p.alpha * cut) * SP.ink * look.ink;
+              const a = archs[ai];
+              const hgt = scaleOf(p, a) * 1.7 * 1.06 * SP.scale;
+              const wide = Math.pow(Math.max(0.3, a.girth), 0.7);
+              const hue = (frac(p.hash * 3.71) - 0.5) * Math.PI * 2 * SP.hue;
+              const cols = idx.sheet.cols;
+              const b = p.body;
+              const put = (x: number, z: number, h: number, ph: number, standing: boolean, alpha: number) => {
+                if (ns >= MAX_SPRITES || alpha < 0.004) return;
+                const { row, mirror } = spriteRow(idx, h - Math.atan2(me.x - x, me.z - z), standing, p.hash);
+                SA[ns * 4] = x;
+                SA[ns * 4 + 1] = z;
+                SA[ns * 4 + 2] = hgt;
+                SA[ns * 4 + 3] = alpha;
+                SB[ns * 4] = row;
+                SB[ns * 4 + 1] = (((ph % 1) + 1) % 1) * cols;
+                SB[ns * 4 + 2] = mirror;
+                SB[ns * 4 + 3] = hue;
+                SC[ns * 4] = wide;
+                SC[ns * 4 + 1] = SP.sat;
+                ns++;
+              };
+              const n = Math.max(0, Math.round(phone ? SP.copies / 2 : SP.copies));
+              const lerpPh = (p0: number, p1: number, f: number) => {
+                let d = p1 - p0;
+                if (d < -0.5) d += 1;
+                else if (d > 0.5) d -= 1;
+                return p0 + d * f;
+              };
+              if (M.stamp && p.stamps.length) {
+                const s0 = p.stamps[0], s1 = p.stamps[1] ?? s0, s2 = p.stamps[2] ?? s1;
+                const standing = now - s0.t > 1 || s0.v < 0.3;
+                const e = smooth01((now - s0.t) / Math.max(0.02, M.dashSec));
+                // the afterimages along the last sweep (only where the body has already passed) and the one before, each
+                // fading from when its sample came
+                const segs: [Stamp, Stamp, number, number][] = [[s1, s0, now - s0.t, e], [s2, s1, now - s1.t, 1]];
+                for (const [from, to, age, upTo] of segs) {
+                  const fade = 1 - age / Math.max(0.05, SP.sec);
+                  if (fade <= 0 || (from.x === to.x && from.z === to.z)) continue;
+                  for (let i = 0; i < n; i++) {
+                    const f = (i + 0.5) / n;
+                    if (f > upTo) break;
+                    put(from.x + (to.x - from.x) * f, from.z + (to.z - from.z) * f, to.h, lerpPh(from.ph, to.ph, f), false, A * SP.trail * fade * fade);
+                  }
+                }
+                put(b.x, b.z, cue ? Math.atan2(me.x - b.x, me.z - b.z) : b.heading, s0.ph, standing && !cue, A);
+              } else {
+                const stand = 1 - Math.min(1, Math.hypot(b.vx, b.vz) / motion.standBelow);
+                for (let i = n; i >= 1; i--) {
+                  const age = (i * SP.sec) / (n + 1);
+                  const hh = histAt(p.hist, now - age);
+                  if (hh) put(hh.x, hh.z, hh.h, hh.ph, hh.st > 0.5, A * SP.trail * (1 - age / SP.sec));
+                }
+                put(b.x, b.z, cue ? Math.atan2(me.x - b.x, me.z - b.z) : b.heading, b.phase, stand > 0.5 && !cue, A);
+              }
             }
           } else if (paper && nbody < MAX_BODIES) {
             const b = p.body;
@@ -1329,8 +1419,14 @@ export function PointPeople({
     iPos.needsUpdate = true;
     iAnim.needsUpdate = true;
     setInstanceCount(boxGeom, nb);
-    setInstanceCount(bodyGeom, paper && boxes && !fibers ? nbody : 0);
-    setInstanceCount(depthGeom, paper && boxes && !fibers ? nNow : 0);
+    setInstanceCount(bodyGeom, paper && boxes && !fibers && !sprites ? nbody : 0);
+    setInstanceCount(depthGeom, paper && boxes && !fibers && !sprites ? nNow : 0);
+    setInstanceCount(spriteGeom, paper && sprites ? ns : 0);
+    for (const name of ["iA", "iB", "iC"]) {
+      const at = sA(name);
+      at.addUpdateRange(0, ns * 4);
+      at.needsUpdate = true;
+    }
     setInstanceCount(fiberGeom, paper && fibers ? nf : 0);
     for (const name of ["iNow", "iMid", "iOld", "iRows"]) {
       const at = fA(name);
@@ -1402,6 +1498,7 @@ export function PointPeople({
       {look.mode === "boxes" && <mesh ref={bodyMesh} geometry={bodyGeom} material={bodyMat} frustumCulled={false} renderOrder={10} />}
       {look.mode === "boxes" && <mesh geometry={depthGeom} material={depthMat} frustumCulled={false} renderOrder={11} />}
       {look.mode === "fibers" && <mesh geometry={fiberGeom} material={fiberMat} frustumCulled={false} renderOrder={10} />}
+      {look.mode === "sprites" && <mesh geometry={spriteGeom} material={spriteMat} frustumCulled={false} renderOrder={10} />}
       {/* 흰 바탕: the record device's labels — the being's number and a leader line, by the nearest few */}
       {look.paper &&
         labels.map((l) => (

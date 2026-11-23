@@ -1,8 +1,9 @@
 "use client";
 /**
  * bot (present) · 현재의 사람 — the others' bodies, walk, their afterimages and windows, the asker's cue, and the body
- * archetypes (PointPeople, bodySheet, bodyArchetypes). The afterimages and the archetypes are folders of the group with
- * their own saved sets (`<group>.잔흔 — …`, `<group>.체형 아키타입`); any save row saves the whole group.
+ * archetypes (PointPeople, bodySheet, bodyArchetypes, fiberBody, spritePeople). The afterimages, the motion, the 2D
+ * people, the fibers and the archetypes are folders of the group with their own saved sets (`<group>.잔흔 — …`,
+ * `<group>.움직임`, `<group>.2D 사람`, `<group>.점 몸 · 섬유`, `<group>.체형 아키타입`); any save row saves the whole group.
  * One of the mobile view lab's asset groups (mobileLab.ts): stored under /lab/mobile whatever page reads it, listed
  * only on its lab page. Keys are the old 길거리 folder's (11/22–23), so the components read them as before
  * (usePersonalVisuals assembles them into StreetVisual / GrassVisual).
@@ -12,7 +13,7 @@ import { folder, useControls } from "leva";
 import { savable } from "./levaSave";
 import { LAB_GROUP, labLists } from "./mobileLab";
 import { DEFAULT_PEOPLE, type PeopleMode } from "./PointPeople";
-import { DEFAULT_ARCHETYPES, DEFAULT_MOVE, DEFAULT_TRAIL, bodyTuning, type ArchetypeView, type ArmStyle, type HairChoice, type HemChoice } from "./bodyArchetypes";
+import { DEFAULT_ARCHETYPES, DEFAULT_MOVE, DEFAULT_SPRITE, DEFAULT_TRAIL, bodyTuning, type ArchetypeView, type ArmStyle, type HairChoice, type HemChoice } from "./bodyArchetypes";
 import { DEFAULT_FIBER } from "./fiberBody";
 
 const ARM_STYLES: Record<string, ArmStyle> = { "흔들며 걷기": "swing", "주머니에 손": "pockets", "뒷짐": "behind", "휴대폰 보기": "phone", "팔짱": "crossed", "허리에 손": "hips", "앞에 손 모음": "clasp", "턱 괴기": "chin" };
@@ -109,6 +110,21 @@ function useBodyKnobs(isV2: boolean) {
     }),
     { collapsed: false, render: show },
   ) as unknown as Record<string, number | boolean>;
+  const spriteRoot = `${G}.2D 사람`;
+  const sp = useControls(
+    spriteRoot,
+    savable(spriteRoot, {
+      spInk: { value: DEFAULT_SPRITE.ink, min: 0.1, max: 1, step: 0.05, label: "진하기", render: v2 },
+      spScale: { value: DEFAULT_SPRITE.scale, min: 0.6, max: 1.6, step: 0.01, label: "키 ×", render: v2 },
+      spCopies: { value: DEFAULT_SPRITE.copies, min: 0, max: 16, step: 1, label: "슉마다 남는 잔상 수", render: v2 },
+      spSec: { value: DEFAULT_SPRITE.sec, min: 0.1, max: 5, step: 0.05, label: "잔상이 남는 시간 (s)", render: v2 },
+      spTrail: { value: DEFAULT_SPRITE.trail, min: 0, max: 1, step: 0.05, label: "잔상 진하기", render: v2 },
+      spHue: { value: DEFAULT_SPRITE.hue, min: 0, max: 1, step: 0.05, label: "옷 색 바꾸기 (사람마다)", render: v2 },
+      spSat: { value: DEFAULT_SPRITE.sat, min: 0, max: 2, step: 0.05, label: "채도 ×", render: v2 },
+    }),
+    { collapsed: false, render: modeIs("sprites") },
+  ) as unknown as Record<string, number>;
+  bodyTuning.sprite = { ink: Number(sp.spInk), scale: Number(sp.spScale), copies: Number(sp.spCopies), sec: Number(sp.spSec), trail: Number(sp.spTrail), hue: Number(sp.spHue), sat: Number(sp.spSat) };
   const fiberRoot = `${G}.점 몸 · 섬유`;
   const fb = useControls(
     fiberRoot,
@@ -201,6 +217,7 @@ function useBodyKnobs(isV2: boolean) {
 
 // (the labels say what each draws on the white ground now — 2026-11-23; the stored values stay "boxes" / "points")
 const PEOPLE_MODES: Record<string, PeopleMode> = {
+  "2D 사람 — 영상에서 오린 실제 사람 (people_clips)": "sprites",
   "점 몸 — 뼈대 위의 점, 점마다 섬유 · 흩날림 (체형 아키타입)": "fibers",
   "3D 몸 — 면, 잔흔 (체형 아키타입)": "boxes",
   "옛 점 몸 — 점 N개 + 시간 번짐 복사본": "points",
