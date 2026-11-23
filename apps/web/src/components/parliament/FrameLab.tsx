@@ -73,6 +73,8 @@ interface ClipSet {
   farSide: boolean;
   /** Which way the profile clip's walker faces in the picture: +1 right, -1 left. */
   faces: number;
+  /** The clip's own stride (s): its 16 frames over this long are the original video's pace. */
+  stride: number;
   /** A clip seen in profile (found so by the sheet, or used as one far off): it has a way it walks on screen. */
   profile: boolean;
 }
@@ -165,6 +167,10 @@ interface Look {
   bright: number;
   /** The side fill between frames (0 … 1). */
   stamp: boolean;
+  /** A frame at each arrival, standing where it came and fading — the clip playing at the original video's pace, nothing
+   *  moving between (the artist, 2026-11-23: "프레임은 원본 비디오에 맞게 하고 … 디바운싱으로 들어오는 상태에 맞게 순간순간
+   *  거기서 속도/방향에 따라 프레임이 섰다 사라지게 … 성능에도 그게 맞고 … 마감 구려지는 것도 막을"). */
+  standMode: boolean;
   sampleSec: number;
   dashSec: number;
   fall: number;
@@ -774,7 +780,7 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
       let drop = 0;
       while (drop < w.hist.length && w.hist[drop].t < keep) drop++;
       if (drop) w.hist.splice(0, drop);
-      if (L.stamp && now - w.lastSample >= L.sampleSec) {
+      if ((L.stamp || L.standMode) && now - w.lastSample >= L.sampleSec) {
         w.lastSample = now;
         w.stamps.unshift({ t: now, x: w.x, z: w.z, h: w.h, ph: w.ph });
       }
@@ -888,7 +894,9 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
       // at its OWN distance a frame: the walker's phase counted in the home clip's frames, turned into this clip's)
       const home = CL[w.home];
       const swap = pick.row !== w.home && !w.standing && w.speed > 0 && home && set ? (home.dist / Math.max(1e-4, set.dist)) * ((home.pingpong ? 2 : 1) / (set.pingpong ? 2 : 1)) : 1;
-      const ph = still ? frac(w.hash * 5.37) : (set?.reverse ? -s.ph : s.ph) * swap + (set?.offset ?? 0);
+      // (stand mode: the clip at the original video's pace from the moment the frame stood — each its own start)
+      const phStand = set ? (now - s.t) / Math.max(0.05, set.stride * (set.pingpong ? 2 : 1)) + frac(w.hash * 3.71 + s.t * 0.37) : 0;
+      const ph = still ? frac(w.hash * 5.37) : L.standMode ? (set?.reverse ? -phStand : phStand) + (set?.offset ?? 0) : (set?.reverse ? -s.ph : s.ph) * swap + (set?.offset ?? 0);
       const pf = ((ph % 1) + 1) % 1;
       // (ping-pong: the frames forward, then back — the artist, 2026-11-23: "a->a리버스->a 로 재생해서 루프")
       // (a profile clip walking never plays back: its ping-pong's return half walked backwards — the cycle's two halves
@@ -935,8 +943,11 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
       const T = L.trails[stateOf(w)];
       const Q = tierOf(w);
       // the copies, oldest first, each reaching towards the one before it
-      const list: { s: Stamp; age: number }[] = [];
-      if (L.stamp) {
+      const list: { s: Stamp; age: number; newest?: boolean }[] = [];
+      if (L.standMode) {
+        // each arrival a frame standing where it came, facing its way, fading with its age; the newest is the body now
+        for (let k = w.stamps.length - 1; k >= 0; k--) list.push({ s: w.stamps[k], age: Math.max(1e-4, now - w.stamps[k].t), newest: k === 0 });
+      } else if (L.stamp) {
         // "슉": each sample left where it came; the body now sweeps from the last sample to where it is
         const s0 = w.stamps[0];
         for (let k = w.stamps.length - 1; k >= 1; k--) list.push({ s: w.stamps[k], age: now - w.stamps[k - 1].t });
@@ -963,14 +974,14 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
       let prevAlpha = 0;
       let prevAge = 0;
       const life = Math.max(0.05, T.life);
-      for (const { s, age } of list) {
-        const isNow = age === 0;
-        const fade = isNow ? 1 : Math.pow(Math.max(0, 1 - age / life), L.fall);
+      for (const { s, age, newest } of list) {
+        const isNow = age === 0 || !!newest;
+        const fade = isNow && !newest ? 1 : Math.pow(Math.max(0, 1 - age / life), L.fall);
         const alpha = (isNow ? L.ink : T.ink * Q.trail) * fade;
         // between this copy and the one before: frames of its own in between (place, step, way and age carried over)
         let last = prev;
         // (standing, copies stand on one spot: in-betweens there only when their age effects move them apart)
-        if (prev && (L.between === 2 || L.between === 3) && (Math.hypot(s.x - prev.x, s.z - prev.z) > 1e-3 || T.rise !== 0 || T.scatter > 0)) {
+        if (!L.standMode && prev && (L.between === 2 || L.between === 3) && (Math.hypot(s.x - prev.x, s.z - prev.z) > 1e-3 || T.rise !== 0 || T.scatter > 0)) {
           // 3 — BY THE CLIP'S OWN BEAT (the artist, 2026-11-23: "사이를 메우는 게, 걷는 속도랑 프레임 머무는 시간이랑 매치가
           // 되어야"): one card for each time a frame of the clip is held between the two copies — at the place the body
           // was then, the clip's next frame each (the phase counted on by time, never the short way round); 2 — a count
@@ -1189,6 +1200,7 @@ export default function FrameLab() {
       farSide: !!raw[`cs_${k}`],
       profile: cl.side || !!raw[`cs_${k}`],
       faces: Number(raw[`cf2_${k}`] ?? 0) || cl.faces || 1,
+      stride: cl.strideSec,
       offset: Number(raw[`co_${k}`] ?? 0),
     };
   });
@@ -1251,9 +1263,10 @@ export default function FrameLab() {
       // (the clips' sets say how a body WALKS; this folder only says when copies of it are left behind)
       "잔상 남기기": folder(
         {
-          flStamp: { value: true, label: "표본마다 슉 (끄면 이어 걷고 일정 시간마다)" },
-          flSample: { value: 0.5, min: 0.1, max: 2, step: 0.05, label: "위치가 도착하는 간격 (s)", render: (get) => !!get(`${G}.잔상 남기기.flStamp`) },
-          flDash: { value: 0.12, min: 0.02, max: 0.5, step: 0.01, label: "쓸려 가는 시간 (s)", render: (get) => !!get(`${G}.잔상 남기기.flStamp`) },
+          flStandMode: { value: true, label: "도착마다 그 자리에 섰다 사라짐 (원본 속도 · 이동 없음)" },
+          flStamp: { value: true, label: "표본마다 슉 (끄면 이어 걷고 일정 시간마다)", render: (get) => !get(`${G}.잔상 남기기.flStandMode`) },
+          flSample: { value: 0.5, min: 0.1, max: 2, step: 0.05, label: "위치가 도착하는 간격 (s · 실제 봇은 1초)", render: (get) => !!get(`${G}.잔상 남기기.flStamp`) || !!get(`${G}.잔상 남기기.flStandMode`) },
+          flDash: { value: 0.12, min: 0.02, max: 0.5, step: 0.01, label: "쓸려 가는 시간 (s)", render: (get) => !!get(`${G}.잔상 남기기.flStamp`) && !get(`${G}.잔상 남기기.flStandMode`) },
           flFall: { value: 1.3, min: 0.3, max: 4, step: 0.05, label: "옅어지는 곡선" },
           flInk: { value: 1, min: 0.1, max: 1, step: 0.05, label: "지금 몸의 진하기" },
           // (the artist, 2026-11-23: "사이 프레임은 박자보단 개수가 낫다")
@@ -1484,6 +1497,7 @@ export default function FrameLab() {
     con: Number(c.flCon),
     bright: Number(c.flBright),
     stamp: !!c.flStamp,
+    standMode: c.flStandMode !== false,
     sampleSec: Number(c.flSample),
     dashSec: Number(c.flDash),
     fall: Number(c.flFall),
