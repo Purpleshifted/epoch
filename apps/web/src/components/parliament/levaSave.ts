@@ -337,6 +337,15 @@ export function legacyGroups(top: string): readonly string[] {
   return legacyNames.get(top) ?? [];
 }
 
+/**
+ * A value saved under `root` (this browser's, or its old names'), or undefined — for a new knob that starts from what an
+ * older knob it replaces was set to (2026-11-23, the frames lab's colour flow split by state). None in `?presets=default`.
+ */
+export function savedValue(root: string, key: string, legacy: readonly string[] = []): unknown {
+  if (typeof window === "undefined" || presetsDefault()) return undefined;
+  return loadWithLegacy(root, legacy)?.[key];
+}
+
 export function savable<S extends object>(root: string, schema: S, legacy: readonly string[] = [], migrations: readonly SavedMigration[] = []): S {
   if (typeof window === "undefined") return schema;
   const key = storageKey(root);

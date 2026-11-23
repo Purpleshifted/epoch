@@ -173,6 +173,25 @@ pulled sideways or as the frame itself widened; a slit keeps only the middle of 
 multiply or normal overlap. Its own Leva group (saved under /lab/mobile like the others). The personal view is untouched
 by it; what she decides here goes into `PointPeople`'s 2D people after.
 
+**Where the frames study stands (night, 2026-11-23).**
+- Clips: one strip file a clip (`public/people/clips/<id>.png` + `people.json`), packed on the GPU into one texture that
+  fits the device (a phone may stop at 4096 px; the old single sheet was 6400 px). Each clip: a state (walk · brisk · run ·
+  stand · talk · none = unused), its walk set (distance a frame, frame hold), playback ×, ping-pong, height, ink, colour,
+  a name of her own (`cn_`; the file keeps its name so the saved set stays). Leva shows one clip / one state / one colour
+  combination at a time.
+- Which clip (her rules): walking across my view → a walking profile clip, near too ("3번하자"; threshold 0.8, a profile
+  card always stands along its own way — no moonwalk); far off and still → its stand / talk clip, played or held on one
+  frame; near and talking → the talk clip plays; profile clips only from walking clips.
+- Filling the side view: a front shot seen side-on has no shape — the width-profile face and the squeezed silhouette were
+  rejected ("모양이 다 죽어", "실루엣 눌러 펴는 건 진짜 별론데"); kept as options: drag (the silhouette turned square at the card,
+  the body's middle dragged in lines to the copy before) and a least angle to my line of sight (off; large angles read as
+  running sideways).
+- Budget: an on-screen readout (cards, people, fps; a warning past 500) and in-between caps by distance tier (12 · 6 · 2).
+  Phone target ~300–500 cards.
+- The colour flowing inside: every knob by state (strength, combination, direction, wave size, speed, waver).
+- Pending: talking tied to the melody of someone speaking to me ("소통은 나중에 말 거는 멜로디랑도 연동하고 싶음"); carrying the
+  study's sets into `PointPeople` (the personal view still uses the old row choice).
+
 **Evening, 2026-11-23 — 2D PEOPLE from real video become the default (`그리기 = 2D 사람`, mode `"sprites"`,
 `spritePeople.ts`).** The artist: "걍 3d 몸 버려야하나 … 후져 … 한계가 있어보여 … 2d 실루엣" → "Pexels 클립으로 먼저
 시험해봐" → "내가 찾을게". Pipeline: clips in `visual_reference_images/people_clips/` (gitignored; one person head to foot,

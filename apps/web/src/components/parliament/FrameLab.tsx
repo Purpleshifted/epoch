@@ -36,7 +36,7 @@ import { OrbitControls } from "@react-three/drei";
 import { button, folder, useControls } from "leva";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import { savable } from "./levaSave";
+import { savable, savedValue } from "./levaSave";
 import { LAB_GROUP } from "./mobileLab";
 import { ATLAS_GLSL, loadSpriteList, loadSpriteSheet, type SpriteIndex } from "./spritePeople";
 
@@ -77,6 +77,16 @@ interface ClipSet {
   profile: boolean;
 }
 type Facing = "eye" | "along" | "across";
+/** The colour flowing inside a state's bodies: how much (0 … 1), which combination (0 = each walker their own, 1 … 5),
+ *  along what (0 height · 1 space · 2 a copy's age), the size of a wave, its speed, how much it wavers. */
+interface Grad {
+  amt: number;
+  pick: number;
+  dir: number;
+  scale: number;
+  speed: number;
+  warp: number;
+}
 /** A walker's state for its afterimages: walking, walking briskly, running, standing, talking. */
 type StateKey = "walk" | "brisk" | "run" | "stand" | "talk";
 /** How a state's afterimages are left and age: how long they stay (s), their ink, how many and how far apart in time
@@ -121,16 +131,11 @@ interface Look {
   between: number;
   /** The afterimages by the walker's state (the artist, 2026-11-23: "서있을 때 잔상 날리는 거랑 처리하는 것도 따로 모드별로"). */
   trails: Record<StateKey, Trail>;
-  /** The colour flowing inside: how much, three colours, the size of a wave, its speed, along what (0 height · 1 space ·
-   *  2 age), how much it wavers. */
-  gradAmt: number;
-  /** Five combinations of three colours (15 "#rrggbb"), which one (0 = each walker their own, 1 … 5), the faint-alpha
-   *  threshold. */
+  /** Five combinations of three colours (15 "#rrggbb"). */
   pals: string[];
-  gradPick: number;
-  /** The colour flowing inside people standing or talking, set apart (2026-11-23: "이동중이 아닌 클립들은 색 출렁임 따로"):
-   *  how much, which combination (−1 = as the moving ones), speed × and wave size × of the moving ones'. */
-  gradStill: { amt: number; pick: number; speed: number; scale: number };
+  /** The colour flowing inside, by the walker's state (the artist, 2026-11-23: "안쪽 색 번짐 모드별로 다 조절"). Talking:
+   *  later tied to the melody of someone speaking to me ("소통은 나중에 말 거는 멜로디랑도 연동하고 싶음") — not yet. */
+  grads: Record<StateKey, Grad>;
   /** The frames' thickness (m), reaching back to the copy before or not, its ink and its fading towards the ends. */
   thick: number;
   thickFill: boolean;
@@ -146,10 +151,6 @@ interface Look {
   edgeW: number;
   con: number;
   bright: number;
-  gradScale: number;
-  gradSpeed: number;
-  gradDir: number;
-  gradWarp: number;
   /** The side fill between frames (0 … 1). */
   stamp: boolean;
   sampleSec: number;
@@ -218,6 +219,7 @@ attribute vec4 iB;         // row, frame, mirror, heading
 attribute vec4 iC;         // previous copy x, z, has one (0/1), lift (m)
 attribute vec4 iD;         // colour faded (0 … 1), the clip's colour laid over (0 … 1), age (0 … 1), colour combination
 attribute vec4 iE;         // the clip's colour (linear rgb), width ×
+attribute vec4 iG;         // the flowing colour of the card's state: along what, wave size, speed, waver
 attribute vec4 iF;         // blur at this card's age and distance (a share of the frame's width), the flowing colour ×, faces the eye (1), 0
 varying vec2 vUv;          // the frame's own u (may run outside 0 … 1 on the stretched side), v
 varying float vAlpha;
@@ -232,7 +234,7 @@ flat varying float vAge;
 flat varying float vPal;
 flat varying float vBlur;
 flat varying float vGradK;
-flat varying float vGradSS;
+flat varying vec4 vGrad;
 void main() {
   vec3 feet = vec3(iA.x, 0.0, iA.y);
   vec3 right;
@@ -309,7 +311,7 @@ void main() {
   vPal = iD.w;
   vBlur = iF.x;
   vGradK = iF.y;
-  vGradSS = iF.w;
+  vGrad = iG;
 }`;
 
 const FRAG = /* glsl */ `
@@ -324,7 +326,7 @@ uniform float uStreakSoft;
 uniform float uMultiply;
 flat varying float vBlur; // this card's blur (its state's, at its age)
 flat varying float vGradK;
-flat varying float vGradSS; // the flowing colour's wave size × and speed ×, packed (size × 100 × 1000 + speed × 100)
+flat varying vec4 vGrad;  // the flowing colour of the card's state (along what, wave size, speed, waver)
 varying vec2 vUv;
 varying float vAlpha;
 varying float vSide;
@@ -419,7 +421,7 @@ void main() {
   if (a < 0.004) discard;
 #endif
   t.rgb = mix(t.rgb, vTint.rgb, vTint.a);
-  t.rgb = mix(t.rgb, gradAt(vWorld, vUv.y, vAge, vPal, floor(vGradSS / 1000.0 + 0.001) / 100.0, mod(vGradSS + 0.5, 1000.0) / 100.0), uGradAmt * vGradK);
+  t.rgb = mix(t.rgb, gradAt(vWorld, vUv.y, vAge, vPal, vGrad), uGradAmt * vGradK);
   t.rgb = mix(t.rgb, vec3(dot(t.rgb, vec3(0.299, 0.587, 0.114))), vDesat);
   t.rgb = clamp((t.rgb - 0.5) * uCon + 0.5 + uBright, 0.0, 1.0);
   if (uMultiply > 0.5) gl_FragColor = vec4(mix(vec3(1.0), t.rgb, a), 1.0);
@@ -432,16 +434,13 @@ void main() {
 const GRAD_GLSL = /* glsl */ `
 uniform float uGradAmt;
 uniform vec3 uPal[15];     // five combinations of three colours
-uniform float uGradScale;
-uniform float uGradSpeed;
-uniform float uGradDir;
-uniform float uGradWarp;
 uniform float uTime;
-vec3 gradAt(vec3 world, float v, float age, float pal, float sc, float sp) {
+// g: the card's state's own (along what, wave size, speed, waver)
+vec3 gradAt(vec3 world, float v, float age, float pal, vec4 g) {
   int p = int(clamp(pal, 0.0, 4.0) + 0.5) * 3;
-  float x = uGradDir < 0.5 ? v * 1.7 : (uGradDir < 1.5 ? (world.x + world.z) * 0.35 : age * 2.0);
-  x = x * uGradScale * sc + uTime * uGradSpeed * sp * 0.25;
-  x += uGradWarp * 0.25 * sin(world.y * 3.1 + uTime * 0.9 + world.x * 1.3) + uGradWarp * 0.15 * sin(v * 9.0 - uTime * 1.7);
+  float x = g.x < 0.5 ? v * 1.7 : (g.x < 1.5 ? (world.x + world.z) * 0.35 : age * 2.0);
+  x = x * g.y + uTime * g.z * 0.25;
+  x += g.w * 0.25 * sin(world.y * 3.1 + uTime * 0.9 + world.x * 1.3) + g.w * 0.15 * sin(v * 9.0 - uTime * 1.7);
   float t = 0.5 + 0.5 * sin(x * 6.2831853);
   float t2 = 0.5 + 0.5 * sin(x * 6.2831853 * 0.5 + 1.7);
   return mix(mix(uPal[p], uPal[p + 1], t), uPal[p + 2], t2 * t2);
@@ -451,10 +450,6 @@ function gradUniforms(): Record<string, THREE.IUniform> {
   return {
     uGradAmt: { value: 0 },
     uPal: { value: Array.from({ length: 15 }, () => new THREE.Color()) },
-    uGradScale: { value: 1 },
-    uGradSpeed: { value: 1 },
-    uGradDir: { value: 0 },
-    uGradWarp: { value: 0.6 },
     uTime: { value: 0 },
   };
 }
@@ -576,7 +571,7 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
     const g = new THREE.InstancedBufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(new Float32Array([-0.5, 0, 0, 0.5, 0, 0, 0.5, 1, 0, -0.5, 1, 0]), 3));
     g.setIndex([0, 1, 2, 0, 2, 3]);
-    for (const name of ["iA", "iB", "iC", "iD", "iE", "iF"]) g.setAttribute(name, new THREE.InstancedBufferAttribute(new Float32Array(MAX_CARDS * 4), 4).setUsage(THREE.DynamicDrawUsage));
+    for (const name of ["iA", "iB", "iC", "iD", "iE", "iF", "iG"]) g.setAttribute(name, new THREE.InstancedBufferAttribute(new Float32Array(MAX_CARDS * 4), 4).setUsage(THREE.DynamicDrawUsage));
     g.instanceCount = 0;
     g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
     return g;
@@ -739,6 +734,7 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
     const Dd = (geom.getAttribute("iD") as THREE.InstancedBufferAttribute).array as Float32Array;
     const Ee = (geom.getAttribute("iE") as THREE.InstancedBufferAttribute).array as Float32Array;
     const Ff = (geom.getAttribute("iF") as THREE.InstancedBufferAttribute).array as Float32Array;
+    const Gg = (geom.getAttribute("iG") as THREE.InstancedBufferAttribute).array as Float32Array;
 
     let n = 0;
     const I = idx.current;
@@ -842,18 +838,20 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
       C[n * 4 + 3] = T.rise * u + (set?.lift ?? 0);
       Dd[n * 4] = T.desat * u;
       Ff[n * 4] = T.blur * u + Q.blur;
-      // the flowing colour: the moving ones' knobs, or the still ones' own (standing, talking)
-      const G2 = L.gradStill;
-      const stillG = w.standing;
-      Ff[n * 4 + 1] = Q.grad * (stillG ? G2.amt : L.gradAmt);
-      Ff[n * 4 + 3] = Math.round((stillG ? G2.scale : 1) * 100) * 1000 + Math.round((stillG ? G2.speed : 1) * 100);
+      // the flowing colour: the walker's state's own
+      const G2 = L.grads[stateOf(w)];
+      Ff[n * 4 + 1] = Q.grad * G2.amt;
+      Ff[n * 4 + 3] = 0;
+      Gg[n * 4] = G2.dir;
+      Gg[n * 4 + 1] = G2.scale;
+      Gg[n * 4 + 2] = G2.speed;
+      Gg[n * 4 + 3] = G2.warp;
       // (2: along its own way — a profile clip, always; 1: facing me — far off, by the knob)
       Ff[n * 4 + 2] = pick.profile ? 2 : L.tier.farEye && Q.far > 0.5 ? 1 : 0;
       Dd[n * 4 + 1] = set?.tintAmt ?? 0;
       Dd[n * 4 + 2] = u;
       // the colour combination: one for all, or each walker their own
-      const gp = stillG && G2.pick >= 0 ? G2.pick : L.gradPick;
-      Dd[n * 4 + 3] = gp > 0 ? gp - 1 : Math.floor(frac(w.hash * 7.91) * 5);
+      Dd[n * 4 + 3] = G2.pick > 0 ? G2.pick - 1 : Math.floor(frac(w.hash * 7.91) * 5);
       Ee[n * 4] = set?.tint[0] ?? 0;
       Ee[n * 4 + 1] = set?.tint[1] ?? 0;
       Ee[n * 4 + 2] = set?.tint[2] ?? 0;
@@ -945,7 +943,7 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
       const thickOn = (L.thick > 0 || L.thickFill) && L.thickInk > 0;
       if (el) el.textContent = `카드 ${n}${thickOn ? ` (+두께 ${n})` : ""} · 사람 ${W.length} · 한 사람당 ${W.length ? Math.round(n / W.length) : 0} · ${M.fps.toFixed(0)} fps${n > 500 ? " · 폰에선 무거움 (500장 넘음)" : ""}`;
     }
-    for (const name of ["iA", "iB", "iC", "iD", "iE", "iF"]) {
+    for (const name of ["iA", "iB", "iC", "iD", "iE", "iF", "iG"]) {
       const at = geom.getAttribute(name) as THREE.InstancedBufferAttribute;
       at.addUpdateRange(0, n * 4);
       at.needsUpdate = true;
@@ -956,10 +954,6 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
       g.uGradAmt.value = 1;
       const pal = g.uPal.value as THREE.Color[];
       L.pals.forEach((hex, i) => pal[i]?.set(hex).convertSRGBToLinear());
-      g.uGradScale.value = L.gradScale;
-      g.uGradSpeed.value = L.gradSpeed;
-      g.uGradDir.value = L.gradDir;
-      g.uGradWarp.value = L.gradWarp;
       g.uTime.value = now;
       if (g.uEdgeTh) g.uEdgeTh.value = L.edgeTh;
       if (g.uEdgeW) g.uEdgeW.value = L.edgeW;
@@ -1009,6 +1003,7 @@ const PALETTE_DEFAULTS: readonly (readonly [string, string, string])[] = [
   ["#111111", "#8a8a8a", "#f0f0f0"],
 ];
 
+const STATE_KEYS: StateKey[] = ["walk", "brisk", "run", "stand", "talk"];
 const STATE_NAMES: Record<StateKey, string> = { walk: "이동 중", brisk: "경보", run: "뛰기", stand: "서 있을 때", talk: "소통 중" };
 /** Each state's afterimages to begin with (the turn in degrees): walking and running leave a trail; standing ones blow
  *  away — rising, scattering, growing a little, fading and blurring (the artist: "서있을 때 잔상 날리는"). */
@@ -1131,6 +1126,18 @@ export default function FrameLab() {
       offset: Number(raw[`co_${k}`] ?? 0),
     };
   });
+  // where each state's colour flow starts: the old shared (moving) knobs and the still ones' set, as they were saved
+  const gradStart = useMemo(() => {
+    const old = (key: string, dflt: number) => {
+      const v = Number(savedValue(G, key));
+      return Number.isFinite(v) ? v : dflt;
+    };
+    const moving: Grad = { amt: old("flGradAmt", 0.8), pick: old("flGradPick", 1), dir: old("flGradDir", 0), scale: old("flGradScale", 1), speed: old("flGradSpeed", 1), warp: old("flGradWarp", 0.6) };
+    const gsPick = old("flGsPick", -1);
+    const still: Grad = { ...moving, amt: old("flGsAmt", 0.8), pick: gsPick >= 0 ? gsPick : moving.pick, scale: Math.min(6, moving.scale * old("flGsScale", 1)), speed: Math.min(6, moving.speed * old("flGsSpeed", 1)) };
+    return { walk: moving, brisk: moving, run: moving, stand: still, talk: still } as Record<StateKey, Grad>;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const TRAIL_F = "잔상 — 상태별";
   const COLOUR_F = "안쪽 색 출렁임";
   const c = useControls(
@@ -1257,19 +1264,29 @@ export default function FrameLab() {
       ),
       [COLOUR_F]: folder(
         {
-          flGradAmt: { value: 0.8, min: 0, max: 1, step: 0.05, label: "이동 중: 세기 (0 = 원래 색)" },
-          flGradPick: { options: { "사람마다 다르게": 0, "조합 1": 1, "조합 2": 2, "조합 3": 3, "조합 4": 4, "조합 5": 5 }, value: 1, label: "쓰는 색 조합" },
-          flGradDir: { options: { "높이를 따라": 0, "공간을 따라 (걸으며 바뀜)": 1, "잔상의 나이를 따라": 2 }, value: 0, label: "흐르는 방향" },
-          flGradScale: { value: 1, min: 0.1, max: 6, step: 0.05, label: "물결 크기" },
-          flGradSpeed: { value: 1, min: 0, max: 6, step: 0.05, label: "속도" },
-          flGradWarp: { value: 0.6, min: 0, max: 3, step: 0.05, label: "일렁임" },
-          // (the artist, 2026-11-23: "이동중이 아닌 클립들은 색 출렁임 따로 조절하고 싶음") — the knobs above are the moving ones'
-          "가만히 있는 사람 (서 있기 · 소통)": folder({
-            flGsAmt: { value: 0.8, min: 0, max: 1, step: 0.05, label: "세기 (0 = 원래 색)" },
-            flGsPick: { options: { "이동 중과 같게": -1, "사람마다 다르게": 0, "조합 1": 1, "조합 2": 2, "조합 3": 3, "조합 4": 4, "조합 5": 5 }, value: -1, label: "쓰는 색 조합" },
-            flGsSpeed: { value: 1, min: 0, max: 4, step: 0.05, label: "속도 × (이동 중의)" },
-            flGsScale: { value: 1, min: 0.1, max: 4, step: 0.05, label: "물결 크기 × (이동 중의)" },
-          }),
+          // BY STATE, EVERY KNOB (the artist, 2026-11-23: "안쪽 색 번짐 모드별로 다 조절 가능하게") — one state shown at a
+          // time; each starts from what the old shared knobs (moving) and the still ones' set were saved at
+          grEdit: { options: Object.fromEntries(STATE_KEYS.map((st) => [STATE_NAMES[st], st])), value: "walk", label: "▶ 편집할 상태" },
+          ...Object.fromEntries(
+            STATE_KEYS.map((st) => {
+              const d = gradStart[st];
+              const k = (n: string) => `g_${st}_${n}`;
+              return [
+                `색 · ${STATE_NAMES[st]}`,
+                folder(
+                  {
+                    [k("amt")]: { value: d.amt, min: 0, max: 1, step: 0.05, label: "세기 (0 = 원래 색)" },
+                    [k("pick")]: { options: { "사람마다 다르게": 0, "조합 1": 1, "조합 2": 2, "조합 3": 3, "조합 4": 4, "조합 5": 5 }, value: d.pick, label: "쓰는 색 조합" },
+                    [k("dir")]: { options: { "높이를 따라": 0, "공간을 따라 (걸으며 바뀜)": 1, "잔상의 나이를 따라": 2 }, value: d.dir, label: "흐르는 방향" },
+                    [k("scale")]: { value: d.scale, min: 0.1, max: 6, step: 0.05, label: "물결 크기" },
+                    [k("speed")]: { value: d.speed, min: 0, max: 6, step: 0.05, label: "속도" },
+                    [k("warp")]: { value: d.warp, min: 0, max: 3, step: 0.05, label: "일렁임" },
+                  },
+                  { render: (get) => get(`${G}.${COLOUR_F}.grEdit`) === st },
+                ),
+              ];
+            }),
+          ),
           palEdit: { options: { "조합 1": 1, "조합 2": 2, "조합 3": 3, "조합 4": 4, "조합 5": 5 }, value: 1, label: "▶ 편집할 조합" },
           ...Object.fromEntries(
             PALETTE_DEFAULTS.map((d, i) => [
@@ -1365,10 +1382,14 @@ export default function FrameLab() {
         return [st, { life: g("life"), ink: g("ink"), copies: g("copies"), gap: g("gap"), betweenN: g("betweenN"), betweenInk: g("betweenInk"), scale: g("scale"), rise: g("rise"), scatter: g("scatter"), turn: (g("turn") * Math.PI) / 180, desat: g("desat"), blur: g("blur") }];
       }),
     ) as Record<StateKey, Trail>,
-    gradAmt: Number(c.flGradAmt),
     pals: PALETTE_DEFAULTS.flatMap((d, i) => d.map((hex, j) => String(c[`flP${i + 1}${"abc"[j]}`] ?? hex))),
-    gradPick: Number(c.flGradPick),
-    gradStill: { amt: Number(c.flGsAmt ?? 0.8), pick: Number(c.flGsPick ?? -1), speed: Number(c.flGsSpeed ?? 1), scale: Number(c.flGsScale ?? 1) },
+    grads: Object.fromEntries(
+      STATE_KEYS.map((st) => {
+        const d = gradStart[st];
+        const g = (k: keyof Grad) => Number(c[`g_${st}_${k}`] ?? d[k]);
+        return [st, { amt: g("amt"), pick: g("pick"), dir: g("dir"), scale: g("scale"), speed: g("speed"), warp: g("warp") }];
+      }),
+    ) as Record<StateKey, Grad>,
     thick: Number(c.flThick ?? 0),
     thickFill: !!c.flThickFill,
     thickInk: Number(c.flThickInk ?? 0.6),
@@ -1379,10 +1400,6 @@ export default function FrameLab() {
     edgeW: Number(c.flEdgeW),
     con: Number(c.flCon),
     bright: Number(c.flBright),
-    gradScale: Number(c.flGradScale),
-    gradSpeed: Number(c.flGradSpeed),
-    gradDir: Number(c.flGradDir),
-    gradWarp: Number(c.flGradWarp),
     stamp: !!c.flStamp,
     sampleSec: Number(c.flSample),
     dashSec: Number(c.flDash),
