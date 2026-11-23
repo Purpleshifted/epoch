@@ -24,7 +24,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useFrame, useThree } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
 import * as THREE from "three";
 import { DEFAULT_WITNESS, glyphOf, nearestImage, rhythmOf, stepAt, type Other } from "@/lib/parliament";
@@ -692,17 +692,18 @@ export function PointPeople({
   const fiberMat = useMemo(() => makeFiberMaterial(poses), [poses]);
   useEffect(() => () => fiberGeom.dispose(), [fiberGeom]);
   useEffect(() => () => fiberMat.dispose(), [fiberMat]);
-  // 2D 사람 (spritePeople.ts): the cut-out people's sheet, loaded once
+  // 2D 사람 (spritePeople.ts): the cut-out people's strips, packed into one texture once
   const spriteGeom = useMemo(() => makeSpriteGeometry(MAX_SPRITES), []);
   const spriteMat = useMemo(() => makeSpriteMaterial(), []);
   const spriteIdx = useRef<SpriteIndex | null>(null);
+  const gl = useThree((st) => st.gl);
   useEffect(() => {
     let live = true;
-    loadSpriteSheet()
+    loadSpriteSheet(gl)
       .then(({ index, texture }) => {
         if (!live) return;
         spriteIdx.current = index;
-        setUniforms(spriteMat.uniforms, { uSheet: texture, uCols: index.sheet.cols, uRows: Math.max(1, index.sheet.rows.length), uAspect: index.sheet.cellW / index.sheet.cellH });
+        setUniforms(spriteMat.uniforms, { uSheet: texture, uCols: index.sheet.cols, uPer: index.per, uAtlasRows: index.atlasRows, uAspect: index.sheet.cellW / index.sheet.cellH });
       })
       .catch(() => {
         /* no sheet yet: no 2D people */
@@ -710,7 +711,7 @@ export function PointPeople({
     return () => {
       live = false;
     };
-  }, [spriteMat]);
+  }, [spriteMat, gl]);
   useEffect(() => () => spriteGeom.dispose(), [spriteGeom]);
   useEffect(() => () => spriteMat.dispose(), [spriteMat]);
   // the crowd test scene
@@ -1215,7 +1216,7 @@ export function PointPeople({
                 SA[ns * 4 + 1] = z;
                 SA[ns * 4 + 2] = hgt;
                 SA[ns * 4 + 3] = alpha;
-                SB[ns * 4] = row;
+                SB[ns * 4] = idx.slot[row] ?? 0;
                 SB[ns * 4 + 1] = (((ph % 1) + 1) % 1) * cols;
                 SB[ns * 4 + 2] = mirror;
                 SB[ns * 4 + 3] = hue;

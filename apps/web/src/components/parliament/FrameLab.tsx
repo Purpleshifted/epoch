@@ -38,7 +38,7 @@ import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { savable } from "./levaSave";
 import { LAB_GROUP } from "./mobileLab";
-import { loadSpriteSheet, type SpriteIndex } from "./spritePeople";
+import { ATLAS_GLSL, loadSpriteList, loadSpriteSheet, type SpriteIndex } from "./spritePeople";
 
 const MAX_CARDS = 4096;
 const TAU = Math.PI * 2;
@@ -255,7 +255,9 @@ void main() {
 const FRAG = /* glsl */ `
 uniform sampler2D uSheet;
 uniform float uCols;
-uniform float uRows;
+uniform float uPer;
+uniform float uAtlasRows;
+${ATLAS_GLSL}
 uniform float uSlit;
 uniform float uStretchKind;
 uniform float uStreakSoft;
@@ -279,7 +281,7 @@ uniform float uCon;       // the colour's contrast about mid-grey, and its brigh
 uniform float uBright;
 vec4 cell(float u, float v) {
   float uu = vMirror < 0.0 ? 1.0 - u : u;
-  vec4 t = texture2D(uSheet, vec2((vFrame + clamp(uu, 0.001, 0.999)) / uCols, (uRows - 1.0 - vRow + clamp(v, 0.001, 0.999)) / uRows));
+  vec4 t = texture2D(uSheet, atlasUv(vRow, vFrame, vec2(clamp(uu, 0.001, 0.999), clamp(v, 0.001, 0.999))));
   // the frame's own border is always empty (shrunk far off, the sheet's neighbouring frames bleed into it), and what is
   // fainter than the threshold is not there (a faint box round a frame)
   float edge = smoothstep(0.0, 0.035, uu) * smoothstep(0.0, 0.035, 1.0 - uu) * smoothstep(0.0, 0.006, v) * smoothstep(0.0, 0.02, 1.0 - v);
@@ -372,6 +374,8 @@ function makeMaterial(): THREE.ShaderMaterial {
       uSheet: { value: null },
       uCols: { value: 16 },
       uRows: { value: 1 },
+      uPer: { value: 1 },
+      uAtlasRows: { value: 1 },
       uAspect: { value: 0.5 },
       uFacing: { value: 0 },
       uStretch: { value: 1 },
@@ -453,7 +457,7 @@ function onPath(w: Walker, L: Look, i: number, n: number): { x: number; z: numbe
 }
 
 function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string | null> }) {
-  const { camera } = useThree();
+  const { camera, gl } = useThree();
   const controls = useRef<OrbitControlsImpl>(null);
   const geom = useMemo(() => {
     const g = new THREE.InstancedBufferGeometry();
@@ -470,12 +474,14 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
   const idx = useRef<SpriteIndex | null>(null);
   useEffect(() => {
     let live = true;
-    loadSpriteSheet().then(({ index, texture }) => {
+    // (the study loads every clip: it is where they are chosen)
+    loadSpriteSheet(gl).then(({ index, texture }) => {
       if (!live) return;
       idx.current = index;
       mat.uniforms.uSheet.value = texture;
       mat.uniforms.uCols.value = index.sheet.cols;
-      mat.uniforms.uRows.value = Math.max(1, index.sheet.rows.length);
+      mat.uniforms.uPer.value = index.per;
+      mat.uniforms.uAtlasRows.value = index.atlasRows;
       mat.uniforms.uAspect.value = index.sheet.cellW / index.sheet.cellH;
     });
     return () => {
@@ -654,6 +660,8 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
     const put = (w: Walker, s: Stamp, alpha: number, prev: Stamp | null, u: number, T: Trail, Q: Tier) => {
       if (n >= MAX_CARDS || alpha < 0.004 || !I || w.home < 0) return;
       const pick = rowFor(w, s, Q.far);
+      const slot = I.slot[pick.row] ?? -1;
+      if (slot < 0) return;
       const set = CL[pick.row];
       // with age: scattered sideways (each copy its own way), grown or shrunk, risen or sunk, turned, faded in colour
       const seedA = frac(Math.sin(s.t * 12.9898 + w.hash * 78.233) * 43758.5453) * TAU;
@@ -661,7 +669,7 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
       A[n * 4 + 1] = s.z + Math.cos(seedA) * T.scatter * u;
       A[n * 4 + 2] = ((set?.height ?? 1.72) / Math.max(0.2, set?.fill ?? 1)) * (0.97 + 0.06 * w.hash) * (1 + (T.scale - 1) * u);
       A[n * 4 + 3] = alpha * (set?.ink ?? 1) * Q.ink;
-      B[n * 4] = pick.row;
+      B[n * 4] = slot;
       // standing or talking past the near band: one still frame of their own (no frames run where nobody reads them)
       const still = L.tier.stillNear && w.standing && Q.mid > 0.5;
       const ph = still ? frac(w.hash * 5.37) : (set?.reverse ? -s.ph : s.ph) + (set?.offset ?? 0);
@@ -841,20 +849,23 @@ export default function FrameLab() {
   // the group, a pair of knobs a clip (keys by the clip's name, so a clip keeps its set when others are added)
   const [clips, setClips] = useState<{ id: string; strideSec: number; loop: number; lum: number; side: boolean; walking: boolean; fill: number; faces: number }[]>([]);
   useEffect(() => {
-    loadSpriteSheet()
-      .then(({ index }) =>
-        setClips(index.sheet.rows.map((r) => ({ id: r.id, strideSec: r.strideSec, loop: (r as { loop?: number }).loop ?? 1, lum: (r as { lum?: number }).lum ?? 0, side: r.view === "side", walking: (r as { walking?: boolean }).walking ?? true, fill: (r as { fill?: number }).fill ?? 1, faces: (r as { faces?: number }).faces ?? 0 }))),
+    loadSpriteList()
+      .then((sheet) =>
+        setClips(sheet.rows.map((r) => ({ id: r.id, strideSec: r.strideSec, loop: (r as { loop?: number }).loop ?? 1, lum: (r as { lum?: number }).lum ?? 0, side: r.view === "side", walking: (r as { walking?: boolean }).walking ?? true, fill: (r as { fill?: number }).fill ?? 1, faces: (r as { faces?: number }).faces ?? 0 }))),
       )
       .catch(() => undefined);
   }, []);
   const ck = (id: string) => id.replace(/[^A-Za-z0-9]/g, "_");
+  const [names, setNames] = useState<string[]>([]);
   // ── THE PANEL, MADE EASIER (the artist, 2026-11-23: "전반적으로 지금 레바 쓰기가 너무 힘듦"): one clip, one state, one
   // colour combination shown at a time (a picker over each; every value is kept and saved as before), the folders in the
   // order they are used, the rare ones folded. Keys unchanged: the saved values stay.
   const OLD_CLIP_ROOT = `${G}.클립 — 이동거리 · 프레임 간격`;
   const clipRoot = `${G}.클립`;
   const clipSchema = useMemo(() => {
-    const opts = Object.fromEntries(clips.map((c, i) => [`${i + 1} · ${c.id}`, i + 1]));
+    // (the artist's own name for a clip when she gave one — "레바로 파일 이름도 지정하게": the file keeps its name, so
+    // its saved set stays; the name is what the pickers show)
+    const opts = Object.fromEntries(clips.map((c, i) => [`${i + 1} · ${names[i] || c.id}`, i + 1]));
     const s: Record<string, unknown> = {
       clipPick: { options: { "상태로 자동 (사람마다 그 상태의 클립)": 0, ...opts }, value: 0, label: "사람들이 쓰는 클립" },
       clipEdit: { options: opts, value: 1, label: "▶ 편집할 클립" },
@@ -868,6 +879,7 @@ export default function FrameLab() {
       s[name] = folder(
         {
           // (walking in profile is not used by default: front shots only; a clip whose legs do not walk starts as standing)
+          [`cn_${k}`]: { value: "", label: `이름 (파일: ${c.id})` },
           [`ct_${k}`]: { options: STATES, value: (c.side ? "none" : c.walking ? "walk" : "stand") as ClipState, label: "언제 쓰나 (미지정 = 안 씀)" },
           [`ch_${k}`]: { value: 1.72, min: 0.8, max: 2.3, step: 0.01, label: "키 (m)" },
           [`cp_${k}`]: { value: 1, min: 0.05, max: 4, step: 0.01, label: "재생 빠르기 ×" },
@@ -903,8 +915,10 @@ export default function FrameLab() {
       );
     });
     return s;
-  }, [clips]);
-  const cs = useControls(clipRoot, savable(clipRoot, clipSchema, [OLD_CLIP_ROOT]) as Parameters<typeof useControls>[1], { collapsed: false, order: 2 }, [clips.length]) as unknown as Record<string, number>;
+  }, [clips, names]);
+  const cs = useControls(clipRoot, savable(clipRoot, clipSchema, [OLD_CLIP_ROOT]) as Parameters<typeof useControls>[1], { collapsed: false, order: 2 }, [clips.length, names.join("\u0001")]) as unknown as Record<string, number>;
+  const nameKey = clips.map((cl) => String((cs as unknown as Record<string, unknown>)[`cn_${ck(cl.id)}`] ?? "").trim()).join("\u0001");
+  useEffect(() => setNames(nameKey.split("\u0001")), [nameKey]);
   const pick = Number(cs.clipPick ?? 0);
   const sets: ClipSet[] = clips.map((cl) => {
     const k = ck(cl.id);

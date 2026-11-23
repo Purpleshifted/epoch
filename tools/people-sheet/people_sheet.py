@@ -16,7 +16,8 @@ Two passes, so 4K clips fit in memory:
 
     python3 -I tools/people-sheet/people_sheet.py <clips dir> <out dir: apps/web/public/people> [max people a clip = 16]
 
-writes people.png (a row a person: 16 frames of CELL_W × CELL_H) and people.json (id, view guess, loop seconds, source).
+writes clips/<row>.png (a strip a person: 16 frames of CELL_W × CELL_H) and people.json (id, file, view guess, loop
+seconds, source); the page packs the strips it uses into one texture.
 Needs ffmpeg, numpy, opencv-python. Run it from a directory of its own (the clips are downloaded files).
 """
 
@@ -328,11 +329,19 @@ def main() -> None:
     try:
         with open(os.path.join(out, "people.json")) as fi:
             old_meta = json.load(fi)
-        old_img = cv2.imread(os.path.join(out, "people.png"), cv2.IMREAD_UNCHANGED)
-        if old_img is not None and old_meta.get("cellW") == CELL_W and old_meta.get("cellH") == CELL_H:
-            rgba = np.dstack([old_img[..., 2], old_img[..., 1], old_img[..., 0], old_img[..., 3]]).astype(np.float32) / 255.0
+        if old_meta.get("cellW") == CELL_W and old_meta.get("cellH") == CELL_H:
+            # each row from its own strip (clips/<file>.png); an older run's single people.png still read once
+            whole = None
             for i, r in enumerate(old_meta["rows"]):
-                old_rows.setdefault(r["id"].split("#")[0], []).append((r, rgba[i * CELL_H:(i + 1) * CELL_H]))
+                img = cv2.imread(os.path.join(out, "clips", r["file"]), cv2.IMREAD_UNCHANGED) if r.get("file") else None
+                if img is None:
+                    if whole is None:
+                        whole = cv2.imread(os.path.join(out, "people.png"), cv2.IMREAD_UNCHANGED)
+                    if whole is None:
+                        continue
+                    img = whole[i * CELL_H:(i + 1) * CELL_H]
+                rgba = np.dstack([img[..., 2], img[..., 1], img[..., 0], img[..., 3]]).astype(np.float32) / 255.0
+                old_rows.setdefault(r["id"].split("#")[0], []).append((r, rgba))
     except (OSError, ValueError, KeyError):
         old_rows = {}
     rows, meta = [], []
@@ -468,12 +477,23 @@ def main() -> None:
                 faces = 1 if len(dx) and float(np.median(dx)) > 0 else -1
             meta.append({"id": rid, "view": "side" if side and not m else view, "strideSec": round(sec, 3), "loop": round(score, 2), "lum": round(lum, 2), "walking": walking, "fill": round(float(fill), 3), "faces": faces, "source": name.split("-")[0].lower()})
             print(f"{rid}: {view}, loop {sec:.2f} s (periodic {score:.2f})")
-    sheet = np.concatenate(rows, 0)
-    bgra = np.dstack([sheet[..., 2], sheet[..., 1], sheet[..., 0], sheet[..., 3]])
-    cv2.imwrite(os.path.join(out, "people.png"), (bgra * 255).round().astype(np.uint8))
+    # ONE STRIP A CLIP (2026-11-23: "폴더에 넣어서 돌리면 많이 무거워지는지" → the page loads only the clips it uses and
+    # packs them into one texture that fits the device; a single sheet of every clip outgrew a phone's 4096 px limit)
+    os.makedirs(os.path.join(out, "clips"), exist_ok=True)
+    files = set()
+    for r, img in zip(meta, rows):
+        r["file"] = re.sub(r"[^A-Za-z0-9_-]", "_", r["id"]) + ".png"
+        files.add(r["file"])
+        bgra = np.dstack([img[..., 2], img[..., 1], img[..., 0], img[..., 3]])
+        cv2.imwrite(os.path.join(out, "clips", r["file"]), (bgra * 255).round().astype(np.uint8))
+    for f in glob.glob(os.path.join(out, "clips", "*.png")):
+        if os.path.basename(f) not in files:
+            os.remove(f)
+    if os.path.exists(os.path.join(out, "people.png")):
+        os.remove(os.path.join(out, "people.png"))
     with open(os.path.join(out, "people.json"), "w") as fo:
         json.dump({"cols": COLS, "cellW": CELL_W, "cellH": CELL_H, "rows": meta}, fo, indent=1)
-    print("rows", len(rows), "sheet", sheet.shape)
+    print("rows", len(rows), "strips in", os.path.join(out, "clips"))
 
 
 if __name__ == "__main__":
