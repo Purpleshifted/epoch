@@ -107,7 +107,7 @@ interface Look {
   /** THE DISTANCE HIERARCHY (the artist, 2026-11-23: "한 번 잘 위계화 해봐"): near / middle / far by the distance from the eye,
    *  blended over `band` m at r1 and r2 — each tier multiplies the afterimages, the ink, adds blur and scales the flowing
    *  colour; far off, cards may face the eye and profile clips walk across. */
-  tier: { r1: number; r2: number; band: number; farEye: boolean; farSide: boolean; trail: [number, number, number]; ink: [number, number, number]; blur: [number, number, number]; grad: [number, number, number] };
+  tier: { r1: number; r2: number; band: number; farEye: boolean; farSide: boolean; stillNear: boolean; trail: [number, number, number]; ink: [number, number, number]; blur: [number, number, number]; grad: [number, number, number] };
   /** How fast people go: 0 by the clips' sets, 1 each their own speed (base ± variety); faster than runFrom they run. */
   speedMode: number;
   speedBase: number;
@@ -647,7 +647,7 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
       const ta = smooth01((d - (Tr.r1 - Tr.band / 2)) / Math.max(0.01, Tr.band));
       const tb = smooth01((d - (Tr.r2 - Tr.band / 2)) / Math.max(0.01, Tr.band));
       const m = (k: [number, number, number]) => k[0] + (k[1] - k[0]) * ta + (k[2] - k[1]) * tb;
-      return { trail: m(Tr.trail), ink: m(Tr.ink), blur: m(Tr.blur), grad: m(Tr.grad), far: tb };
+      return { trail: m(Tr.trail), ink: m(Tr.ink), blur: m(Tr.blur), grad: m(Tr.grad), far: tb, mid: ta };
     };
     type Tier = ReturnType<typeof tierOf>;
     /** One card: a copy (or the body now) at its place, its age 0 … 1, the copy before it (for the stretch). */
@@ -662,7 +662,9 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
       A[n * 4 + 2] = ((set?.height ?? 1.72) / Math.max(0.2, set?.fill ?? 1)) * (0.97 + 0.06 * w.hash) * (1 + (T.scale - 1) * u);
       A[n * 4 + 3] = alpha * (set?.ink ?? 1) * Q.ink;
       B[n * 4] = pick.row;
-      const ph = (set?.reverse ? -s.ph : s.ph) + (set?.offset ?? 0);
+      // standing or talking past the near band: one still frame of their own (no frames run where nobody reads them)
+      const still = L.tier.stillNear && w.standing && Q.mid > 0.5;
+      const ph = still ? frac(w.hash * 5.37) : (set?.reverse ? -s.ph : s.ph) + (set?.offset ?? 0);
       const pf = ((ph % 1) + 1) % 1;
       // (ping-pong: the frames forward, then back — the artist, 2026-11-23: "a->a리버스->a 로 재생해서 루프")
       B[n * 4 + 1] = set?.pingpong ? (pf < 0.5 ? 2 * pf : 2 - 2 * pf) * (cols - 1) + 0.5 : pf * cols;
@@ -846,48 +848,63 @@ export default function FrameLab() {
       .catch(() => undefined);
   }, []);
   const ck = (id: string) => id.replace(/[^A-Za-z0-9]/g, "_");
-  const clipRoot = `${G}.클립 — 이동거리 · 프레임 간격`;
+  // ── THE PANEL, MADE EASIER (the artist, 2026-11-23: "전반적으로 지금 레바 쓰기가 너무 힘듦"): one clip, one state, one
+  // colour combination shown at a time (a picker over each; every value is kept and saved as before), the folders in the
+  // order they are used, the rare ones folded. Keys unchanged: the saved values stay.
+  const OLD_CLIP_ROOT = `${G}.클립 — 이동거리 · 프레임 간격`;
+  const clipRoot = `${G}.클립`;
   const clipSchema = useMemo(() => {
+    const opts = Object.fromEntries(clips.map((c, i) => [`${i + 1} · ${c.id}`, i + 1]));
     const s: Record<string, unknown> = {
-      clipPick: { options: { "상태로 자동 (사람마다 그 상태의 클립 하나)": 0, ...Object.fromEntries(clips.map((c, i) => [`${i + 1} · ${c.id}`, i + 1])) }, value: 0, label: "쓰는 클립 (고정하면 모두 그 클립)" },
+      clipPick: { options: { "상태로 자동 (사람마다 그 상태의 클립)": 0, ...opts }, value: 0, label: "사람들이 쓰는 클립" },
+      clipEdit: { options: opts, value: 1, label: "▶ 편집할 클립" },
     };
     clips.forEach((c, i) => {
       // (defaults: what looked natural with the man's clip — 3.9 m/s with the frames at 3 × the clip's own tempo)
       const gap = c.strideSec / 16 / 3;
-      s[`${i + 1} · ${c.id}`] = folder({
-        // (walking in profile — the pipeline sees the feet spread wide — is not used by default: front shots only; a clip
-        // whose legs do not walk starts as standing)
-        [`ct_${ck(c.id)}`]: { options: STATES, value: (c.side ? "none" : c.walking ? "walk" : "stand") as ClipState, label: "언제 쓰나 (상태 · 미지정 = 안 씀)" },
-        [`cf_${ck(c.id)}`]: { value: false, label: "좌우 뒤집기" },
-        [`ch_${ck(c.id)}`]: { value: 1.72, min: 0.8, max: 2.3, step: 0.01, label: "키 (m)" },
-        [`cw_${ck(c.id)}`]: { value: 1, min: 0.5, max: 1.8, step: 0.01, label: "폭 ×" },
-        [`ci_${ck(c.id)}`]: { value: 1, min: 0, max: 1.5, step: 0.05, label: "진하기 ×" },
-        [`cy_${ck(c.id)}`]: { value: 0, min: -0.4, max: 0.4, step: 0.005, label: "발 높이 보정 (m)" },
-        // (a bright body — a white matte — is invisible on white paper: dark by default)
-        [`cc_${ck(c.id)}`]: { value: "#141414", label: "몸 색 칠하기 — 색" },
-        [`ca_${ck(c.id)}`]: { value: c.lum > 0.7 ? 1 : 0, min: 0, max: 1, step: 0.05, label: "몸 색 칠하기 — 세기 (0 = 영상 그대로)" },
-        [`cp_${ck(c.id)}`]: { value: 1, min: 0.05, max: 4, step: 0.01, label: "재생 빠르기 × (서 있음·소통에도)" },
-        [`cb_${ck(c.id)}`]: { value: false, label: "왕복 재생 — a → 거꾸로 → a 루프" },
-        [`cs_${ck(c.id)}`]: { value: c.side, label: "멀리서 옆모습으로 쓰기 (거리 위계의 먼 단계)" },
-        [`cf2_${ck(c.id)}`]: { options: { "자동 (시트에서 판별)": 0, "오른쪽": 1, "왼쪽": -1 }, value: 0, label: "옆모습이 향하는 쪽" },
-        [`cr_${ck(c.id)}`]: { value: false, label: "거꾸로 재생" },
-        [`co_${ck(c.id)}`]: { value: 0, min: 0, max: 1, step: 0.01, label: "시작 위상 (0 … 1)" },
-        // (finer steps — the artist: "한 프레임당 가는 거리 더 촘촘하게")
-        // (the distance only for a moving clip: standing or talking, the frames' time and the playback speed say it all)
-        [`cd_${ck(c.id)}`]: {
-          value: +(3.9 * gap).toFixed(3),
-          min: 0.001,
-          max: 0.4,
-          step: 0.001,
-          label: "이동: 영상 한 장 동안 가는 거리 (m)",
-          render: (get: (path: string) => unknown) => ["walk", "brisk", "run"].includes(String(get(`${clipRoot}.${i + 1} · ${c.id}.ct_${ck(c.id)}`))),
+      const k = ck(c.id);
+      const name = `${i + 1} · ${c.id}`;
+      const shown = (get: (path: string) => unknown) => Number(get(`${clipRoot}.clipEdit`)) === i + 1;
+      s[name] = folder(
+        {
+          // (walking in profile is not used by default: front shots only; a clip whose legs do not walk starts as standing)
+          [`ct_${k}`]: { options: STATES, value: (c.side ? "none" : c.walking ? "walk" : "stand") as ClipState, label: "언제 쓰나 (미지정 = 안 씀)" },
+          [`ch_${k}`]: { value: 1.72, min: 0.8, max: 2.3, step: 0.01, label: "키 (m)" },
+          [`cp_${k}`]: { value: 1, min: 0.05, max: 4, step: 0.01, label: "재생 빠르기 ×" },
+          [`cb_${k}`]: { value: false, label: "왕복 재생 (a → 거꾸로 → a)" },
+          // (the distance only for a moving clip: standing or talking, the frames' time and the playback speed say it all)
+          [`cd_${k}`]: {
+            value: +(3.9 * gap).toFixed(3),
+            min: 0.001,
+            max: 0.4,
+            step: 0.001,
+            label: "걸음: 영상 한 장에 가는 거리 (m)",
+            render: (get: (path: string) => unknown) => ["walk", "brisk", "run"].includes(String(get(`${clipRoot}.${name}.ct_${k}`))),
+          },
+          [`cg_${k}`]: { value: +gap.toFixed(3), min: 0.005, max: 0.5, step: 0.001, label: "영상 한 장이 머무는 시간 (s)" },
+          [`ci_${k}`]: { value: 1, min: 0, max: 1.5, step: 0.05, label: "진하기 ×" },
+          // (the silhouette painted one colour: a white matte is invisible on white paper — dark by default for those)
+          [`ca_${k}`]: { value: c.lum > 0.7 ? 1 : 0, min: 0, max: 1, step: 0.05, label: "실루엣 색 바꾸기 — 세기 (0 = 영상 색)" },
+          [`cc_${k}`]: { value: "#141414", label: "실루엣 색 바꾸기 — 색" },
+          "세부": folder(
+            {
+              [`cw_${k}`]: { value: 1, min: 0.5, max: 1.8, step: 0.01, label: "폭 ×" },
+              [`cy_${k}`]: { value: 0, min: -0.4, max: 0.4, step: 0.005, label: "발 높이 보정 (m)" },
+              [`cf_${k}`]: { value: false, label: "좌우 뒤집기" },
+              [`cr_${k}`]: { value: false, label: "거꾸로 재생" },
+              [`co_${k}`]: { value: 0, min: 0, max: 1, step: 0.01, label: "시작 위상 (0 … 1)" },
+              [`cs_${k}`]: { value: c.side, label: "멀리서 옆모습으로 쓰기" },
+              [`cf2_${k}`]: { options: { "자동 (시트에서 판별)": 0, "오른쪽": 1, "왼쪽": -1 }, value: 0, label: "옆모습이 향하는 쪽" },
+            },
+            { collapsed: true },
+          ),
         },
-        [`cg_${ck(c.id)}`]: { value: +gap.toFixed(3), min: 0.005, max: 0.5, step: 0.001, label: "영상 한 장이 머무는 시간 (s)" },
-      });
+        { render: shown },
+      );
     });
     return s;
   }, [clips]);
-  const cs = useControls(clipRoot, savable(clipRoot, clipSchema) as Parameters<typeof useControls>[1], { collapsed: false }, [clips.length]) as unknown as Record<string, number>;
+  const cs = useControls(clipRoot, savable(clipRoot, clipSchema, [OLD_CLIP_ROOT]) as Parameters<typeof useControls>[1], { collapsed: false, order: 2 }, [clips.length]) as unknown as Record<string, number>;
   const pick = Number(cs.clipPick ?? 0);
   const sets: ClipSet[] = clips.map((cl) => {
     const k = ck(cl.id);
@@ -913,128 +930,175 @@ export default function FrameLab() {
       offset: Number(raw[`co_${k}`] ?? 0),
     };
   });
+  const TRAIL_F = "잔상 — 상태별";
+  const COLOUR_F = "안쪽 색 출렁임";
   const c = useControls(
     G,
     savable(G, {
-      "보기": folder({
-        "옆에서": button(() => {
-          viewRef.current = "side";
-        }),
-        "뒤에서": button(() => {
-          viewRef.current = "back";
-        }),
-        "앞에서": button(() => {
-          viewRef.current = "front";
-        }),
-        "위에서": button(() => {
-          viewRef.current = "top";
-        }),
-        "눈높이 (나)": button(() => {
-          viewRef.current = "eye";
-        }),
-        flFloor: { value: false, label: "바닥 격자 (위치 가늠용)" },
-      }),
-      "사람": folder({
-        flCount: { value: 3, min: 1, max: 24, step: 1, label: "사람 수" },
-        flStand: { value: 0, min: 0, max: 1, step: 0.05, label: "멈춰 있는 사람의 몫 (서 있음·소통 클립)" },
-        flSpeedMode: { options: { "클립 세트대로 (클립 맞추기)": 0, "사람마다 빠르기 지정 — 문턱 넘으면 뛰기": 1 }, value: 0, label: "빠르기 정하는 법" },
-        flSpeedBase: { value: 1.6, min: 0.2, max: 8, step: 0.05, label: "빠르기 (m/s, 지정일 때)" },
-        flSpeedVar: { value: 0.6, min: 0, max: 1, step: 0.05, label: "사람마다 빠르기 차이 (±)" },
-        flBriskFrom: { value: 1.9, min: 0.5, max: 8, step: 0.05, label: "경보 문턱 (m/s) — 넘으면 '경보' 클립" },
-        flRunFrom: { value: 2.5, min: 0.5, max: 8, step: 0.05, label: "뛰기 문턱 (m/s) — 넘으면 '뛰기' 클립" },
-        flPath: { options: PATHS, value: "across" as Path, label: "길" },
-        flSpread: { value: 1.6, min: 0, max: 6, step: 0.1, label: "사람 사이 간격 (m)" },
-        flDist: { value: 6, min: 1, max: 20, step: 0.5, label: "나와의 거리 (m)" },
-      }),
-      // (the clips' sets above say how a body WALKS; this folder only says when copies of it are left behind)
-      "잔상 남기기": folder({
-        flStamp: { value: true, label: "표본마다 슉 — 위치가 도착할 때 쓸려 가며 그 자리에 잔상 (끄면: 이어 걷고 일정 시간마다 잔상)" },
-        flSample: { value: 0.5, min: 0.1, max: 2, step: 0.05, label: "슉: 위치가 도착하는 간격 (s)" },
-        flDash: { value: 0.12, min: 0.02, max: 0.5, step: 0.01, label: "슉 — 쓸려 가는 시간 (s)" },
-        flFall: { value: 1.3, min: 0.3, max: 4, step: 0.05, label: "잔상이 옅어지는 곡선" },
-        flInk: { value: 1, min: 0.1, max: 1, step: 0.05, label: "지금 몸의 진하기" },
-      }),
-      "거리 위계 — 가까이 · 중간 · 멀리": folder({
-        flR1: { value: 6, min: 1, max: 30, step: 0.5, label: "가까이 → 중간 경계 (m)" },
-        flR2: { value: 15, min: 2, max: 60, step: 0.5, label: "중간 → 멀리 경계 (m)" },
-        flBand: { value: 3, min: 0.2, max: 10, step: 0.1, label: "경계에서 섞이는 폭 (m)" },
-        flFarEye: { value: true, label: "멀리: 판이 나를 향함" },
-        flFarSide: { value: true, label: "멀리: 가로지르면 옆모습 클립" },
-        "가까이": folder({
-          flNTrail: { value: 1, min: 0, max: 2, step: 0.05, label: "잔상 ×" },
-          flNInk: { value: 1, min: 0, max: 1.5, step: 0.05, label: "진하기 ×" },
-          flNBlur: { value: 0, min: 0, max: 0.4, step: 0.005, label: "흐림 +" },
-          flNGrad: { value: 1, min: 0, max: 1, step: 0.05, label: "색 출렁임 ×" },
-        }),
-        "중간": folder({
-          flMTrail: { value: 0.5, min: 0, max: 2, step: 0.05, label: "잔상 ×" },
-          flMInk: { value: 0.85, min: 0, max: 1.5, step: 0.05, label: "진하기 ×" },
-          flMBlur: { value: 0.04, min: 0, max: 0.4, step: 0.005, label: "흐림 +" },
-          flMGrad: { value: 0.7, min: 0, max: 1, step: 0.05, label: "색 출렁임 ×" },
-        }),
-        "멀리": folder({
-          flFTrail: { value: 0.15, min: 0, max: 2, step: 0.05, label: "잔상 ×" },
-          flFInk: { value: 0.6, min: 0, max: 1.5, step: 0.05, label: "진하기 ×" },
-          flFBlur: { value: 0.12, min: 0, max: 0.4, step: 0.005, label: "흐림 +" },
-          flFGrad: { value: 0.3, min: 0, max: 1, step: 0.05, label: "색 출렁임 ×" },
-        }),
-      }),
-      "늘어놓기": folder({
-        flFacing: { options: FACINGS, value: "across" as Facing, label: "프레임이 서는 방향" },
-        flYaw: { value: 0, min: -90, max: 90, step: 1, label: "판 기울기 — 진행 방향에서 튼 각도 (°)" },
-        // (the artist, 2026-11-23: "사이 프레임은 박자보단 개수가 낫다")
-        flBetween: { options: { "사이 프레임 — 개수로": 2, "사이 프레임 — 클립 박자대로 (영상 한 장마다 한 판)": 3, "없음": 0 }, value: 2, label: "잔상 사이 채우기" },
-        // (by the clip's beat the count follows from the time between two copies and the clip's frame time)
-        flStretch: { value: 1, min: 0, max: 1.5, step: 0.05, label: "늘어짐 — 나를 향함·진행 방향을 따라일 때만 (이전 프레임까지, 상대 각도만큼)" },
-        flKind: { options: { "번짐 — 몸 가운데가 옆으로 끌림": 0, "프레임 자체가 넓어짐": 1 }, value: 0, label: "늘어나는 방식" },
-        flSoft: { value: 0.8, min: 0.05, max: 4, step: 0.05, label: "번짐 길이 (프레임 폭)" },
-        flEdge: { value: 0.15, min: 0, max: 0.95, step: 0.01, label: "테두리 지우기 — 알파 문턱 (옅은 테두리·네모를 날림)" },
-        flEdgeW: { value: 0.15, min: 0.005, max: 0.8, step: 0.005, label: "테두리 단단함 — 작을수록 칼같이 (문턱 위 경사 폭)" },
-        flCon: { value: 1, min: 0.2, max: 4, step: 0.05, label: "색 대비 ×" },
-        flBright: { value: 0, min: -0.6, max: 0.6, step: 0.01, label: "밝기 ±" },
-        flSlit: { value: 1, min: 0.05, max: 1, step: 0.01, label: "슬릿 — 프레임의 가운데 몫만 (1 = 전체)" },
-        flMultiply: { value: true, label: "곱하기로 겹침 (끄면 보통 겹침)" },
-      }),
-      "안쪽 색 출렁임": folder({
-        flGradAmt: { value: 0.8, min: 0, max: 1, step: 0.05, label: "세기 (0 = 원래 색)" },
-        flGradPick: { options: { "사람마다 다르게": 0, "조합 1": 1, "조합 2": 2, "조합 3": 3, "조합 4": 4, "조합 5": 5 }, value: 1, label: "쓰는 색 조합" },
-        ...Object.fromEntries(
-          PALETTE_DEFAULTS.map((d, i) => [
-            `조합 ${i + 1}`,
-            folder(Object.fromEntries(d.map((hex, j) => [`flP${i + 1}${"abc"[j]}`, { value: hex, label: `색 ${j + 1}` }])), { collapsed: i > 0 }),
-          ]),
-        ),
-        flGradDir: { options: { "높이를 따라 (세로로 흐르는 띠)": 0, "공간을 따라 (걸어가며 바뀜)": 1, "잔상의 나이를 따라 (지금 → 오래된 것)": 2 }, value: 0, label: "흐르는 방향" },
-        flGradScale: { value: 1, min: 0.1, max: 6, step: 0.05, label: "물결 크기 (작을수록 넓게)" },
-        flGradSpeed: { value: 1, min: 0, max: 6, step: 0.05, label: "출렁이는 속도" },
-        flGradWarp: { value: 0.6, min: 0, max: 3, step: 0.05, label: "일렁임" },
-      }),
-      // the afterimages by state (each its own folder; standing ones blow away by default)
-      ...Object.fromEntries(
-        (Object.keys(TRAIL_DEFAULTS) as StateKey[]).map((st) => {
-          const d = TRAIL_DEFAULTS[st];
-          const k = (n: string) => `t_${st}_${n}`;
-          return [
-            `잔상 · ${STATE_NAMES[st]}`,
-            folder(
-              {
-                [k("life")]: { value: d.life, min: 0.1, max: 10, step: 0.1, label: "남는 시간 (s)" },
-                [k("ink")]: { value: d.ink, min: 0, max: 1, step: 0.05, label: "진하기" },
-                [k("copies")]: { value: d.copies, min: 0, max: 60, step: 1, label: "일정 시간마다: 잔상 수" },
-                [k("gap")]: { value: d.gap, min: 0.02, max: 1.5, step: 0.01, label: "일정 시간마다: 잔상 사이 시간 (s)" },
-                [k("betweenN")]: { value: d.betweenN, min: 0, max: 30, step: 1, label: "사이 프레임 수" },
-                [k("betweenInk")]: { value: d.betweenInk, min: 0, max: 1, step: 0.05, label: "사이 프레임 진하기 ×" },
-                [k("scale")]: { value: d.scale, min: 0.3, max: 2.5, step: 0.01, label: "나이 들며: 크기 ×" },
-                [k("rise")]: { value: d.rise, min: -2, max: 3, step: 0.01, label: "나이 들며: 떠오름 (+) · 가라앉음 (−) (m)" },
-                [k("scatter")]: { value: d.scatter, min: 0, max: 4, step: 0.01, label: "나이 들며: 흩어짐 (m)" },
-                [k("turn")]: { value: d.turn, min: -180, max: 180, step: 1, label: "나이 들며: 돌아감 (°)" },
-                [k("desat")]: { value: d.desat, min: 0, max: 1, step: 0.05, label: "나이 들며: 색이 바램" },
-                [k("blur")]: { value: d.blur, min: 0, max: 0.4, step: 0.005, label: "나이 들며: 흐려짐 (프레임 폭 비율)" },
-              },
-              { collapsed: st !== "walk" && st !== "stand" },
-            ),
-          ];
-        }),
+      "보기": folder(
+        {
+          "옆에서": button(() => {
+            viewRef.current = "side";
+          }),
+          "뒤에서": button(() => {
+            viewRef.current = "back";
+          }),
+          "앞에서": button(() => {
+            viewRef.current = "front";
+          }),
+          "위에서": button(() => {
+            viewRef.current = "top";
+          }),
+          "눈높이 (나)": button(() => {
+            viewRef.current = "eye";
+          }),
+          flFloor: { value: false, label: "바닥 격자" },
+        },
+        { order: 0 },
+      ),
+      "사람": folder(
+        {
+          flPath: { options: PATHS, value: "across" as Path, label: "길" },
+          flCount: { value: 3, min: 1, max: 24, step: 1, label: "사람 수" },
+          flStand: { value: 0, min: 0, max: 1, step: 0.05, label: "서 있는 사람의 몫" },
+          flSpeedMode: { options: { "클립 세트대로 (클립 맞추기)": 0, "사람마다 빠르기 — 문턱 넘으면 경보·뛰기": 1 }, value: 0, label: "빠르기" },
+          flSpeedBase: { value: 1.6, min: 0.2, max: 8, step: 0.05, label: "빠르기 (m/s)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 },
+          flSpeedVar: { value: 0.6, min: 0, max: 1, step: 0.05, label: "사람마다 차이 (±)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 },
+          flBriskFrom: { value: 1.9, min: 0.5, max: 8, step: 0.05, label: "경보 문턱 (m/s)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 },
+          flRunFrom: { value: 2.5, min: 0.5, max: 8, step: 0.05, label: "뛰기 문턱 (m/s)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 },
+          flSpread: { value: 1.6, min: 0, max: 6, step: 0.1, label: "사람 사이 간격 (m)" },
+          flDist: { value: 6, min: 1, max: 20, step: 0.5, label: "나와의 거리 (m)" },
+        },
+        { order: 1 },
+      ),
+      // (the clips' sets say how a body WALKS; this folder only says when copies of it are left behind)
+      "잔상 남기기": folder(
+        {
+          flStamp: { value: true, label: "표본마다 슉 (끄면 이어 걷고 일정 시간마다)" },
+          flSample: { value: 0.5, min: 0.1, max: 2, step: 0.05, label: "위치가 도착하는 간격 (s)", render: (get) => !!get(`${G}.잔상 남기기.flStamp`) },
+          flDash: { value: 0.12, min: 0.02, max: 0.5, step: 0.01, label: "쓸려 가는 시간 (s)", render: (get) => !!get(`${G}.잔상 남기기.flStamp`) },
+          flFall: { value: 1.3, min: 0.3, max: 4, step: 0.05, label: "옅어지는 곡선" },
+          flInk: { value: 1, min: 0.1, max: 1, step: 0.05, label: "지금 몸의 진하기" },
+          // (the artist, 2026-11-23: "사이 프레임은 박자보단 개수가 낫다")
+          flBetween: { options: { "개수로": 2, "클립 박자대로 (영상 한 장마다 한 판)": 3, "없음": 0 }, value: 2, label: "잔상 사이 프레임" },
+        },
+        { order: 3, collapsed: true },
+      ),
+      // the afterimages by state — one state shown at a time (standing ones blow away by default)
+      [TRAIL_F]: folder(
+        {
+          trEdit: { options: Object.fromEntries((Object.keys(TRAIL_DEFAULTS) as StateKey[]).map((st) => [STATE_NAMES[st], st])), value: "walk", label: "▶ 편집할 상태" },
+          ...Object.fromEntries(
+            (Object.keys(TRAIL_DEFAULTS) as StateKey[]).map((st) => {
+              const d = TRAIL_DEFAULTS[st];
+              const k = (n: string) => `t_${st}_${n}`;
+              return [
+                `잔상 · ${STATE_NAMES[st]}`,
+                folder(
+                  {
+                    [k("life")]: { value: d.life, min: 0.1, max: 10, step: 0.1, label: "남는 시간 (s)" },
+                    [k("ink")]: { value: d.ink, min: 0, max: 1, step: 0.05, label: "진하기" },
+                    [k("betweenN")]: { value: d.betweenN, min: 0, max: 30, step: 1, label: "사이 프레임 수" },
+                    [k("betweenInk")]: { value: d.betweenInk, min: 0, max: 1, step: 0.05, label: "사이 프레임 진하기 ×" },
+                    [k("rise")]: { value: d.rise, min: -2, max: 3, step: 0.01, label: "나이 들며: 떠오름 (m)" },
+                    [k("scatter")]: { value: d.scatter, min: 0, max: 4, step: 0.01, label: "나이 들며: 흩어짐 (m)" },
+                    [k("blur")]: { value: d.blur, min: 0, max: 0.4, step: 0.005, label: "나이 들며: 흐려짐" },
+                    [k("desat")]: { value: d.desat, min: 0, max: 1, step: 0.05, label: "나이 들며: 색이 바램" },
+                    "세부": folder(
+                      {
+                        [k("scale")]: { value: d.scale, min: 0.3, max: 2.5, step: 0.01, label: "나이 들며: 크기 ×" },
+                        [k("turn")]: { value: d.turn, min: -180, max: 180, step: 1, label: "나이 들며: 돌아감 (°)" },
+                        [k("copies")]: { value: d.copies, min: 0, max: 60, step: 1, label: "일정 시간마다: 잔상 수" },
+                        [k("gap")]: { value: d.gap, min: 0.02, max: 1.5, step: 0.01, label: "일정 시간마다: 사이 시간 (s)" },
+                      },
+                      { collapsed: true },
+                    ),
+                  },
+                  { render: (get) => get(`${G}.${TRAIL_F}.trEdit`) === st },
+                ),
+              ];
+            }),
+          ),
+        },
+        { order: 4 },
+      ),
+      "늘어놓기 · 테두리": folder(
+        {
+          flFacing: { options: FACINGS, value: "across" as Facing, label: "프레임이 서는 방향" },
+          flYaw: { value: 0, min: -90, max: 90, step: 1, label: "판 기울기 (°)" },
+          flEdge: { value: 0.15, min: 0, max: 0.95, step: 0.01, label: "테두리 지우기 — 알파 문턱" },
+          flEdgeW: { value: 0.15, min: 0.005, max: 0.8, step: 0.005, label: "테두리 단단함 (작을수록 칼같이)" },
+          flCon: { value: 1, min: 0.2, max: 4, step: 0.05, label: "색 대비 ×" },
+          flBright: { value: 0, min: -0.6, max: 0.6, step: 0.01, label: "밝기 ±" },
+          flMultiply: { value: true, label: "곱하기로 겹침" },
+          "늘어짐 · 슬릿 (나를 향하거나 진행 방향을 따라 설 때)": folder(
+            {
+              flStretch: { value: 1, min: 0, max: 1.5, step: 0.05, label: "늘어짐 (앞 잔상까지, 가로지르는 만큼)" },
+              flKind: { options: { "번짐 — 몸 가운데가 옆으로 끌림": 0, "프레임이 넓어짐": 1 }, value: 0, label: "늘어나는 방식" },
+              flSoft: { value: 0.8, min: 0.05, max: 4, step: 0.05, label: "번짐 길이 (프레임 폭)" },
+              flSlit: { value: 1, min: 0.05, max: 1, step: 0.01, label: "슬릿 — 가운데 몫만 (1 = 전체)" },
+            },
+            { collapsed: true },
+          ),
+        },
+        { order: 5, collapsed: true },
+      ),
+      [COLOUR_F]: folder(
+        {
+          flGradAmt: { value: 0.8, min: 0, max: 1, step: 0.05, label: "세기 (0 = 원래 색)" },
+          flGradPick: { options: { "사람마다 다르게": 0, "조합 1": 1, "조합 2": 2, "조합 3": 3, "조합 4": 4, "조합 5": 5 }, value: 1, label: "쓰는 색 조합" },
+          flGradDir: { options: { "높이를 따라": 0, "공간을 따라 (걸으며 바뀜)": 1, "잔상의 나이를 따라": 2 }, value: 0, label: "흐르는 방향" },
+          flGradScale: { value: 1, min: 0.1, max: 6, step: 0.05, label: "물결 크기" },
+          flGradSpeed: { value: 1, min: 0, max: 6, step: 0.05, label: "속도" },
+          flGradWarp: { value: 0.6, min: 0, max: 3, step: 0.05, label: "일렁임" },
+          palEdit: { options: { "조합 1": 1, "조합 2": 2, "조합 3": 3, "조합 4": 4, "조합 5": 5 }, value: 1, label: "▶ 편집할 조합" },
+          ...Object.fromEntries(
+            PALETTE_DEFAULTS.map((d, i) => [
+              `조합 ${i + 1}`,
+              folder(Object.fromEntries(d.map((hex, j) => [`flP${i + 1}${"abc"[j]}`, { value: hex, label: `색 ${j + 1}` }])), { render: (get) => Number(get(`${G}.${COLOUR_F}.palEdit`)) === i + 1 }),
+            ]),
+          ),
+        },
+        { order: 6, collapsed: true },
+      ),
+      "거리 위계 — 가까이 · 중간 · 멀리": folder(
+        {
+          flR1: { value: 6, min: 1, max: 30, step: 0.5, label: "가까이 → 중간 (m)" },
+          flR2: { value: 15, min: 2, max: 60, step: 0.5, label: "중간 → 멀리 (m)" },
+          flBand: { value: 3, min: 0.2, max: 10, step: 0.1, label: "섞이는 폭 (m)" },
+          flFarEye: { value: true, label: "멀리: 판이 나를 향함" },
+          flFarSide: { value: true, label: "멀리: 가로지르면 옆모습" },
+          // (the artist, 2026-11-23: "가만히 있는 건 가까이 있는 거 아니면 굳이 프레임 재생 안 해도")
+          flStillNear: { value: true, label: "서 있기·소통: 프레임 재생은 가까이에서만" },
+          "가까이": folder(
+            {
+              flNTrail: { value: 1, min: 0, max: 2, step: 0.05, label: "잔상 ×" },
+              flNInk: { value: 1, min: 0, max: 1.5, step: 0.05, label: "진하기 ×" },
+              flNBlur: { value: 0, min: 0, max: 0.4, step: 0.005, label: "흐림 +" },
+              flNGrad: { value: 1, min: 0, max: 1, step: 0.05, label: "색 출렁임 ×" },
+            },
+            { collapsed: true },
+          ),
+          "중간": folder(
+            {
+              flMTrail: { value: 0.5, min: 0, max: 2, step: 0.05, label: "잔상 ×" },
+              flMInk: { value: 0.85, min: 0, max: 1.5, step: 0.05, label: "진하기 ×" },
+              flMBlur: { value: 0.04, min: 0, max: 0.4, step: 0.005, label: "흐림 +" },
+              flMGrad: { value: 0.7, min: 0, max: 1, step: 0.05, label: "색 출렁임 ×" },
+            },
+            { collapsed: true },
+          ),
+          "멀리": folder(
+            {
+              flFTrail: { value: 0.15, min: 0, max: 2, step: 0.05, label: "잔상 ×" },
+              flFInk: { value: 0.6, min: 0, max: 1.5, step: 0.05, label: "진하기 ×" },
+              flFBlur: { value: 0.12, min: 0, max: 0.4, step: 0.005, label: "흐림 +" },
+              flFGrad: { value: 0.3, min: 0, max: 1, step: 0.05, label: "색 출렁임 ×" },
+            },
+            { collapsed: true },
+          ),
+        },
+        { order: 7, collapsed: true },
       ),
     }),
     { collapsed: false },
@@ -1052,6 +1116,7 @@ export default function FrameLab() {
       r2: Number(c.flR2),
       band: Number(c.flBand),
       farEye: !!c.flFarEye,
+      stillNear: c.flStillNear !== false,
       farSide: !!c.flFarSide,
       trail: [Number(c.flNTrail), Number(c.flMTrail), Number(c.flFTrail)],
       ink: [Number(c.flNInk), Number(c.flMInk), Number(c.flFInk)],
