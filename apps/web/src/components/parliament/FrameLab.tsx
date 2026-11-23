@@ -21,7 +21,7 @@
  * (standing, moving, moving fast, talking, or unused), and how it looks (height, width, ink, feet, colour, reversed, start).
  * Front shots only, square to the way they go — a silhouette's front and back are one (the artist, 2026-11-23).
  * Inside the silhouettes a colour may flow (a three-colour gradient that waves along the height, through space, or with
- * a copy's age).
+ * a copy's age). Old copies blur with their age; the body now stays sharp.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -81,6 +81,8 @@ interface Look {
   ageScatter: number;
   ageTurn: number;
   ageDesat: number;
+  /** The oldest copy's blur (a share of the frame's width). */
+  ageBlur: number;
   /** The colour flowing inside: how much, three colours, the size of a wave, its speed, along what (0 height · 1 space ·
    *  2 age), how much it wavers. */
   gradAmt: number;
@@ -207,6 +209,7 @@ uniform float uSlit;
 uniform float uStretchKind;
 uniform float uStreakSoft;
 uniform float uMultiply;
+uniform float uAgeBlur;   // the oldest copy's blur (a share of the frame's width)
 varying vec2 vUv;
 varying float vAlpha;
 varying float vSide;
@@ -221,13 +224,26 @@ vec4 cell(float u, float v) {
   float uu = vMirror < 0.0 ? 1.0 - u : u;
   return texture2D(uSheet, vec2((vFrame + clamp(uu, 0.001, 0.999)) / uCols, (uRows - 1.0 - vRow + clamp(v, 0.001, 0.999)) / uRows));
 }
+// an old copy blurred (the artist, 2026-11-23: "오래된 잔상에는 블러"): two rings of taps round the point, their radius the
+// copy's age × the knob (the body now stays sharp)
+vec4 cellB(float u, float v) {
+  float r = uAgeBlur * vAge;
+  if (r < 0.002) return cell(u, v);
+  vec4 acc = cell(u, v) * 0.2;
+  for (int i = 0; i < 8; i++) {
+    float a = float(i) * 0.7853982;
+    vec2 o = vec2(cos(a), sin(a) * 0.5);
+    acc += cell(u + o.x * r, v + o.y * r) * 0.06 + cell(u + o.x * r * 0.5 + o.y * r * 0.2, v + o.y * r * 0.5) * 0.04;
+  }
+  return acc;
+}
 void main() {
   float x = vUv.x;              // card widths from the card's middle
   float slitHalf = 0.5 * uSlit;
   vec4 t;
   float a;
   if (abs(x) <= slitHalf) {
-    t = cell(x + 0.5, vUv.y);
+    t = cellB(x + 0.5, vUv.y);
     a = t.a;
   } else {
     // the stretched part: beyond the frame's slit, towards the copy before
@@ -235,12 +251,12 @@ void main() {
     if (uStretchKind > 0.5) {
       // the frame itself widened: the whole stretch maps onto the slit
       float span = max(abs(x), slitHalf);
-      t = cell(0.5 + x / span * slitHalf, vUv.y);
+      t = cellB(0.5 + x / span * slitHalf, vUv.y);
       a = t.a;
     } else {
       // a streak: the body's middle (just inside the slit's trailing edge) pulled sideways, fading with the distance
       float edge = 0.5 + vSide * min(slitHalf, 0.12);
-      t = cell(edge, vUv.y);
+      t = cellB(edge, vUv.y);
       a = t.a * exp(-beyond / max(0.02, uStreakSoft));
     }
   }
@@ -377,6 +393,7 @@ function makeMaterial(): THREE.ShaderMaterial {
       uStretchKind: { value: 0 },
       uStreakSoft: { value: 0.6 },
       uMultiply: { value: 1 },
+      uAgeBlur: { value: 0 },
       ...gradUniforms(),
     },
     vertexShader: VERT,
@@ -741,6 +758,7 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
       g.uGradDir.value = L.gradDir;
       g.uGradWarp.value = L.gradWarp;
       g.uTime.value = now;
+      if (g.uAgeBlur) g.uAgeBlur.value = L.ageBlur;
     }
     const u = mat.uniforms;
     u.uFacing.value = L.facing === "eye" ? 0 : L.facing === "along" ? 1 : 2;
@@ -909,6 +927,7 @@ export default function FrameLab() {
         flAgeScatter: { value: 0, min: 0, max: 3, step: 0.01, label: "옆으로 흩어짐 (m)" },
         flAgeTurn: { value: 0, min: -180, max: 180, step: 1, label: "돌아감 (°)" },
         flAgeDesat: { value: 0, min: 0, max: 1, step: 0.05, label: "색이 바램" },
+        flAgeBlur: { value: 0.08, min: 0, max: 0.4, step: 0.005, label: "흐려짐 (가장 오래된 것 · 프레임 폭 비율)" },
       }),
     }),
     { collapsed: false },
@@ -930,6 +949,7 @@ export default function FrameLab() {
     ageScatter: Number(c.flAgeScatter),
     ageTurn: (Number(c.flAgeTurn) * Math.PI) / 180,
     ageDesat: Number(c.flAgeDesat),
+    ageBlur: Number(c.flAgeBlur),
     gradAmt: Number(c.flGradAmt),
     gradA: String(c.flGradA),
     gradB: String(c.flGradB),
