@@ -141,6 +141,8 @@ export class SessionMachine {
   getNear: () => number = () => 0;
   private readonly rng: () => number;
   private enabled = false;
+  /** THE LAB (mobileLab.ts): no title, notices, consent or name — straight into the life, and again after its end. */
+  quick = false;
   /** Lifespan seconds lived so far (advanced by the clock × rate) and the wall ms of the last tick. */
   private lived = 0;
   private lastTick = 0;
@@ -298,6 +300,10 @@ export class SessionMachine {
     if (!this.enabled) return;
     const now = Date.now();
     const v = this.view;
+    if (this.quick && v.phase === "idle") {
+      this.begin();
+      return;
+    }
     if (v.phase === "live") {
       // the lifespan clock: wall time × rate (rate > 1 only for testing the end)
       const dtWall = Math.max(0, now - this.lastTick) / 1000;
@@ -382,8 +388,9 @@ export class SessionMachine {
  * @param lang  the language the apparatus speaks (how many lines each notice page has)
  * @param getNear  how many others are near right now (for the chance of stopping living); absent = alone
  */
-export function useLifeSession(enabled: boolean, cfg: LifeConfig, lang: Lang = "ko", getNear?: () => number): LifeSession {
+export function useLifeSession(enabled: boolean, cfg: LifeConfig, lang: Lang = "ko", getNear?: () => number, quick = false): LifeSession {
   const [m] = useState(() => new SessionMachine(cfg));
+  m.quick = quick;
   useEffect(() => {
     m.configure(cfg, lang, getNear);
   }, [m, cfg, lang, getNear]);

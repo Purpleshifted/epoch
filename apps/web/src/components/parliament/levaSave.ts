@@ -94,8 +94,18 @@ export function levaPage(): string {
   return pageOverride ?? (typeof window === "undefined" ? "" : window.location.pathname);
 }
 
+/**
+ * GROUPS WITH A PAGE OF THEIR OWN (the mobile view lab, 2026-11-23 — mobileLab.ts): a group pinned here is stored under
+ * that page whatever page shows or reads it, so an asset tuned on its lab page is the same set of values in the action
+ * preview and in the personal view itself (and on the server: one key).
+ */
+const pinned = new Map<string, string>();
+export function pinLevaGroup(root: string, page: string): void {
+  pinned.set(root, page);
+}
+
 function storageKey(root: string): string {
-  return `${PREFIX}:${levaPage()}:${root}`;
+  return `${PREFIX}:${pinned.get(root.split(".")[0]) ?? levaPage()}:${root}`;
 }
 
 /** Saved values of `root`, or (none saved under it yet) those of groups it was renamed from, merged. */

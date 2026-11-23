@@ -472,7 +472,7 @@ export function RoleField({
     const sMe = sessionSeconds(worldNow(), epochMs.current, me.current.offset);
     sNow.current = sMe;
     // (the peek into the future: the present's drawing goes dark while F — the phone's button — is held)
-    if (present.current) present.current.visible = !(future?.on && ((future.mode === "peek" && futurePeek.on) || (future.mode === "encounter" && futureMeet.dark)));
+    if (present.current) present.current.visible = !(future?.on && ((future.overlayOn && future.mode === "peek" && futurePeek.on) || (future.encounterOn && futureMeet.dark)));
     if (answers && answers.current > answered.current) {
       answered.current = answers.current;
       const { x, z } = playerPosRef.current;
@@ -528,7 +528,7 @@ export function RoleField({
           cfg: { ...DEFAULT_WITNESS, nearRadius: cfg.radius, farRadius: VIEW_RADIUS },
         });
         // (the future passed where the visitor stands: FutureEncounter.tsx — the record writes it once)
-        if (future?.on && future.mode === "encounter") witnessRef.current.future = futureMeet.last;
+        if (future?.on && future.encounterOn) witnessRef.current.future = futureMeet.last;
         // the ledger of this life: only while LIVE (after the end it keeps the life's last reading); it reads the
         // WHOLE world (its totals, my slabs wherever they are), so less often than the drawing
         ledgerTimer.current += FOLD_EVERY;
@@ -629,8 +629,8 @@ export function RoleField({
   // where a path has formed). Slabs appear in the Top and Side views.
   return (
     <>
-      {future?.on && future.mode !== "encounter" && <FuturePresence log={log} meRef={me} getS={() => sNow.current} playerPosRef={playerPosRef} cfg={future} />}
-      {future?.on && future.mode === "encounter" && (
+      {future?.on && future.overlayOn && <FuturePresence log={log} meRef={me} getS={() => sNow.current} playerPosRef={playerPosRef} cfg={future} />}
+      {future?.on && future.encounterOn && (
         <FutureEncounter log={log} meRef={me} getS={() => sNow.current} getWorldSec={() => (worldNow() - epochMs.current) / 1000} getEpochMs={() => epochMs.current} getLive={() => !lifeRef || lifeRef.current.phase === "live"} playerPosRef={playerPosRef} cfg={future} sound={sound} getYaw={() => playerYawRef?.current ?? 0} />
       )}
       <group ref={present}>

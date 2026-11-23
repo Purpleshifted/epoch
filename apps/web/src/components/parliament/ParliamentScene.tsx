@@ -41,6 +41,7 @@ import { usePersonalVisuals } from "./usePersonalVisuals";
 import { FuturePeekButton, useFuturePresenceControls } from "./FuturePresence";
 import { futureHold } from "./FutureEncounter";
 import { SessionHud } from "./SessionHud";
+import type { LabPage } from "./mobileLab";
 import { useReloadOnContextLoss } from "./useReloadOnContextLoss";
 import {
   DEFAULT_LIFE,
@@ -357,7 +358,16 @@ function FollowGrid({ playerPosRef, size }: { playerPosRef: React.MutableRefObje
   return <gridHelper ref={ref} args={[size, 100, "#1a1d33", "#0d0f1c"]} />;
 }
 
-export default function ParliamentScene() {
+/** The mobile view lab's life: long enough never to end while an asset is tuned (an hour). */
+const LAB_LIFE_SEC = 3600;
+
+/**
+ * @param lab  THE MOBILE VIEW LAB (mobileLab.ts, 2026-11-23): the life begins at once (no screens before it) and lasts an
+ *   hour; an asset page shows its asset alone over the shared ground — bot (present) the people, scan (present) the
+ *   place without them, scan (future) the future's place, bot (future) its observers; "preview" runs everything as the
+ *   rehearsal does, on the lab's values.
+ */
+export default function ParliamentScene({ lab }: { lab?: LabPage } = {}) {
   const [demo] = useState(() => seedParliamentDemoIfRequested());
   const hideChrome = demo || (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("ui") === "0");
   useReloadOnContextLoss(hideChrome && !demo);
@@ -400,7 +410,7 @@ export default function ParliamentScene() {
   // V2: the ledger of this life (lib/parliament/ledger.ts) — written by RoleField, read by the HUD
   const ledgerRef = useRef<Ledger | null>(null);
 
-  const { session: sessionOn, role: roleChoice, lang: levaLang, phoneMode, helpLine, noticeLineSec, lifeSec, warnSec, endHoldSec, quickRestartSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
+  const { session: sessionOn, role: roleChoice, lang: levaLang, phoneMode, helpLine, noticeLineSec, lifeSec: levaLifeSec, warnSec, endHoldSec, quickRestartSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
     useControls({
       // save / reload row (levaSave.ts): the saved values come back as the defaults on the next load
       "역할 (Role)": folder(
@@ -447,9 +457,10 @@ export default function ParliamentScene() {
       }, { collapsed: true }),
     });
   const botFlock = useMemo(() => ({ groups: botGroups, spread: botSpread, timeSpread: botTimeSpread }), [botGroups, botSpread, botTimeSpread]);
+  const lifeSec = lab ? LAB_LIFE_SEC : levaLifeSec;
   const lifeCfg = useMemo(
-    () => ({ lifeSec, warnSec, endHoldSec, quickRestartSec, rate: lifeRate, noticeLineSec, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec }),
-    [lifeSec, warnSec, endHoldSec, quickRestartSec, lifeRate, noticeLineSec, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec],
+    () => ({ lifeSec, warnSec, endHoldSec, quickRestartSec, rate: lab ? 1 : lifeRate, noticeLineSec, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec }),
+    [lifeSec, warnSec, endHoldSec, quickRestartSec, lab, lifeRate, noticeLineSec, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec],
   );
   const withSession = isV2 && sessionOn;
   const lang: Lang = asLang(langParam, levaLang);
@@ -458,7 +469,7 @@ export default function ParliamentScene() {
   // stopping living less likely (intake.ts selfChance)
   const nearRadius = cfg.radius;
   const getNear = useCallback(() => witnessRef.current?.others.filter((o) => o.dist <= nearRadius).length ?? 0, [nearRadius]);
-  const session = useLifeSession(withSession, lifeCfg, lang, getNear);
+  const session = useLifeSession(withSession, lifeCfg, lang, getNear, !!lab);
   // a phone: a finger walks by default; its tilt walks instead in tilt mode (useTilt; nothing on the iMac)
   const { tiltRef, coarse } = useTilt(withSession, withSession ? session.lifeRef : undefined, phoneMode);
   // the role the visitor leaves traces as: in V2 always the worker (before the life — IDLE — they leave nothing, see
@@ -486,7 +497,15 @@ export default function ParliamentScene() {
   const visuals = usePersonalVisuals();
   const brutal = isV2 && visuals.look === "brutal";
   // THE FUTURE UNDER THE VISITOR'S FEET (FuturePresence.tsx, a trial of 2026-11-22; Leva 미래 (개인뷰 · 시험), ?future=)
-  const future = useFuturePresenceControls(isV2);
+  const futureKnobs = useFuturePresenceControls(isV2);
+  // the lab's asset pages: the future's place on scan (future), its observers on bot (future), nothing of it elsewhere
+  const future = useMemo(() => {
+    if (!lab || lab === "preview") return futureKnobs;
+    const overlayOn = lab === "scan-future", encounterOn = lab === "bot-future";
+    return { ...futureKnobs, on: overlayOn || encounterOn, overlayOn, encounterOn };
+  }, [futureKnobs, lab]);
+  // …and the people only where they are the asset (or everything is)
+  const labPeople = !lab || lab === "preview" || lab === "bot-present";
   const getRhythm = useCallback(() => (witnessRef.current ? rhythmOf(witnessRef.current.me) : null), []);
 
   useEffect(() => {
@@ -577,7 +596,7 @@ export default function ParliamentScene() {
         {/* 길거리 (2026-11-22, a trial): the others as walking point silhouettes, read from the record's far list */}
         {/* 먹과 종이: the finish pass over the whole frame while the paper look is on (InkPaper) */}
         {paper && <InkPaper look={street.ink} fogFar={fogF} />}
-        {isV2 && withSession && visuals.street.people && (
+        {isV2 && withSession && visuals.street.people && labPeople && (
           <PointPeople
             getOthers={() => witnessRef.current?.far ?? null}
             playerPosRef={playerPosRef}
@@ -589,7 +608,7 @@ export default function ParliamentScene() {
         )}
       </Canvas>
       {/* the peek into the future (FuturePresence.tsx mode "peek"): the phone's button, the desktop's key, while live */}
-      {isV2 && future.on && future.mode === "peek" && (!withSession || session.phase === "live") && <FuturePeekButton coarse={coarse} />}
+      {isV2 && future.on && future.overlayOn && future.mode === "peek" && (!withSession || session.phase === "live") && <FuturePeekButton coarse={coarse} />}
 
       {/* 흰 바탕: the log keeps its shape and place, its colours turned for paper while the life runs (the dark screens
           before and after stay as they are) */}

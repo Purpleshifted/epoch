@@ -18,12 +18,16 @@ import { useEffect, useMemo } from "react";
 import { folder, useControls } from "leva";
 import type { PlateOrient, PlateTheme } from "@/lib/parliament";
 import type { GrassMode } from "./NatureCloud";
-import { DEFAULT_PEOPLE, type PeopleLook, type PeopleMode } from "./PointPeople";
+import type { PeopleLook } from "./PointPeople";
 import { setStreetGround } from "./streetLook";
 import type { LogPlace } from "./StreetHud";
-import { DEFAULT_INK, type InkPaperLook } from "./InkPaper";
+import type { InkPaperLook } from "./InkPaper";
 import { savable } from "./levaSave";
 import { useParliamentVersion } from "./version";
+import { detailKnobsListed } from "./mobileLab";
+import { useBaseKnobs } from "./labKnobsBase";
+import { useBotPresentKnobs } from "./labKnobsBotPresent";
+import { useScanPresentKnobs } from "./labKnobsScanPresent";
 
 export type Look = "brutal" | "soft";
 export type GrassStyle = "field" | "dither" | "squares" | "dots";
@@ -90,17 +94,7 @@ export interface StreetVisual {
   ink: InkPaperLook;
 }
 
-const PEOPLE_MODES: Record<string, PeopleMode> = {
-  "깜빡이는 상자 속 실루엣 — 상자는 지금 네모(멜로디로 깜빡임), 안에 걷는 실루엣": "boxes",
-  "점 실루엣 — 점 480개의 몸": "points",
-};
 
-const LOG_PLACES: Record<string, LogPlace | "auto"> = {
-  "자동 — 눈높이면 랩탑은 왼쪽 패널 · 폰은 위쪽 띠, 아니면 아래": "auto",
-  "아래 (지금)": "bottom",
-  "왼쪽 세로 패널": "left",
-  "위쪽 띠": "top",
-};
 
 export interface PersonalVisuals {
   look: Look;
@@ -118,12 +112,6 @@ const LOOK_OPTIONS: Record<string, Look> = {
   "부드러움 — 11/1 이전 (안개, 빛점, 격자)": "soft",
 };
 
-const GRASS_OPTIONS: Record<string, GrassMode> = {
-  "A0 끔 (접기대로, 0.25 s)": "off",
-  "A1 바로 눌림 — 발밑·지나온 자리의 풀이 즉시 줄어듦": "press",
-  "A2 눕고 마름 — 점이 바로 눕고 색이 마른 뒤 줄어듦": "flatten",
-  "A3 내 길만 세게 — 내 흔적의 스트레스를 배율로 (남의 자리는 그대로)": "mine",
-};
 
 const GRASS_STYLES: Record<string, GrassStyle> = {
   "면 — 픽셀 없이 밀도만큼 밝은 초록": "field",
@@ -149,7 +137,11 @@ const CONCRETE_STYLES: Record<string, ConcreteStyle> = {
 export function usePersonalVisuals(): PersonalVisuals {
   const isV2 = useParliamentVersion() === "v2";
   const v2 = () => isV2;
-  const c = useControls(
+  const detail = () => isV2 && detailKnobsListed();
+  // THE PERSONAL VIEW'S OWN GROUP: what the rehearsal and the exhibition list (판, the card, the footprint map); the
+  // black look's detail folders are kept (their saves apply) but listed only behind ?knobs=all (the artist, 2026-11-23:
+  // "rehearsal 에 속하는 mobile 에서는 이런 세세한 레바까지는 안 뜨게")
+  const c0 = useControls(
     ROOT,
     savable(ROOT, {
       look: { options: LOOK_OPTIONS, value: "brutal" as Look, label: "판", render: v2 },
@@ -157,7 +149,7 @@ export function usePersonalVisuals(): PersonalVisuals {
       cardTheme: { options: CARD_THEMES, value: "paper" as PlateTheme, label: "표본 카드 바탕 (처음; 관객이 바꿀 수 있음)", render: () => false },
       cardOrient: { options: CARD_ORIENTS, value: "portrait" as PlateOrient, label: "표본 카드 방향 (처음; 관객이 바꿀 수 있음)", render: v2 },
       footprint: { value: true, label: "퇴장 화면 발자국 지도", render: v2 },
-      "브루털": folder({
+      "브루털 (검은 바탕)": folder({
         grassStyle: { options: GRASS_STYLES, value: "field" as GrassStyle, label: "풀", render: v2 },
         grassColor: { value: "#2f8f3f", label: "풀 색", render: v2 },
         ditherPx: { value: 2, min: 1, max: 8, step: 1, label: "디더: 점 크기 (px)", render: v2 },
@@ -167,24 +159,15 @@ export function usePersonalVisuals(): PersonalVisuals {
         concreteStyle: { options: CONCRETE_STYLES, value: "outline" as ConcreteStyle, label: "콘크리트", render: v2 },
         outlineScale: { value: 1, min: 0.25, max: 6, step: 0.25, label: "외곽선: 높이 × 슬래브", render: v2 },
         otherSquare: { value: 0.8, min: 0.2, max: 2, step: 0.05, label: "타인 네모 크기", render: v2 },
-      }),
+      }, { render: detail }),
       "응답의 터짐": folder({
         burstOn: { value: true, label: "켜기", render: v2 },
         burstCount: { value: 70, min: 5, max: 400, step: 5, label: "점 수", render: v2 },
         burstReach: { value: 2.6, min: 0.3, max: 10, step: 0.1, label: "퍼지는 거리 (월드)", render: v2 },
         burstLife: { value: 1.2, min: 0.2, max: 5, step: 0.1, label: "지속 (s)", render: v2 },
         burstDot: { value: 0.07, min: 0.02, max: 0.4, step: 0.01, label: "점 크기 (월드)", render: v2 },
-      }),
-      "풀 (식생)": folder({
-        grassThick: { value: 2, min: 1, max: 6, step: 0.25, label: "두께 — 세로 분포 배율 (1 = 예전)", render: v2 },
-        grassMode: { options: GRASS_OPTIONS, value: "press" as GrassMode, label: "걷는 사람에게 반응", render: v2 },
-        reactRadius: { value: 1.5, min: 0.5, max: 4, step: 0.1, label: "반응 반경 (월드)", render: v2 },
-        reactDose: { value: 0.6, min: 0, max: 3, step: 0.05, label: "반응 세기 (초당, 중심)", render: v2 },
-        nearEvery: { value: 0.1, min: 0.05, max: 0.5, step: 0.05, label: "근접 갱신 (s)", render: v2 },
-        nearRadius: { value: 3.5, min: 1.5, max: 8, step: 0.5, label: "근접 반경 (월드)", render: v2 },
-        mineGain: { value: 2, min: 1, max: 6, step: 0.5, label: "A3: 내 스트레스 배율", render: v2 },
-      }),
-      "타인 — 땅 위의 빛점 (glow)": folder({
+      }, { render: detail }),
+      "타인 — 땅 위의 빛점 (검은 바탕)": folder({
         othersOn: { value: true, label: "켜기", render: v2 },
         otherSize: { value: 0.5, min: 0.05, max: 3, step: 0.05, label: "심 크기 (월드, 거리로 줄어듦)", render: v2 },
         otherHalo: { value: 4, min: 0, max: 12, step: 0.5, label: "후광 크기 (심의 배수; 0 = 없음)", render: v2 },
@@ -196,118 +179,21 @@ export function usePersonalVisuals(): PersonalVisuals {
         otherHold: { value: 4, min: 0.5, max: 20, step: 0.5, label: "자리 옮기는 간격 (s; 타인마다 ±25 % 어긋남)", render: v2 },
         otherSnap: { value: true, label: "격자 칸 가운데에 맞춤", render: v2 },
         otherRecent: { value: 10, min: 1, max: 60, step: 1, label: "흐려지는 시간 (s, 마지막 표본 뒤)", render: v2 },
-      }),
-      "콘크리트 — 세로선": folder({
+      }, { render: detail }),
+      "콘크리트 — 세로선 (검은 바탕)": folder({
         concreteOn: { value: true, label: "켜기", render: v2 },
         concreteHeight: { value: 40, min: 1, max: 120, step: 1, label: "선 높이 (월드)", render: v2 },
         concreteBright: { value: 0.6, min: 0.1, max: 1, step: 0.05, label: "밝기", render: v2 },
         concreteRadius: { value: 36, min: 6, max: 80, step: 1, label: "보이는 반경 (월드)", render: v2 },
-      }),
-      // 길거리 (2026-11-22): a trial — everything here is off by default, so the look stays what it was. Grouped by what
-      // changes (the artist, 2026-11-22 night: "레바 좀 정리해가면서"); keys unchanged, so saved values carry over; the knobs
-      // the look under review no longer leans on sit in 시험, collapsed, their saves kept.
-      "길거리 (시험 · 11/22)": folder(
-        {
-          streetOn: { value: true, label: "켜기 (끄면 아래 모두 꺼짐)", render: v2 },
-          paperOn: { value: true, label: "흰 바탕 — 장노출 (끄면 검은 바탕의 상자)", render: v2 },
-          "눈": folder({
-            eyeOn: { value: true, label: "눈높이 카메라", render: v2 },
-            eyeHeight: { value: 1.6, min: 0.6, max: 4, step: 0.05, label: "눈높이 (m)", render: v2 },
-            eyeBack: { value: 0, min: 0, max: 8, step: 0.1, label: "뒤로 (m; 0 = 1인칭)", render: v2 },
-            eyeLook: { value: 6, min: 2, max: 20, step: 0.5, label: "시선이 닿는 거리 (m)", render: v2 },
-            walkSpeed: { value: 2.5, min: 0.5, max: 10, step: 0.5, label: "걷는 속도 (월드/s; 봇 2.2)", render: v2 },
-            ppScale: { value: DEFAULT_PEOPLE.scale, min: 0.5, max: 8, step: 0.1, label: "척도 — 1 월드 = 몇 m", render: v2 },
-          }),
-          "사람": folder({
-            streetPeople: { value: true, label: "사람을 아래 방식으로 (끄면 옛 네모)", render: v2 },
-            ppMode: { options: PEOPLE_MODES, value: DEFAULT_PEOPLE.mode, label: "그리기", render: v2 },
-            ppGait: { options: { "모캡 걷기 — CMU 실제 보행 넷 (사람마다 하나)": "mocap", "사인 걷기 — 절차적 골격": "sine" } as Record<string, "mocap" | "sine">, value: DEFAULT_PEOPLE.gait, label: "걸음", render: v2 },
-            ppColour: { value: DEFAULT_PEOPLE.colour, min: 0, max: 1, step: 0.05, label: "옷 색 (0 = 회색, 1 = 팔레트)", render: v2 },
-            ppHeight: { value: DEFAULT_PEOPLE.height, min: 1, max: 2.4, step: 0.05, label: "키 (m, 평균)", render: v2 },
-            ppVariety: { value: DEFAULT_PEOPLE.variety, min: 0, max: 1, step: 0.05, label: "다양성 — 키·체격·걸음", render: v2 },
-            paperVariety: { value: 1, min: 0, max: 1, step: 0.05, label: "다양성 — 진하기·창의 기울기", render: v2 },
-            ppMaxCadence: { value: DEFAULT_PEOPLE.maxCadence, min: 0.8, max: 4, step: 0.1, label: "걸음 박자 상한 (걸음/s)", render: v2 },
-            ppFaceEach: { value: DEFAULT_PEOPLE.faceEach, label: "서 있으면 가까운 이를 마주 봄", render: v2 },
-            ppFaceRadius: { value: DEFAULT_PEOPLE.faceRadius, min: 1, max: 8, step: 0.5, label: "마주 보는 거리 (m)", render: v2 },
-          }),
-          "지나간 자리": folder({
-            paperExposure: { value: 0.5, min: 0.05, max: 2, step: 0.05, label: "노출 — 한 프레임이 남기는 양", render: v2 },
-            inkDecay: { value: DEFAULT_INK.decay, min: 0.8, max: 0.99, step: 0.005, label: "잔상 — 프레임당 남는 비율", render: v2 },
-            inkDensity: { value: DEFAULT_INK.density, min: 0.2, max: 1, step: 0.02, label: "쌓인 것의 최대 어두움", render: v2 },
-            paperInk: { value: 1, min: 0.2, max: 1, step: 0.05, label: "몸의 진하기", render: v2 },
-            paperFlicker: { value: true, label: "표본마다 점프 (보간 없음)", render: v2 },
-            paperStretch: { value: 1, min: 0, max: 3, step: 0.1, label: "창이 이동만큼 늘어남 (배수)", render: v2 },
-            paperShake: { value: 2, min: 0, max: 8, step: 0.5, label: "표본이 올 때 떨림 (cm)", render: v2 },
-            paperTail: { value: 1.6, min: 0.2, max: 6, step: 0.1, label: "사라질 때 꼬리 (s)", render: v2 },
-            paperFrame: { value: 1, min: 0, max: 2, step: 0.1, label: "창 필름의 세기", render: v2 },
-            paperAspectMin: { value: 0.5, min: 0.2, max: 2, step: 0.05, label: "창 비율 최소 (폭/키)", render: v2 },
-            paperAspectMax: { value: 1.3, min: 0.2, max: 2.5, step: 0.05, label: "창 비율 최대", render: v2 },
-          }),
-          "사진": folder({
-            inkNarrow: { value: DEFAULT_INK.narrow, min: 0, max: 8, step: 0.1, label: "가까운 흐림 (px)", render: v2 },
-            inkWide: { value: DEFAULT_INK.wide, min: 0, max: 24, step: 0.5, label: "먼 흐림 (px)", render: v2 },
-            inkFade: { value: DEFAULT_INK.fade, min: 0, max: 1, step: 0.05, label: "멀수록 옅어짐", render: v2 },
-            inkRolloff: { value: DEFAULT_INK.rolloff, min: 0, max: 1, step: 0.05, label: "밝은 쪽이 부드럽게 날아감", render: v2 },
-            inkShake: { value: DEFAULT_INK.shake, min: 0, max: 5, step: 0.1, label: "손떨림 — 사람만 세로로 끌림 (화면 높이 %)", render: v2 },
-            inkHalo: { value: DEFAULT_INK.halo, min: 0, max: 1, step: 0.05, label: "빛 번짐 — 흰빛이 몸 가장자리로 스밈", render: v2 },
-            inkBurn: { value: DEFAULT_INK.burn, min: 1, max: 3, step: 0.05, label: "노출 과다 — 중간 톤이 밝아짐", render: v2 },
-            inkGrain: { value: DEFAULT_INK.grain, min: 0, max: 0.03, step: 0.001, label: "입자", render: v2 },
-          }),
-          "말 걸기": folder({
-            ppCue: { value: DEFAULT_PEOPLE.cue, label: "말 거는 이의 창이 커짐", render: v2 },
-            askTurn: { value: true, label: "시선이 그쪽으로 돌아감 (손대면 멈춤)", render: v2 },
-            askRipple: { value: true, label: "창에서 사각 파문", render: v2 },
-            paperBubble: { value: true, label: "옆에 멜로디 기호 버블", render: v2 },
-          }),
-          "거리": folder({
-            paperBlot: { value: 8, min: 2, max: 24, step: 0.5, label: "여기서 그리는 반경 (월드; 밖은 스캔)", render: v2 },
-            paperLabel: { value: 4, min: 0, max: 12, step: 0.5, label: "개체 라벨 거리 (월드; 0 = 없음)", render: v2 },
-            hintsOn: { value: true, label: "안 보이는 이를 말로 — 방향 말", render: v2 },
-            hintRadius: { value: 12, min: 4, max: 24, step: 0.5, label: "말이 닿는 거리 (월드)", render: v2 },
-            hintEvery: { value: 6, min: 2, max: 20, step: 1, label: "말 사이 간격 (s)", render: v2 },
-            viewOn: { value: false, label: "시야 반경 — 밖은 안 보임", render: v2 },
-            viewRadius: { value: 8, min: 2, max: 24, step: 0.5, label: "시야 반경 (월드)", render: v2 },
-          }),
-          logPlace: { options: LOG_PLACES, value: "auto" as LogPlace | "auto", label: "로그의 자리", render: v2 },
-          "땅": folder({
-            groundOn: { value: true, label: "길이 난 칸의 닳음", render: v2 },
-            groundWear: { value: 0.7, min: 0, max: 1, step: 0.05, label: "닳음 세기", render: v2 },
-            groundGrey: { value: 0.42, min: 0.05, max: 1, step: 0.02, label: "닳은 땅의 회색", render: v2 },
-            windDepth: { value: 0.5, min: 0, max: 1, step: 0.05, label: "바람 — 풀 면의 결", render: v2 },
-            windSpeed: { value: 1, min: 0.2, max: 4, step: 0.1, label: "바람 속도", render: v2 },
-            grassSway: { value: 0.5, min: 0, max: 2, step: 0.1, label: "네모 점 풀의 흔들림", render: v2 },
-            groundOnPaper: { value: false, label: "흰 바탕에서도 땅 면을 그림", render: v2 },
-          }),
-          "시험 (점 몸 · 옛 노브)": folder({
-            ppPoints: { value: DEFAULT_PEOPLE.points, min: 64, max: 800, step: 16, label: "점 몸: 점 수", render: v2 },
-            ppPointsPhone: { value: DEFAULT_PEOPLE.pointsPhone, min: 32, max: 480, step: 16, label: "점 몸: 폰 점 수", render: v2 },
-            ppDot: { value: DEFAULT_PEOPLE.dot, min: 0.01, max: 0.3, step: 0.005, label: "점 몸: 점 크기 (m)", render: v2 },
-            ppMaxPx: { value: DEFAULT_PEOPLE.maxPx, min: 2, max: 24, step: 1, label: "점 몸: 점 최대 (px)", render: v2 },
-            ppGrey: { value: DEFAULT_PEOPLE.grey, min: 0.2, max: 1, step: 0.02, label: "점 몸: 회색", render: v2 },
-            ppBreath: { value: DEFAULT_PEOPLE.breath, min: 0, max: 3, step: 0.1, label: "점 몸: 숨", render: v2 },
-            ppSmearSec: { value: DEFAULT_PEOPLE.smearSec, min: 0, max: 8, step: 0.25, label: "점 몸: 번짐 (s)", render: v2 },
-            ppSmearCopies: { value: DEFAULT_PEOPLE.smearCopies, min: 1, max: 8, step: 1, label: "점 몸: 번짐 복사본", render: v2 },
-            ppPlate: { value: DEFAULT_PEOPLE.plate, label: "점 몸: 세운 판", render: v2 },
-            ppPlateAlpha: { value: DEFAULT_PEOPLE.plateAlpha, min: 0.02, max: 0.5, step: 0.01, label: "점 몸: 판 불투명도", render: v2 },
-            ppFog: { value: DEFAULT_PEOPLE.fog, label: "점 몸: 안개를 받음", render: v2 },
-            ppMaxSpeed: { value: DEFAULT_PEOPLE.maxSpeed, min: 1, max: 6, step: 0.1, label: "보간 최고 속도 (월드/s)", render: v2 },
-            meBody: { value: DEFAULT_PEOPLE.meBody, label: "나 = 내 등 (점 몸)", render: v2 },
-            meRest: { value: DEFAULT_PEOPLE.meRest, min: 0, max: 1, step: 0.05, label: "내 몸: 쉴 때 밝기", render: v2 },
-            ppBoxAspect: { value: DEFAULT_PEOPLE.boxAspect, min: 0.3, max: 1.2, step: 0.05, label: "검은 바탕 상자: 폭", render: v2 },
-            ppBoxRest: { value: DEFAULT_PEOPLE.boxRest, min: 0.05, max: 0.6, step: 0.01, label: "검은 바탕 상자: 쉴 때 회색", render: v2 },
-            streetFog: { value: false, label: "검은 바탕: 깊이 안개", render: v2 },
-            // (hidden 11/23: the white ground's bodies are 3D now — bodySheet.ts — and no sheet is blurred; the value is kept)
-            paperBlur: { value: 3, min: 0, max: 8, step: 0.5, label: "옛: 시트 번짐 (px)", render: () => false },
-            paperFade: { value: 12, min: 3, max: 30, step: 0.5, label: "옛: 필름 옅어지는 거리", render: v2 },
-            groundSeam: { value: 0.6, min: 0, max: 1, step: 0.05, label: "옛: 턱", render: v2 },
-            groundGrain: { value: 0.5, min: 0, max: 1, step: 0.05, label: "옛: 결", render: v2 },
-          }, { collapsed: true }),
-        },
-        { collapsed: false },
-      ),
+      }, { render: detail }),
     }),
     { collapsed: false, order: 1 },
   );
+  // THE MOBILE VIEW LAB'S GROUPS (mobileLab.ts), one file each — each asset's own session tunes its own file
+  const cBase = useBaseKnobs(isV2);
+  const cBot = useBotPresentKnobs(isV2);
+  const cScan = useScanPresentKnobs(isV2);
+  const c = { ...c0, ...cBase, ...cBot, ...cScan };
   const brutal = c.look === "brutal";
   const grass = useMemo<GrassVisual>(
     () => ({

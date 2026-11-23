@@ -9,6 +9,8 @@ import { EntryGroup } from "./EntryGroup";
  * pages, so the Leva values saved while rehearsing are the ones the exhibition loads. "Global" is the 3D timespace.
  * "Personal · gallery" is the same screen on the gallery machine (?venue=gallery): the end card prints (출력하기) instead
  * of saving, and the gallery comes back to it (the artist, 2026-11-22: "베뉴 갤러리가 설정된 버튼을 홈화면에 추가해줘").
+ * LAB (the artist, 2026-11-23): what is not a run-through of the real screens leaves REHEARSAL — the wall's visual lab,
+ * the mobile view lab (the personal view's assets one page each, then an action preview) and management.
  */
 export default function HomeScreen() {
   return (
@@ -29,10 +31,17 @@ export default function HomeScreen() {
           note="with Leva"
           entries={[
             { href: "/rehearsal/global", name: "Global", sub: "the wall, for tuning" },
-            { href: "/rehearsal/lab", name: "Visual lab", sub: "the wall's world taken once · no bots · for tuning the look" },
             { href: "/rehearsal/future", name: "Future", sub: "the layer above only, live · light to draw" },
             { href: "/rehearsal/personal", name: "Personal", sub: "the visitor's screen, for tuning" },
             { href: "/rehearsal/personal?venue=gallery", name: "Personal · gallery", sub: "the gallery machine's screen (출력하기), for tuning" },
+          ]}
+        />
+        <EntryGroup
+          title="LAB"
+          note="not a run-through"
+          entries={[
+            { href: "/rehearsal/lab", name: "Visual lab", sub: "the wall's world taken once · no bots · for tuning the look" },
+            { href: "/lab/mobile", name: "Mobile view lab", sub: "scan · bot, present · future · action preview" },
             { href: "/rehearsal/management", name: "Management", sub: "sound bench · lab · other views" },
           ]}
         />
