@@ -16,7 +16,9 @@
  *   - `poseOf(...)`: a person's joints now — a CMU cycle at a phase, settling to a stand, or the asker's wave.
  *   - `BODY_GLSL`: the body as GLSL (`loadPose`, `bodyDist`, `bodyPart`, `marchBody`) for any shader that wants it.
  *   - `makeBodyGeometry` / `makeBodyMaterial({ mode })`: an instanced box a person; "exposure" writes the absorption into
- *     the feedback (PointPeople), "mask" writes the coverage alone — a silhouette for a window (future-presence).
+ *     the feedback, "mask" writes the coverage alone — a silhouette for a window (future-presence); "paper" lays the body
+ *     (and each of its traces) on the white as a coloured filter with a soft edge, "depth" writes the bodies' surfaces
+ *     into the depth (PointPeople, 2026-11-23). A row may carry a girth and its own clothes' colours (archetypes).
  *   - The clothes: `cutOf`, `paletteIndexOf`, `paletteOf`, `personCode` (by a person's hash, the same person everywhere).
  */
 
@@ -26,8 +28,23 @@ import { WALK_CYCLES, WAVE_STYLE, jointsAt, type Joints, type WalkCycle } from "
 /** The joints in the pose texture's order. */
 export const BODY_JOINTS = ["pelvis", "shoulders", "head", "hipL", "hipR", "kneeL", "kneeR", "ankleL", "ankleR", "toeL", "toeR", "shL", "shR", "elbowL", "elbowR", "wristL", "wristR"] as const satisfies readonly (keyof Joints)[];
 export const JOINT_COUNT = BODY_JOINTS.length;
-/** Texels a person: the joints, then (build, cut code, palette code, 0). */
-export const POSE_TEXELS = JOINT_COUNT + 1;
+/** Texels a person: the joints, then (build, cut code, palette code, 0), then the girth (limbs, trunk, waist, head ×;
+ *  0 = 1), then the top's colour (linear rgb, 1 = use it over the palette) and the trousers' (linear rgb, 0) — the last
+ *  three added 2026-11-23 (bot-present's archetypes); a writer that leaves them 0 gets the body as before. */
+export const POSE_TEXELS = JOINT_COUNT + 4;
+
+/** A person's girth (× the body's own radii; each 1 = as before). */
+export interface BodyGirth {
+  limbs: number;
+  girth: number;
+  belly: number;
+  head: number;
+}
+/** A person's own clothes' colours (linear rgb), over the palette. */
+export interface BodyColours {
+  top: readonly [number, number, number];
+  pants: readonly [number, number, number];
+}
 
 /** The body's box in its own metres (x across, y up, z forward): the stride, the arms' swing and a coat's flare fit. */
 export const BODY_BOX = { min: [-0.45, -0.03, -0.66] as const, max: [0.45, 1.86, 0.66] as const };
@@ -109,7 +126,7 @@ function paletteUniforms(): Record<string, { value: THREE.Vector3[] }> {
 
 /** The mean of a cycle's frames: the feet under the body, the arms hanging — how this walker stands. */
 const standCache = new WeakMap<WalkCycle, Joints>();
-function standOf(cycle: WalkCycle): Joints {
+export function standOf(cycle: WalkCycle): Joints {
   let s = standCache.get(cycle);
   if (s) return s;
   s = {} as Joints;
@@ -175,8 +192,9 @@ export class BodyPoses {
     this.texture.magFilter = this.texture.minFilter = THREE.NearestFilter;
     this.texture.needsUpdate = true;
   }
-  /** Row `row`: the joints (metres), the build (1 = average width) and the person's cut and palette codes. */
-  write(row: number, J: Joints, build: number, code: { cut: number; palette: number }): void {
+  /** Row `row`: the joints (metres), the build (1 = average width) and the person's cut and palette codes; optionally
+   *  their girth and their own clothes' colours (left out: as before). */
+  write(row: number, J: Joints, build: number, code: { cut: number; palette: number }, girth?: BodyGirth, colours?: BodyColours | null): void {
     if (row < 0 || row >= this.rows) return;
     const o = row * POSE_TEXELS * 4;
     for (let j = 0; j < JOINT_COUNT; j++) {
@@ -191,6 +209,18 @@ export class BodyPoses {
     this.data[p + 1] = code.cut;
     this.data[p + 2] = code.palette;
     this.data[p + 3] = 0;
+    const g = p + 4;
+    this.data[g] = girth?.limbs ?? 0;
+    this.data[g + 1] = girth?.girth ?? 0;
+    this.data[g + 2] = girth?.belly ?? 0;
+    this.data[g + 3] = girth?.head ?? 0;
+    const c = g + 4;
+    for (let i = 0; i < 3; i++) {
+      this.data[c + i] = colours ? colours.top[i] : 0;
+      this.data[c + 4 + i] = colours ? colours.pants[i] : 0;
+    }
+    this.data[c + 3] = colours ? 1 : 0;
+    this.data[c + 7] = 0;
   }
   commit(): void {
     this.texture.needsUpdate = true;
@@ -214,9 +244,32 @@ float bHemY;
 float bShort;
 float bLong;
 float bPalette;
+// the girth (×): limbs, trunk, waist, head; the radius of all of them that bounds the march; the person's own colours
+float bLimb = 1.0;
+float bGirth = 1.0;
+float bBelly = 1.0;
+float bHeadS = 1.0;
+float bReach = 1.0;
+float bOwnCol = 0.0;
+vec3 bTop = vec3(0.5);
+vec3 bPants = vec3(0.5);
+// the edge's softness (metres of the body): coverage falls off over this much outside the surface (0 = a sharp edge);
+// set by the caller after loadPose (bot-present's afterimages), 0 otherwise
+float bSoft = 0.0;
 void loadPose(float row) {
   int r = int(row + 0.5);
   ${BODY_JOINTS.map((_, i) => `J[${i}] = texelFetch(uPoses, ivec2(${i}, r), 0).xyz;`).join("\n  ")}
+  vec4 g = texelFetch(uPoses, ivec2(${JOINT_COUNT + 1}, r), 0);
+  bLimb = g.x > 0.0 ? g.x : 1.0;
+  bGirth = g.y > 0.0 ? g.y : 1.0;
+  bBelly = g.z > 0.0 ? g.z : 1.0;
+  bHeadS = g.w > 0.0 ? g.w : 1.0;
+  bReach = max(max(bGirth * max(bBelly, 1.0), bLimb), bHeadS);
+  vec4 ct = texelFetch(uPoses, ivec2(${JOINT_COUNT + 2}, r), 0);
+  bTop = ct.rgb;
+  bOwnCol = ct.a;
+  bPants = texelFetch(uPoses, ivec2(${JOINT_COUNT + 3}, r), 0).rgb;
+  bSoft = 0.0;
   vec4 q = texelFetch(uPoses, ivec2(${JOINT_COUNT}, r), 0);
   bBuild = q.x > 0.0 ? q.x : 1.0;
   float cut = q.y;
@@ -259,34 +312,36 @@ const vec3 HEAD_C = vec3(0.0, 0.05, 0.03);
 // the groups, unmelted (for the part), each its own function (a dispatch by index kept the compiler from inlining)
 float gTrunk(vec3 p) {
   vec3 pel = J[0], sho = J[1];
-  // the chest wider than the waist (seen from behind a back narrows before the hips)
-  float d = sdTrunk(p, pel + vec3(0.0, 0.1, 0.0), sho - vec3(0.0, 0.1, 0.0), 0.128, 0.165, 1.45);
+  // the chest wider than the waist (seen from behind a back narrows before the hips); the waist takes the belly
+  float d = sdTrunk(p, pel + vec3(0.0, 0.1, 0.0), sho - vec3(0.0, 0.1, 0.0), 0.128 * bGirth * bBelly, 0.165 * bGirth, 1.45);
   // the shoulders slope from the neck's base down to each shoulder (a flat bar across read as a coat hanger)
   vec3 nb = 0.5 * (J[11] + J[12]) + vec3(0.0, 0.03, 0.0);
-  d = smin(d, min(sdRoundCone(p, nb, J[11] - vec3(0.0, 0.02, 0.0), 0.06, 0.06), sdRoundCone(p, nb, J[12] - vec3(0.0, 0.02, 0.0), 0.06, 0.06)), 0.08);
+  float rs = 0.06 * mix(1.0, bGirth, 0.6);
+  d = smin(d, min(sdRoundCone(p, nb, J[11] - vec3(0.0, 0.02, 0.0), rs, rs), sdRoundCone(p, nb, J[12] - vec3(0.0, 0.02, 0.0), rs, rs)), 0.08);
   // the hips: a little inside the hip joints and above them, so the crotch is at ~0.8 m and the legs part below it
   vec3 hc = 0.5 * (J[3] + J[4]) + vec3(0.0, 0.045, 0.0), hh = 0.425 * (J[3] - J[4]);
-  d = smin(d, sdCapsule(p, hc + hh, hc - hh, 0.095), 0.08);
+  d = smin(d, sdCapsule(p, hc + hh, hc - hh, 0.095 * bGirth * mix(1.0, bBelly, 0.5)), 0.08);
   if (bHemY < 0.9) {
     // a jacket or a coat: from the chest to the hem, flaring a little, CUT at the hem (its round end would have filled
     // the space between the legs below it in the trousers' colour)
     vec3 hemC = vec3(pel.x, bHemY, pel.z);
-    float flare = bHemY < 0.6 ? 0.205 : 0.19;
-    float jk = max(sdTrunk(p, hemC, sho - vec3(0.0, 0.14, 0.0), flare, 0.175, 1.35), bHemY - p.y);
+    float flare = (bHemY < 0.6 ? 0.205 : 0.19) * bGirth * mix(1.0, bBelly, 0.5);
+    float jk = max(sdTrunk(p, hemC, sho - vec3(0.0, 0.14, 0.0), flare, 0.175 * bGirth, 1.35), bHemY - p.y);
     d = smin(d, jk, 0.06);
   }
   return d;
 }
-float gUpperArms(vec3 p) { return min(sdRoundCone(p, J[11], J[13], 0.058, 0.047), sdRoundCone(p, J[12], J[14], 0.058, 0.047)); }
-float gForearms(vec3 p) { return min(sdRoundCone(p, J[13], J[15], 0.046, 0.036), sdRoundCone(p, J[14], J[16], 0.046, 0.036)); }
+float gUpperArms(vec3 p) { return min(sdRoundCone(p, J[11], J[13], 0.058 * bLimb, 0.047 * bLimb), sdRoundCone(p, J[12], J[14], 0.058 * bLimb, 0.047 * bLimb)); }
+float gForearms(vec3 p) { return min(sdRoundCone(p, J[13], J[15], 0.046 * bLimb, 0.036 * bLimb), sdRoundCone(p, J[14], J[16], 0.046 * bLimb, 0.036 * bLimb)); }
 float gHands(vec3 p) {
   vec3 hl = J[15] + normalize(J[15] - J[13] + vec3(1e-4)) * 0.06;
   vec3 hr = J[16] + normalize(J[16] - J[14] + vec3(1e-4)) * 0.06;
-  return min(sdEllipsoid(p - hl, vec3(0.032, 0.05, 0.04)), sdEllipsoid(p - hr, vec3(0.032, 0.05, 0.04)));
+  vec3 hs = vec3(0.032, 0.05, 0.04) * mix(1.0, bLimb, 0.5);
+  return min(sdEllipsoid(p - hl, hs), sdEllipsoid(p - hr, hs));
 }
 float gLegs(vec3 p) {
-  float l = smin(sdRoundCone(p, J[3], J[5], 0.08, 0.056), sdRoundCone(p, J[5], J[7], 0.055, 0.04), 0.03);
-  float r = smin(sdRoundCone(p, J[4], J[6], 0.08, 0.056), sdRoundCone(p, J[6], J[8], 0.055, 0.04), 0.03);
+  float l = smin(sdRoundCone(p, J[3], J[5], 0.08 * bLimb, 0.056 * bLimb), sdRoundCone(p, J[5], J[7], 0.055 * bLimb, 0.04 * bLimb), 0.03);
+  float r = smin(sdRoundCone(p, J[4], J[6], 0.08 * bLimb, 0.056 * bLimb), sdRoundCone(p, J[6], J[8], 0.055 * bLimb, 0.04 * bLimb), 0.03);
   return min(l, r);
 }
 float gShoes(vec3 p) {
@@ -294,19 +349,19 @@ float gShoes(vec3 p) {
   return min(sdRoundCone(p, J[7] - vec3(0.0, 0.02, 0.03), tl, 0.048, 0.04), sdRoundCone(p, J[8] - vec3(0.0, 0.02, 0.03), tr, 0.048, 0.04));
 }
 // (the captured "head" joint is the skull's base, 1.55 m on a 1.7 m body: the head's centre is above and a little forward)
-float gHead(vec3 p) { return sdEllipsoid(p - (J[2] + HEAD_C), vec3(0.08, 0.108, 0.098)); }
-float gNeck(vec3 p) { return sdRoundCone(p, J[1] - vec3(0.0, 0.03, 0.0), J[2] + vec3(0.0, -0.01, 0.01), 0.058, 0.05); }
+float gHead(vec3 p) { return sdEllipsoid(p - (J[2] + HEAD_C * bHeadS), vec3(0.08, 0.108, 0.098) * bHeadS); }
+float gNeck(vec3 p) { return sdRoundCone(p, J[1] - vec3(0.0, 0.03, 0.0), J[2] + vec3(0.0, -0.01, 0.01), 0.058 * mix(1.0, bGirth, 0.5), 0.05 * mix(1.0, bLimb, 0.5)); }
 // long hair: from the crown down behind the neck to the shoulders
-float gHair(vec3 p) { return bLong < 0.5 ? 1e3 : sdRoundCone(p, J[2] + vec3(0.0, 0.06, -0.025), J[1] + vec3(0.0, 0.0, -0.065), 0.084, 0.09); }
+float gHair(vec3 p) { return bLong < 0.5 ? 1e3 : sdRoundCone(p, J[2] + vec3(0.0, 0.06, -0.025) * bHeadS, J[1] + vec3(0.0, 0.0, -0.065), 0.084 * bHeadS, 0.09 * bHeadS); }
 // a LOWER BOUND of bodyDist: capsules that enclose the trunk with the head, each arm and each leg with its foot —
 // far from all of them the march steps by this and never evaluates the body
 float bodyBound(vec3 p) {
   p.x = J[0].x + (p.x - J[0].x) / bBuild;
-  float d = sdCapsule(p, vec3(J[0].x, min(bHemY, 0.8) - 0.1, J[0].z), J[2] + vec3(0.0, 0.08, 0.02), 0.32);
-  d = min(d, sdCapsule(p, J[11], J[15], 0.13));
-  d = min(d, sdCapsule(p, J[12], J[16], 0.13));
-  d = min(d, sdCapsule(p, J[3], J[7], 0.13));
-  d = min(d, sdCapsule(p, J[4], J[8], 0.13));
+  float d = sdCapsule(p, vec3(J[0].x, min(bHemY, 0.8) - 0.1, J[0].z), J[2] + vec3(0.0, 0.08, 0.02) * bHeadS, 0.32 * bReach);
+  d = min(d, sdCapsule(p, J[11], J[15], 0.13 * bReach));
+  d = min(d, sdCapsule(p, J[12], J[16], 0.13 * bReach));
+  d = min(d, sdCapsule(p, J[3], J[7], 0.13 * bReach));
+  d = min(d, sdCapsule(p, J[4], J[8], 0.13 * bReach));
   d = min(d, sdCapsule(p, J[7], J[9], 0.09));
   d = min(d, sdCapsule(p, J[8], J[10], 0.09));
   return d * min(bBuild, 1.0);
@@ -355,8 +410,8 @@ int bodyPart(vec3 p) {
 // a ray through the person's box (metres): the coverage of the pixel (by the nearest approach, antialiased with the
 // pixel's own footprint) and the point it is nearest at
 float marchBody(vec3 ro, vec3 rd, float pixAng, out vec3 at) {
-  vec3 bmin = vec3(${BODY_BOX.min.join(", ")});
-  vec3 bmax = vec3(${BODY_BOX.max.join(", ")});
+  vec3 bmin = vec3(${BODY_BOX.min.join(", ")}) - vec3(bSoft);
+  vec3 bmax = vec3(${BODY_BOX.max.join(", ")}) + vec3(bSoft);
   vec3 inv = 1.0 / (rd + vec3(1e-6));
   vec3 t0 = (bmin - ro) * inv, t1 = (bmax - ro) * inv;
   vec3 tn = min(t0, t1), tf = max(t0, t1);
@@ -366,20 +421,25 @@ float marchBody(vec3 ro, vec3 rd, float pixAng, out vec3 at) {
   if (tF <= tN) return 0.0;
   float t = tN, minD = 1e5, tAt = tN;
   bool hit = false;
+  // a soft body (a trace) needs no finer precision than its own softness: fewer, longer steps, an earlier stop
+  int cap = bSoft > 0.0 ? 26 : 40;
   for (int i = 0; i < 40; i++) {
+    if (i >= cap) break;
     vec3 p = ro + rd * t;
     float fp = pixAng * t;
     float d = bodyBound(p);
-    if (d < 0.06) d = bodyDist(p);
+    if (d < 0.06 + bSoft) d = bodyDist(p);
     if (d < minD) { minD = d; tAt = t; }
-    if (d < fp * 0.5) { hit = true; break; }
-    t += max(d * 0.9, fp * 0.6);
+    if (d < max(fp * 0.5, bSoft * 0.3)) { hit = true; break; }
+    t += max(d * 0.9, max(fp * 0.6, bSoft * 0.25));
     if (t > tF) break;
   }
   at = ro + rd * tAt;
   if (hit) return 1.0;
   float fp = max(pixAng * tAt, 1e-4);
-  return 1.0 - smoothstep(fp * 0.5, fp * 1.5, minD);
+  // a soft edge (bSoft > 0): the coverage falls off over that much more outside the surface, gently
+  float c = 1.0 - smoothstep(fp * 0.5, fp * 1.5 + bSoft, minD);
+  return bSoft > 0.0 ? c * c * (3.0 - 2.0 * c) : c;
 }
 vec3 bodyNormal(vec3 p) {
   const vec2 e = vec2(0.006, -0.006);
@@ -391,13 +451,14 @@ vec3 bodyNormal(vec3 p) {
 
 const BODY_VERT = /* glsl */ `
 attribute vec4 iBody;   // world x, z, heading (rad; forward = (sin h, 0, cos h)), world units a metre (× this person's height)
-attribute vec4 iBody2;  // pose row, alpha, ink ×, 0
+attribute vec4 iBody2;  // pose row, alpha, ink × (paper: the colours' saturation ×), the edge's softness (paper; metres)
 varying vec3 vWorld;
 varying vec4 vB;
 varying vec4 vB2;
 void main() {
-  vec3 bmin = vec3(${BODY_BOX.min.join(", ")});
-  vec3 bmax = vec3(${BODY_BOX.max.join(", ")});
+  // the box, grown by the edge's softness (a soft edge reaches outside the body)
+  vec3 bmin = vec3(${BODY_BOX.min.join(", ")}) - vec3(iBody2.w);
+  vec3 bmax = vec3(${BODY_BOX.max.join(", ")}) + vec3(iBody2.w);
   vec3 l = bmin + (position + 0.5) * (bmax - bmin);
   float c = cos(iBody.z), s = sin(iBody.z);
   vec3 w = vec3(iBody.x, 0.0, iBody.y) + vec3(l.x * c + l.z * s, l.y, -l.x * s + l.z * c) * iBody.w;
@@ -408,7 +469,11 @@ void main() {
 }`;
 
 const BODY_FRAG = /* glsl */ `
-uniform float uMode;     // 0 the exposure (an absorption, additive) · 1 the mask (coverage)
+uniform float uMode;     // 0 the exposure (an absorption, additive) · 1 the mask (coverage) · 2 paper (a filter, multiplied) · 3 depth
+#ifdef BODY_FRAGDEPTH
+// (three declares it for the vertex stage only; the same uniform, read here for the surface's depth)
+uniform mat4 projectionMatrix;
+#endif
 uniform float uGain;
 uniform float uInk;
 uniform float uColour;   // 0 grey … 1 the palette
@@ -425,28 +490,60 @@ vec3 toLocal(vec3 w) {
   float c = cos(vB.z), s = sin(vB.z);
   return vec3(d.x * c - d.z * s, d.y, d.x * s + d.z * c);
 }
+vec3 toWorld(vec3 l) {
+  float c = cos(vB.z), s = sin(vB.z);
+  return vec3(vB.x, 0.0, vB.y) + vec3(l.x * c + l.z * s, l.y, -l.x * s + l.z * c) * vB.w;
+}
 void main() {
-  if (vB2.y < 0.01) discard;
+#ifdef BODY_FRAGDEPTH
+  gl_FragDepth = gl_FragCoord.z;
+#endif
+  if (vB2.y < 0.004) discard;
   vec3 ro = toLocal(cameraPosition);
   vec3 rd = normalize(toLocal(vWorld) - ro);
   float pixAng = max(length(dFdx(rd)), length(dFdy(rd)));
   loadPose(vB2.x);
+  if (uMode > 1.5 && uMode < 2.5) bSoft = vB2.w;
   vec3 at;
   float cover = marchBody(ro, rd, pixAng, at);
   if (cover < 0.004) discard;
-  if (uMode > 0.5) { gl_FragColor = vec4(vec3(cover * vB2.y), 1.0); return; }
-  // the clothes' colour at that point, lit softly from above (an overexposed day: the shade is slight)
-  int part = bodyPart(at);
+#ifdef BODY_FRAGDEPTH
+  // the surface's own depth (the box's back face is not where the body is): buildings in front hide it, the scene's
+  // depth rule (near sharp, far soft) reads the body where it stands
+  vec4 clip = projectionMatrix * viewMatrix * vec4(toWorld(at), 1.0);
+  gl_FragDepth = clamp(0.5 * clip.z / clip.w + 0.5, 0.0, 1.0);
+#endif
+  if (uMode > 2.5) {
+    if (cover < 0.5) discard;
+    gl_FragColor = vec4(1.0);
+    return;
+  }
+  if (uMode > 0.5 && uMode < 1.5) { gl_FragColor = vec4(vec3(cover * vB2.y), 1.0); return; }
+  // the clothes' colour at that point, lit softly from above (an overexposed day: the shade is slight); a trace (paper,
+  // its saturation written negative) takes the part by its height alone — it is soft, and the nine shapes' test is dear
+  bool trace = uMode > 1.5 && vB2.z < 0.0;
+  int part = trace ? (at.y > J[1].y + 0.06 ? 3 : (at.y > bHemY ? 0 : 1)) : bodyPart(at);
   float w = bPalette;
   int ti = int(mod(w, 16.0) + 0.5); w = floor(w / 16.0 + 0.001);
   int pi = int(mod(w, 8.0) + 0.5); w = floor(w / 8.0 + 0.001);
   int hi = int(mod(w, 4.0) + 0.5); w = floor(w / 4.0 + 0.001);
   int si = int(w + 0.5);
-  vec3 albedo = part == 0 ? uTops[ti] : (part == 1 ? uPants[pi] : (part == 2 ? uSkins[si] : uHairs[hi]));
-  albedo = mix(vec3(dot(albedo, vec3(0.299, 0.587, 0.114))), albedo, uColour);
+  vec3 top = bOwnCol > 0.5 ? bTop : uTops[ti];
+  vec3 pants = bOwnCol > 0.5 ? bPants : uPants[pi];
+  vec3 albedo = part == 0 ? top : (part == 1 ? pants : (part == 2 ? uSkins[si] : uHairs[hi]));
   float shade = 0.86 + 0.14 * clamp(at.y / 1.5, 0.0, 1.0);
   // the floor is blown out (the references): the feet and shins dissolve into it
   float floorGlow = mix(0.3, 1.0, smoothstep(0.02, 0.5, at.y));
+  if (uMode > 1.5) {
+    // PAPER: the body as a coloured filter laid on the white (multiplied — two that overlap grow darker by themselves);
+    // its strength is the instance's (the body now, or one of its traces), its colours as vivid as the trace asks
+    float l = dot(albedo, vec3(0.299, 0.587, 0.114));
+    albedo = clamp(mix(vec3(l), albedo, uColour * abs(vB2.z)), 0.0, 1.0);
+    float a = clamp(cover * floorGlow * vB2.y, 0.0, 1.0);
+    gl_FragColor = vec4(mix(vec3(1.0), albedo * shade, a), 1.0);
+    return;
+  }
+  albedo = mix(vec3(dot(albedo, vec3(0.299, 0.587, 0.114))), albedo, uColour);
   vec3 absorb = (1.0 - albedo * shade) * cover * floorGlow * uInk * vB2.z * vB2.y * uGain;
   gl_FragColor = vec4(absorb, 1.0);
 }`;
@@ -468,16 +565,36 @@ export function makeBodyGeometry(max: number): THREE.InstancedBufferGeometry {
  * The people's material. "exposure": an absorption per channel, ADDED into the long exposure's feedback (no depth test —
  * overlaps darken by themselves); "mask": the coverage alone, for a silhouette render target. `uPoses` is the BodyPoses
  * texture; `uGain` the frame's weight in the exposure (longExposure.exposureRate) × the knob.
+ *
+ * "paper" (bot-present, 2026-11-23 — the artist: the long exposure is the look, not a browser exposure): the body drawn
+ * straight into the scene on the white, as a coloured FILTER multiplied over what is there (iBody2 = row, its strength,
+ * the colours' saturation ×, the edge's softness in metres) — the body now and each of its traces is an instance, the
+ * traces softer and fainter; overlaps darken by themselves; depth-tested at the body's real surface, so buildings hide
+ * it. "depth": the same bodies' surfaces into the depth buffer only (after the colour), so the scene's depth rule reads
+ * them where they stand.
  */
-export function makeBodyMaterial(poses: BodyPoses, mode: "exposure" | "mask" = "exposure"): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
-    uniforms: { uPoses: { value: poses.texture }, uMode: { value: mode === "mask" ? 1 : 0 }, uGain: { value: 0.06 }, uInk: { value: 1 }, uColour: { value: 1 }, ...paletteUniforms() },
+export function makeBodyMaterial(poses: BodyPoses, mode: "exposure" | "mask" | "paper" | "depth" = "exposure"): THREE.ShaderMaterial {
+  const modes = { exposure: 0, mask: 1, paper: 2, depth: 3 } as const;
+  const surface = mode === "paper" || mode === "depth";
+  const m = new THREE.ShaderMaterial({
+    uniforms: { uPoses: { value: poses.texture }, uMode: { value: modes[mode] }, uGain: { value: 0.06 }, uInk: { value: 1 }, uColour: { value: 1 }, ...paletteUniforms() },
+    defines: surface ? { BODY_FRAGDEPTH: 1 } : {},
     vertexShader: BODY_VERT,
     fragmentShader: BODY_FRAG,
     side: THREE.BackSide,
-    depthTest: false,
-    depthWrite: false,
+    depthTest: surface,
+    depthWrite: mode === "depth",
+    colorWrite: mode !== "depth",
     transparent: true,
-    blending: THREE.AdditiveBlending,
+    blending: mode === "paper" ? THREE.CustomBlending : mode === "depth" ? THREE.NoBlending : THREE.AdditiveBlending,
   });
+  if (mode === "paper") {
+    // the destination × the source (a filter on the white): no premultiplied alpha needed, the alpha left as it was
+    m.blendEquation = THREE.AddEquation;
+    m.blendSrc = THREE.DstColorFactor;
+    m.blendDst = THREE.ZeroFactor;
+    m.blendSrcAlpha = THREE.ZeroFactor;
+    m.blendDstAlpha = THREE.OneFactor;
+  }
+  return m;
 }

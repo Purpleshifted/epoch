@@ -12,6 +12,11 @@
  * fading. One draw call for all bodies and copies (instanced points); an optional faint standing PLATE behind each
  * body (criswvr) is a second, instanced mesh. Greys only — human traces are achromatic.
  *
+ * On the white ground (2026-11-23, the artist: no flicker; "걸어가는 모습을 잔흔으로 남겨서 … 동세의 시공간 덩어리"): each other is
+ * the shared 3D body (bodySheet.ts) as their ARCHETYPE (bodyArchetypes.ts) walking continuously at the record's pace, and
+ * leaving AFTERIMAGES of itself where it was — fading, softening, a little more vivid in colour — drawn straight into the
+ * scene as filters on the white (no browser exposure).
+ *
  * Nothing here decides who is there or where they stand (RoleField's seat and fold); this only draws.
  */
 
@@ -21,11 +26,11 @@ import { Html } from "@react-three/drei";
 import * as THREE from "three";
 import { DEFAULT_WITNESS, glyphOf, nearestImage, rhythmOf, stepAt, type Other } from "@/lib/parliament";
 import { Glyph } from "./Glyph";
-import { DEFAULT_BODY, DEFAULT_MOTION, WALK_CYCLES, WALK_STYLES, WAVE_STYLE, bakeWalk, jointsAt, jointsOfCycle, stepPerson, strideLength, type MotionConfig, type PersonMotion } from "@/lib/parliament/pointPeople";
-import { BodyPoses, cycleOf, makeBodyGeometry, makeBodyMaterial, personCode, poseOf } from "./bodySheet";
-import { exposureRate } from "./longExposure";
+import { DEFAULT_BODY, DEFAULT_MOTION, WALK_CYCLES, WALK_STYLES, WAVE_STYLE, bakeWalk, jointsAt, jointsOfCycle, standingPhase, stepPerson, strideLength, type Joints, type MotionConfig, type PersonMotion } from "@/lib/parliament/pointPeople";
+import { BodyPoses, cutOf, cycleOf, makeBodyGeometry, makeBodyMaterial, paletteIndexOf, poseOf, standOf, type BodyColours, type BodyGirth } from "./bodySheet";
+import { DEFAULT_ARCHETYPES, archetypeIndexOf, bodyTuning, hexToLinear, shapePose, strideScaleOf, type Archetype } from "./bodyArchetypes";
+import { mobileLab } from "./mobileLab";
 import { streetGaze } from "./streetLook";
-import { EXPOSURE_LAYER } from "./InkPaper";
 import { onLifeEvent } from "./lifeEvents";
 
 export type PeopleMode = "boxes" | "points";
@@ -131,9 +136,51 @@ const FACE_TURN = 1.5;
 const MAX_PEOPLE = 96;
 const MAX_COPIES = 8;
 const MAX_INSTANCES = MAX_PEOPLE * (1 + MAX_COPIES);
+/** 흰 바탕: the bodies drawn a frame — each person now (first), then their traces (bodyArchetypes TrailLook). */
+const MAX_BODIES = 1024;
 /** A being gone from the list for this long (s) fades out and is dropped. */
 const GONE_SEC = 2.5;
 const FADE_SEC = 0.8;
+/** How often a body's way is written down for its traces (s). */
+const HIST_EVERY = 1 / 30;
+
+/** One moment of a body's way (for its traces): when, where, facing, the stride's phase, how much it stood, cued. */
+interface Hist {
+  t: number;
+  x: number;
+  z: number;
+  h: number;
+  ph: number;
+  st: number;
+  cue: number;
+}
+
+/** The body's way at time `t` (between two written moments), or null before the first. */
+function histAt(H: readonly Hist[], t: number): Hist | null {
+  if (!H.length || t < H[0].t) return null;
+  let lo = 0, hi = H.length - 1;
+  if (t >= H[hi].t) return H[hi];
+  while (hi - lo > 1) {
+    const m = (lo + hi) >> 1;
+    if (H[m].t <= t) lo = m;
+    else hi = m;
+  }
+  const a = H[lo], b = H[hi], u = (t - a.t) / Math.max(1e-6, b.t - a.t);
+  let dp = b.ph - a.ph;
+  if (dp < -0.5) dp += 1;
+  else if (dp > 0.5) dp -= 1;
+  let dh = b.h - a.h;
+  dh = ((((dh + Math.PI) % TAU) + TAU) % TAU) - Math.PI;
+  return { t, x: a.x + (b.x - a.x) * u, z: a.z + (b.z - a.z) * u, h: a.h + dh * u, ph: (((a.ph + dp * u) % 1) + 1) % 1, st: a.st + (b.st - a.st) * u, cue: u < 0.5 ? a.cue : b.cue };
+}
+
+const smooth01 = (x: number) => {
+  const c = Math.min(1, Math.max(0, x));
+  return c * c * (3 - 2 * c);
+};
+
+/** The wave's phase at time t (the asker's hand, on its own time — the same for the body now and its traces). */
+const wavePhase = (t: number, hash: number) => (((t * 0.9 + hash) % 1) + 1) % 1;
 
 interface Person extends PersonMotion {
   seen: number;
@@ -158,6 +205,13 @@ interface Person extends PersonMotion {
    *  the captured cycle's length. */
   body: PersonMotion;
   bodyMotion: MotionConfig;
+  /** 흰 바탕 (2026-11-23, no flicker): the body's way written down for its traces; the record's pace between its samples
+   *  (world/s) and when the record last moved them — the body walks at that pace between samples. */
+  hist: Hist[];
+  lastHistAt: number;
+  rvx: number;
+  rvz: number;
+  changeAt: number;
 }
 
 /** A test scene (`?crowd=N` on the address, a dev aid for the side-by-side with the references): N people walking away
@@ -299,20 +353,19 @@ varying float vInkK;
 void main() {
   if (vAlpha < 0.01) discard;
   if (uPaper > 0.5) {
-    // THE EXPOSURE (the long exposure, not ink): this writes a DENSITY, additively, into the feedback buffer — the body as
-    // a sharp silhouette (time softens it, not a brush), the plate as an acetate film whose edges melt and which breathes
-    // with the melody, deeper for the asker; a ripple (cue 2) is a film alone. Standing accumulates, walking smears.
+    // A FILTER ON THE WHITE (2026-11-23: no browser exposure, no blink): the plate as an acetate film whose edges melt,
+    // multiplied over the scene, deeper for the asker; a ripple (cue 2) is a film alone.
     float body = (vCue > 1.5 || uBody3D > 0.5) ? 0.0 : mix(texture2D(uSheet, vUv).a, texture2D(uSheetSoft, vUv).a, vSoft * 0.5) * uInk * vInkK;
     float bx = min(vLocal.x, 1.0 - vLocal.x), by = min(vLocal.y, 1.0 - vLocal.y);
     // (the film is faint and its edges wide: the window is a frame of record, and on the white ground it must not read as a
     // drawn rectangle)
     float edge = smoothstep(0.0, 0.2, bx) * smoothstep(0.0, 0.14, by);
     // (with the 3D body the window's film is a third as dense: forty of them stood as one grey band behind a crowd)
-    float film = edge * (0.02 + 0.015 * vLit + 0.05 * step(0.5, vCue)) * uFrame * (uBody3D > 0.5 ? 0.35 : 1.0);
-    if (vCue > 1.5) film = edge * 0.05;
-    float dens = max(body, film) * vAlpha * uGain;
+    float film = edge * (0.035 + 0.06 * step(0.5, vCue)) * uFrame * (uBody3D > 0.5 ? 0.6 : 1.0);
+    if (vCue > 1.5) film = edge * 0.1;
+    float dens = clamp(max(body, film) * vAlpha, 0.0, 1.0);
     if (dens < 0.002) discard;
-    gl_FragColor = vec4(vec3(dens), 1.0);
+    gl_FragColor = vec4(mix(vec3(1.0), vec3(0.08), dens), 1.0);
     return;
   }
   // the box blinks the being's melody as the square did (white on a beat, dark grey at rest); the silhouette inside is
@@ -497,11 +550,16 @@ export function PointPeople({
         fragmentShader: BOX_FRAG,
         transparent: true,
         depthWrite: false,
-        depthTest: !look.paper,
+        depthTest: true,
         side: THREE.DoubleSide,
         fog: fogOn && !look.paper,
-        // on paper the people are a density added into the exposure (InkPaper's feedback); overlap darkens by itself
-        blending: look.paper ? THREE.AdditiveBlending : THREE.NormalBlending,
+        // on paper the window is a faint film MULTIPLIED on the white (no browser exposure any more — 2026-11-23)
+        blending: look.paper ? THREE.CustomBlending : THREE.NormalBlending,
+        blendEquation: THREE.AddEquation,
+        blendSrc: THREE.DstColorFactor,
+        blendDst: THREE.ZeroFactor,
+        blendSrcAlpha: THREE.ZeroFactor,
+        blendDstAlpha: THREE.OneFactor,
       }),
     [fogOn, look.paper],
   );
@@ -567,17 +625,31 @@ export function PointPeople({
 
   const people = useRef(new Map<string, Person>());
   const lastList = useRef<readonly Other[] | null>(null);
-  // 흰 바탕: the 3D bodies (bodySheet.ts) — one box a person, ray-marched, exposed into the feedback
-  const poses = useMemo(() => new BodyPoses(MAX_PEOPLE), []);
-  const bodyGeom = useMemo(() => makeBodyGeometry(MAX_PEOPLE), []);
-  const bodyMat = useMemo(() => makeBodyMaterial(poses, "exposure"), [poses]);
+  // 흰 바탕: the 3D bodies (bodySheet.ts) — each person now and their traces, ray-marched, drawn as filters on the white
+  // (bodySheet "paper"); the bodies now once more into the depth only (the scene's near-sharp/far-soft rule reads them)
+  const poses = useMemo(() => new BodyPoses(MAX_BODIES), []);
+  const bodyGeom = useMemo(() => makeBodyGeometry(MAX_BODIES), []);
+  const depthGeom = useMemo(() => {
+    const g = new THREE.InstancedBufferGeometry();
+    g.setIndex(bodyGeom.index);
+    g.setAttribute("position", bodyGeom.getAttribute("position"));
+    g.setAttribute("iBody", bodyGeom.getAttribute("iBody"));
+    g.setAttribute("iBody2", bodyGeom.getAttribute("iBody2"));
+    g.instanceCount = 0;
+    g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
+    return g;
+  }, [bodyGeom]);
+  const bodyMat = useMemo(() => makeBodyMaterial(poses, "paper"), [poses]);
+  const depthMat = useMemo(() => makeBodyMaterial(poses, "depth"), [poses]);
   useEffect(
     () => () => {
       poses.dispose();
       bodyGeom.dispose();
+      depthGeom.dispose();
       bodyMat.dispose();
+      depthMat.dispose();
     },
-    [poses, bodyGeom, bodyMat],
+    [poses, bodyGeom, depthGeom, bodyMat, depthMat],
   );
   const bodyMesh = useRef<THREE.Mesh>(null);
   // the crowd test scene
@@ -603,6 +675,11 @@ export function PointPeople({
     const now = state.clock.elapsedTime;
     const me = playerPosRef.current;
     const P = people.current;
+    // the live knobs (bodyArchetypes.bodyTuning): the archetypes, the traces, the lab's view of one archetype
+    const T = bodyTuning.trail;
+    const archs = bodyTuning.archetypes.length ? bodyTuning.archetypes : DEFAULT_ARCHETYPES;
+    const view = mobileLab() === "bot-present" ? bodyTuning.view : "all";
+    const archOf = (hash: number) => Math.max(0, archetypeIndexOf(hash, archs, view));
     // the record's latest places (a new list after every fold)
     let list = getOthers();
     // the crowd test scene (?crowd=N): walkers round the visitor, sampled as the record would be, before the record's own
@@ -616,8 +693,10 @@ export function PointPeople({
       const rnd = crowdRnd.current ?? Math.random;
       for (let i = 0; i < C.walkers.length; i++) {
         const w = C.walkers[i];
-        w.x += w.vx * dt;
-        w.z += w.vz * dt;
+        // (each walks at their archetype's pace)
+        const pace = archs[archOf(idHash(`crowd-${i}`))]?.pace ?? 1;
+        w.x += w.vx * pace * dt;
+        w.z += w.vz * pace * dt;
         if (Math.hypot(w.x - me.x, w.z - me.z) > 18 * k) C.walkers[i] = spawnWalker(rnd, me, k, false);
       }
       if (now - C.at >= SAMPLE_SEC || list !== C.real) {
@@ -639,7 +718,7 @@ export function PointPeople({
         if (!p) {
           if (P.size >= MAX_PEOPLE) continue;
           const h = idHash(o.o);
-          P.set(o.o, { x: tx, z: tz, vx: 0, vz: 0, heading: h * Math.PI * 2, phase: h, tx, tz, seen: now, bright, alpha: 0, trail: [], lastTrailAt: now, hash: h, hs: heightFactor(h, look.variety), ws: buildFactor(h, look.variety), motion: motionOf(h), flip: 0, sdx: 0, sdz: 0, sampleAt: now, shakeUntil: 0, body: { x: tx, z: tz, vx: 0, vz: 0, heading: h * Math.PI * 2, phase: h, tx, tz }, bodyMotion: bodyMotionOf(h) });
+          P.set(o.o, { x: tx, z: tz, vx: 0, vz: 0, heading: h * Math.PI * 2, phase: h, tx, tz, seen: now, bright, alpha: 0, trail: [], lastTrailAt: now, hash: h, hs: heightFactor(h, look.variety), ws: buildFactor(h, look.variety), motion: motionOf(h), flip: 0, sdx: 0, sdz: 0, sampleAt: now, shakeUntil: 0, body: { x: tx, z: tz, vx: 0, vz: 0, heading: h * Math.PI * 2, phase: h, tx, tz }, bodyMotion: bodyMotionOf(h), hist: [], lastHistAt: -1, rvx: 0, rvz: 0, changeAt: now });
         } else {
           // the record's place is drawn where it lies round the walker (the world wraps): a far jump is the wrap, not a walk
           const dx = tx - p.tx, dz = tz - p.tz;
@@ -649,16 +728,14 @@ export function PointPeople({
               p.sdx = dx;
               p.sdz = dz;
               p.sampleAt = now;
-              p.shakeUntil = now + SHAKE_SEC;
-              // the flicker: the body is simply there, a stride step on, facing its move — no easing between samples
-              if (look.paper && look.flicker) {
-                p.x = tx;
-                p.z = tz;
-                p.vx = dx / SAMPLE_SEC;
-                p.vz = dz / SAMPLE_SEC;
-                p.phase = (p.phase + Math.min(0.5, d / p.motion.stride)) % 1;
-                p.heading = Math.atan2(dx, dz);
-              }
+              if (look.paper) {
+                // 흰 바탕: no jump, no shake (the artist, 2026-11-23: "플리커링 있어 보이는 거 끔찍") — the record's pace
+                // between its samples is what the body walks at until the next
+                const since = Math.min(1.5, Math.max(0.25, now - p.changeAt));
+                p.rvx += (dx / since - p.rvx) * 0.6;
+                p.rvz += (dz / since - p.rvz) * 0.6;
+                p.changeAt = now;
+              } else p.shakeUntil = now + SHAKE_SEC;
             }
           }
           p.tx = tx;
@@ -687,6 +764,90 @@ export function PointPeople({
     const iBodyA = bodyGeom.getAttribute("iBody") as THREE.InstancedBufferAttribute;
     const iBodyB = bodyGeom.getAttribute("iBody2") as THREE.InstancedBufferAttribute;
     const BB = iBodyA.array as Float32Array, BB2 = iBodyB.array as Float32Array;
+    // each archetype's girth, own colours, and its gait-free copy (the wave, the sine walk: proportions only)
+    const archGirth: BodyGirth[] = archs.map((a) => ({ limbs: a.limbs, girth: a.girth, belly: a.belly, head: a.head }));
+    const archCol: (BodyColours | null)[] = archs.map((a) => (a.fixedColour ? { top: hexToLinear(a.top), pants: hexToLinear(a.pants) } : null));
+    const archPlain: Archetype[] = archs.map((a) => ({ ...a, stride: 1, swing: 1, bounce: 1, sway: 1, lift: 1, armStyle: "swing" }));
+    /** World units a body metre is for this person (their variety × the knob's height × the archetype's). */
+    const scaleOf = (p: Person, a: Archetype) => (k * p.hs * look.height * a.height) / (1.7 * 1.7);
+    const cycleFor = (p: Person, a: Archetype) => (a.gait >= 0 && a.gait < WALK_CYCLES.length ? WALK_CYCLES[Math.round(a.gait)] : cycleOf(p.hash));
+    /** How far a stride carries this person (world): the captured stride × their scale × the archetype's reach. */
+    const strideOf = (p: Person, a: Archetype) => ((look.gait === "mocap" ? cycleFor(p, a)?.strideM : undefined) ?? 1.4) * scaleOf(p, a) * strideScaleOf(a);
+    /** The person's joints at a stride phase, standing share and cue (the wave on its own time t), as their archetype. */
+    const poseFor = (p: Person, ai: number, ph: number, st: number, cue: number, t: number): Joints => {
+      if (cue) {
+        const W = poseOf(undefined, wavePhase(t, p.hash), 0, true);
+        return shapePose(W, W, archPlain[ai], 0);
+      }
+      const cyc = look.gait === "mocap" ? cycleFor(p, archs[ai]) : undefined;
+      if (!cyc) {
+        const J = jointsAt(ph, WALK_STYLES[Math.floor(frac(p.hash * 29.7) * WALK_STYLES.length)]);
+        return shapePose(J, J, archPlain[ai], 1 - st);
+      }
+      return shapePose(poseOf(cyc, ph, st), standOf(cyc), archs[ai], 1 - st);
+    };
+    /** One body instance (the person now, or a trace): its pose row, place, facing, strength, colours' saturation, softness. */
+    const putBody = (row: number, J: Joints, p: Person, ai: number, x: number, z: number, h: number, alpha: number, sat: number, soft: number) => {
+      const a = archs[ai];
+      const c = cutOf(p.hash);
+      const hem = a.hem === "any" ? c.hem : a.hem === "waist" ? 0 : a.hem === "hip" ? 1 : 2;
+      const long = a.hair === "any" ? c.longHair : a.hair === "long" ? 1 : 0;
+      poses.write(row, J, p.ws, { cut: hem + 3 * c.shortSleeve + 6 * long, palette: paletteIndexOf(p.hash).code }, archGirth[ai], archCol[ai]);
+      BB[row * 4] = x;
+      BB[row * 4 + 1] = z;
+      BB[row * 4 + 2] = h;
+      BB[row * 4 + 3] = scaleOf(p, a);
+      BB2[row * 4] = row;
+      BB2[row * 4 + 1] = alpha;
+      BB2[row * 4 + 2] = sat;
+      BB2[row * 4 + 3] = soft;
+    };
+    /** 흰 바탕: the body walks on at the record's pace, gently pulled towards where the record will have it (dead
+     *  reckoning): continuous, no surge every half second. A far jump (a wrap, a new life) is a cut: it is there. */
+    const reckon = (p: Person, a: Archetype) => {
+      const b = p.body, m = p.bodyMotion;
+      if (now - p.changeAt > 1) {
+        const kd = Math.exp(-dt / 0.25);
+        p.rvx *= kd;
+        p.rvz *= kd;
+      }
+      const ahead = Math.min(0.8, now - p.changeAt);
+      const gx = p.tx + p.rvx * ahead, gz = p.tz + p.rvz * ahead;
+      const ex = gx - b.x, ez = gz - b.z;
+      if (Math.hypot(ex, ez) > m.snapDist) {
+        b.x = gx;
+        b.z = gz;
+        b.vx = p.rvx;
+        b.vz = p.rvz;
+        p.hist.length = 0;
+        return;
+      }
+      let wx = p.rvx + ex * 1.6, wz = p.rvz + ez * 1.6;
+      const top = m.maxSpeed * a.pace * 1.3, wl = Math.hypot(wx, wz);
+      if (wl > top) {
+        wx *= top / wl;
+        wz *= top / wl;
+      }
+      const kk = 1 - Math.exp(-3.5 * dt);
+      b.vx += (wx - b.vx) * kk;
+      b.vz += (wz - b.vz) * kk;
+      b.x += b.vx * dt;
+      b.z += b.vz * dt;
+      const speed = Math.hypot(b.vx, b.vz);
+      if (speed > m.standBelow) {
+        let diff = Math.atan2(b.vx, b.vz) - b.heading;
+        diff = ((((diff + Math.PI) % TAU) + TAU) % TAU) - Math.PI;
+        const mt = m.turnRate * dt;
+        b.heading += Math.max(-mt, Math.min(mt, diff));
+        b.phase = (b.phase + Math.min(m.maxCadence, speed / Math.max(1e-3, strideOf(p, a))) * dt) % 1;
+      } else {
+        const target = standingPhase(b.phase);
+        b.phase += (target - b.phase) * Math.min(1, 6 * dt);
+        if (b.phase >= 1) b.phase -= 1;
+      }
+    };
+    /** The people whose traces are drawn after every body now (so the depth pass takes the bodies now alone). */
+    const jobs: { p: Person; ai: number; A: number }[] = [];
     const plates = plateMesh.current;
     let np = 0;
     const smearEvery = copies > 0 ? look.smearSec / copies : Infinity;
@@ -705,17 +866,24 @@ export function PointPeople({
         p.z = p.tz;
         p.trail.length = 0;
       }
-      const flick = paper && look.flicker;
-      if (flick) {
-        // flicker: no easing; the sample's velocity dies away before the next sample (the window shrinks back)
-        const decay = Math.exp(-dt / (SAMPLE_SEC * 0.5));
-        p.vx *= decay;
-        p.vz *= decay;
-      } else stepPerson(p, dt, p.motion);
-      // the 3D body walks on towards the latest sample (the window flickers with the samples; the body eases)
-      p.body.tx = p.tx;
-      p.body.tz = p.tz;
-      stepPerson(p.body, dt, p.bodyMotion);
+      const ai = archOf(p.hash);
+      const arch = archs[ai];
+      if (paper) {
+        // 흰 바탕: one continuous body; the window, the label and the bubble follow it
+        reckon(p, arch);
+        const b = p.body;
+        p.x = b.x;
+        p.z = b.z;
+        p.vx = b.vx;
+        p.vz = b.vz;
+        p.heading = b.heading;
+        p.phase = b.phase;
+      } else {
+        stepPerson(p, dt, p.motion);
+        p.body.tx = p.tx;
+        p.body.tz = p.tz;
+        stepPerson(p.body, dt, p.bodyMotion);
+      }
       // standing near someone, the body turns to face the nearest of them (slowly): a group, not a row
       if (look.faceEach && Math.hypot(p.vx, p.vz) < motion.standBelow) {
         let best: Person | null = null, bd = look.faceRadius * k;
@@ -734,6 +902,7 @@ export function PointPeople({
           p.heading += Math.max(-maxTurn, Math.min(maxTurn, diff));
         }
       }
+      if (paper) p.body.heading = p.heading;
       const target = gone ? 0 : p.bright;
       // gone: the fade is the tail's length on paper
       p.alpha += (target - p.alpha) * Math.min(1, dt / (gone && paper ? Math.max(0.2, look.tailSec) : FADE_SEC)) * (gone ? 1 : 3);
@@ -750,6 +919,18 @@ export function PointPeople({
       } else if (p.trail.length) p.trail.length = 0;
       const askUntil = asking.current.get(id);
       const cue = look.cue && askUntil !== undefined && nowMs < askUntil ? 1 : 0;
+      // the body's way, written down for its traces
+      if (paper && T.on) {
+        const b = p.body;
+        if (now - p.lastHistAt >= HIST_EVERY) {
+          p.lastHistAt = now;
+          p.hist.push({ t: now, x: b.x, z: b.z, h: cue ? Math.atan2(me.x - b.x, me.z - b.z) : b.heading, ph: b.phase, st: 1 - Math.min(1, Math.hypot(b.vx, b.vz) / motion.standBelow), cue });
+        }
+        const keep = now - T.sec - 0.25;
+        let drop = 0;
+        while (drop < p.hist.length && p.hist[drop].t < keep) drop++;
+        if (drop) p.hist.splice(0, drop);
+      } else if (p.hist.length) p.hist.length = 0;
       if (boxes) {
         if (nb < MAX_INSTANCES) {
           // the plate stands along the heading (a standing one keeps its last way)
@@ -757,32 +938,31 @@ export function PointPeople({
           // paper: nearer = darker and sharper; walking = stretched along the screen
           const dist = Math.hypot(p.x - me.x, p.z - me.z);
           const dark = paper ? 0.2 + 0.8 * Math.max(0, 1 - dist / fadeU) : 1;
-          const lit = rhythmOf(id)[step] ? 1 : 0;
+          const lit = paper ? 0 : rhythmOf(id)[step] ? 1 : 0;
           // 각자의 창: the window stretched by the last sample's move along the screen, shrinking until the next sample;
           // gone, it stays stretched (the tail); the shake right after a sample
           // this window's own proportion (paper): by the being's hash, between aspectMin and aspectMax
           const aspect = paper ? look.aspectMin + (look.aspectMax - look.aspectMin) * frac(p.hash * 19.3) : look.boxAspect;
-          let cx = p.x, cz = p.z, stretch = paper ? Math.min(1.4, speed * 0.4) : 0;
-          if (paper && look.stretchGain > 0) {
-            const age = now - p.sampleAt;
-            const kk = gone ? 1.6 : Math.max(0, 1 - age / SAMPLE_SEC);
-            // the move between samples, in the world, along the being's own way
-            const along = Math.hypot(p.sdx, p.sdz) * look.stretchGain * kk;
-            const w0 = Math.max(0.05, heightU * p.hs * aspect);
-            stretch = Math.min(6, along / w0);
-            cx -= 0.5 * p.sdx * kk;
-            cz -= 0.5 * p.sdz * kk;
-            if (now < p.shakeUntil && look.shake > 0) {
-              const sh = Math.sin(now * 90) * look.shake * 0.01 * k;
-              cx += sh * Math.sin(p.heading);
-              cz += sh * Math.cos(p.heading);
+          // (on paper the window is as tall as the archetype's body)
+          const tall = heightU * p.hs * (paper ? arch.height / 1.7 : 1);
+          let cx = p.x, cz = p.z, stretch = 0;
+          if (paper && look.stretchGain > 0 && T.on) {
+            // the window spans the traces (from where the body was 0.7 of the trace time ago to now): smooth, it grows
+            // as they walk and closes as they stop
+            const back = histAt(p.hist, now - T.sec * 0.7);
+            if (back) {
+              const ax = (back.x - p.x) * look.stretchGain, az = (back.z - p.z) * look.stretchGain;
+              const w0 = Math.max(0.05, tall * aspect);
+              stretch = Math.min(6, Math.hypot(ax, az) / w0);
+              cx += 0.5 * ax;
+              cz += 0.5 * az;
             }
           }
           // beyond the blot radius the present's scan carries them (future-presence): nothing drawn here
           const cut = paper ? Math.max(0, Math.min(1, 1 - (dist - look.blotDist) / 1.5)) : 1;
           BX[nb * 4] = cx;
           BX[nb * 4 + 1] = cz;
-          BX[nb * 4 + 2] = heightU * p.hs * (1 + 0.35 * cue);
+          BX[nb * 4 + 2] = tall * (1 + 0.35 * cue);
           BX[nb * 4 + 3] = p.heading;
           BY[nb * 4] = p.phase;
           BY[nb * 4 + 1] = lit;
@@ -803,20 +983,15 @@ export function PointPeople({
           nb++;
           // 흰 바탕: the 3D body (bodySheet.ts) where the eased body is, seen from wherever the visitor stands; the asker
           // turns to the visitor and waves
-          if (paper && nbody < MAX_PEOPLE) {
+          if (paper && nbody < MAX_BODIES) {
             const b = p.body;
             const stand = 1 - Math.min(1, Math.hypot(b.vx, b.vz) / motion.standBelow);
-            const J = cue ? poseOf(undefined, p.phase, 0, true) : look.gait === "mocap" ? poseOf(cycleOf(p.hash), b.phase, stand) : jointsAt(b.phase, WALK_STYLES[Math.floor(frac(p.hash * 29.7) * WALK_STYLES.length)]);
-            poses.write(nbody, J, p.ws, personCode(p.hash));
-            BB[nbody * 4] = b.x;
-            BB[nbody * 4 + 1] = b.z;
-            BB[nbody * 4 + 2] = cue ? Math.atan2(me.x - b.x, me.z - b.z) : b.heading;
-            BB[nbody * 4 + 3] = (k * p.hs * look.height) / 1.7;
-            BB2[nbody * 4] = nbody;
-            BB2[nbody * 4 + 1] = p.alpha * cut;
-            BB2[nbody * 4 + 2] = BW[baseNb * 4 + 1];
-            BB2[nbody * 4 + 3] = 0;
+            // the person's whole ink (the knob × their own × their fade); the body now is a share of it, the traces the rest
+            const A = Math.min(0.995, look.ink * BW[baseNb * 4 + 1] * p.alpha * cut);
+            const h = cue ? Math.atan2(me.x - b.x, me.z - b.z) : b.heading;
+            putBody(nbody, poseFor(p, ai, b.phase, stand, cue, now), p, ai, b.x, b.z, h, T.on ? A * T.now : A, 1, T.softNow / 100);
             nbody++;
+            if (T.on && A > 0.004) jobs.push({ p, ai, A });
           }
           // the asker: the wave runs on its own time; square ripples spread from the window on the bar; the eye turns
           if (cue) {
@@ -839,7 +1014,7 @@ export function PointPeople({
                   BZ[nb * 4 + q] = BZ[baseNb * 4 + q];
                   BW[nb * 4 + q] = BW[baseNb * 4 + q];
                 }
-                BX[nb * 4 + 2] = heightU * p.hs * grow;
+                BX[nb * 4 + 2] = tall * grow;
                 BY[nb * 4 + 2] = p.alpha * cut * (1 - t) * 0.8;
                 BY[nb * 4 + 3] = 2;
                 BZ[nb * 4] = stretch;
@@ -903,6 +1078,42 @@ export function PointPeople({
         np++;
       }
     }
+    // THE TRACES (the artist, 2026-11-23: "걸어가는 모습을 잔흔으로 남겨서 그게 마치 '동세의 시공간 덩어리'로 보이게"): every
+    // `sec / count` seconds a body leaves itself where it is — its pose there, which stays put while the body walks on —
+    // fading and softening with its age, its colours a little more vivid. Where they pile up (standing; the torso of one
+    // walking away) they are as dense as one body, where they spread (the swinging limbs; one crossing) they thin: the
+    // walk's spacetime mass. No browser exposure, no flicker: a new trace is born under the body and fades in.
+    const nNow = nbody;
+    let nTrace = 0;
+    if (paper && T.on && jobs.length) {
+      const count = Math.max(1, Math.round(phone ? T.count / 2 : T.count));
+      const every = Math.max(0.02, T.sec / count);
+      // the whole set's weight (each trace's strength is its share of it)
+      let W = 0;
+      for (let j = 0; j < count; j++) W += Math.pow(Math.max(0, 1 - (j + 0.5) / count), T.fall);
+      W = Math.max(1e-3, W);
+      for (const { p, ai, A } of jobs) {
+        if (!p.hist.length) continue;
+        const At = Math.min(0.995, A * T.ink);
+        const off = frac(p.hash * 7.77) * every;
+        const t0 = Math.floor((now - off) / every) * every + off;
+        for (let j = 0; j <= count; j++) {
+          if (nbody >= MAX_BODIES) break;
+          const tau = t0 - j * every, age = now - tau;
+          if (age > T.sec) break;
+          const hh = histAt(p.hist, tau);
+          if (!hh) break;
+          const u = age / T.sec;
+          const w = smooth01(age / every) * Math.pow(Math.max(0, 1 - u), T.fall);
+          if (w < 1e-3) continue;
+          const a = 1 - Math.pow(1 - At, w / W);
+          // (the saturation written negative marks a trace: the shader colours it by height, cheaply)
+          putBody(nbody, poseFor(p, ai, hh.ph, hh.st, hh.cue, tau), p, ai, hh.x, hh.z, hh.h, a, -Math.max(1e-3, 1 + (T.sat - 1) * u), (T.softNow + (T.softOld - T.softNow) * u) / 100);
+          nbody++;
+          nTrace++;
+        }
+      }
+    }
     // THE VISITOR'S OWN BODY (the artist, 2026-11-22: with the eye at a person's height, must "me" be a square in front
     // of the gaze? — and then how is the melody carried?): their back, a body like the others, walking as they walk;
     // its points go dim while their melody rests and bright on its beats (the square's blink, carried by the body)
@@ -935,14 +1146,15 @@ export function PointPeople({
     iAnim.needsUpdate = true;
     setInstanceCount(boxGeom, nb);
     setInstanceCount(bodyGeom, paper && boxes ? nbody : 0);
+    setInstanceCount(depthGeom, paper && boxes ? nNow : 0);
     iBodyA.addUpdateRange(0, nbody * 4);
     iBodyB.addUpdateRange(0, nbody * 4);
     iBodyA.needsUpdate = true;
     iBodyB.needsUpdate = true;
     if (nbody) poses.commit();
-    // the exposure's gain: the frame's weight in the feedback's average (longExposure.exposureRate) × the knob (0.5 = × 1)
-    setUniforms(bodyMat.uniforms, { uGain: look.exposure * 2 * exposureRate.weight, uInk: look.ink, uColour: look.colour });
-    if (bodyMesh.current) bodyMesh.current.layers.set(EXPOSURE_LAYER);
+    setUniforms(bodyMat.uniforms, { uColour: look.colour });
+    // (the bodies stand in the scene now — layer 0 — not on InkPaper's exposure layer)
+    if (bodyMesh.current) bodyMesh.current.layers.set(0);
     iBox.addUpdateRange(0, nb * 4);
     iBoxAnim.addUpdateRange(0, nb * 4);
     iBox2.addUpdateRange(0, nb * 4);
@@ -952,8 +1164,8 @@ export function PointPeople({
     iBox2.needsUpdate = true;
     iBox3.needsUpdate = true;
     setUniforms(boxMat.uniforms, { uSheet: sheet, uSheetSoft: sheetSoft, uAspect: look.boxAspect, uRest: look.boxRest, uPaper: paper ? 1 : 0, uInk: look.ink, uFrame: look.frame, uGain: look.exposure, uBody3D: paper ? 1 : 0 });
-    // on paper the boxes stand on the exposure layer (InkPaper draws it into the feedback); otherwise in the scene
-    if (boxMesh.current) boxMesh.current.layers.set(paper ? EXPOSURE_LAYER : 0);
+    // (the windows stand in the scene, layer 0, on paper too)
+    if (boxMesh.current) boxMesh.current.layers.set(0);
     // the paper's labels, a few times a second: the nearest three within labelDist
     labelTimer.current += dt;
     if (labelTimer.current > 0.3) {
@@ -989,13 +1201,14 @@ export function PointPeople({
       const d = Math.hypot(p.x - me.x, p.z - me.z);
       if (!nearest || d < nearest.d) nearest = { d: +d.toFixed(1), x: +p.x.toFixed(1), z: +p.z.toFixed(1), speed: +Math.hypot(p.vx, p.vz).toFixed(2) };
     }
-    (window as unknown as { __street?: unknown }).__street = { mode: look.mode, people: P.size, bodies: nbody, crowd: CROWD_PARAM, instances: boxes ? nb : n, points, copies, nearest, me: { x: +me.x.toFixed(1), z: +me.z.toFixed(1) } };
+    (window as unknown as { __street?: unknown }).__street = { mode: look.mode, people: P.size, bodies: nNow, traces: nTrace, crowd: CROWD_PARAM, instances: boxes ? nb : n, points, copies, nearest, me: { x: +me.x.toFixed(1), z: +me.z.toFixed(1) } };
   });
 
   return (
     <>
       {look.mode === "boxes" ? <mesh ref={boxMesh} geometry={boxGeom} material={boxMat} frustumCulled={false} renderOrder={9} /> : <points geometry={geom} material={mat} frustumCulled={false} renderOrder={9} />}
       {look.mode === "boxes" && <mesh ref={bodyMesh} geometry={bodyGeom} material={bodyMat} frustumCulled={false} renderOrder={10} />}
+      {look.mode === "boxes" && <mesh geometry={depthGeom} material={depthMat} frustumCulled={false} renderOrder={11} />}
       {/* 흰 바탕: the record device's labels — the being's number and a leader line, by the nearest few */}
       {look.paper &&
         labels.map((l) => (

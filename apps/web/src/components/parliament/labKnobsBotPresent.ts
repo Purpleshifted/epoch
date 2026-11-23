@@ -1,6 +1,8 @@
 "use client";
 /**
- * bot (present) · 현재의 사람 — the others' bodies, walk, their windows in the long exposure, the asker's cue (PointPeople, bodySheet).
+ * bot (present) · 현재의 사람 — the others' bodies, walk, their afterimages and windows, the asker's cue, and the body
+ * archetypes (PointPeople, bodySheet, bodyArchetypes). The afterimages and the archetypes are folders of the group with
+ * their own saved sets (`<group>.잔흔 — …`, `<group>.체형 아키타입`); any save row saves the whole group.
  * One of the mobile view lab's asset groups (mobileLab.ts): stored under /lab/mobile whatever page reads it, listed
  * only on its lab page. Keys are the old 길거리 folder's (11/22–23), so the components read them as before
  * (usePersonalVisuals assembles them into StreetVisual / GrassVisual).
@@ -10,14 +12,165 @@ import { folder, useControls } from "leva";
 import { savable } from "./levaSave";
 import { LAB_GROUP, labLists } from "./mobileLab";
 import { DEFAULT_PEOPLE, type PeopleMode } from "./PointPeople";
+import { DEFAULT_ARCHETYPES, DEFAULT_TRAIL, bodyTuning, type ArchetypeView, type ArmStyle, type HairChoice, type HemChoice } from "./bodyArchetypes";
 
+const ARM_STYLES: Record<string, ArmStyle> = { "흔들며 걷기": "swing", "주머니에 손": "pockets", "뒷짐": "behind", "휴대폰 보기": "phone", "팔짱": "crossed" };
+const HEMS: Record<string, HemChoice> = { "사람마다": "any", "허리까지 (윗옷)": "waist", "엉덩이까지 (재킷)": "hip", "무릎까지 (코트)": "knee" };
+const HAIRS: Record<string, HairChoice> = { "사람마다": "any", "짧은 머리": "short", "긴 머리": "long" };
+const GAITS: Record<string, number> = { "사람마다 (넷 중 하나)": -1, "캡처 1 · CMU 07_01": 0, "캡처 2 · CMU 07_02": 1, "캡처 3 · CMU 02_01": 2, "캡처 4 · CMU 35_01": 3 };
+
+/** One archetype's knobs (keys a<i>…: one saved set for all five), in folders by what they shape. */
+function archetypeSchema(i: number, v2: () => boolean) {
+  const d = DEFAULT_ARCHETYPES[i];
+  const k = (name: string) => `a${i}${name}`;
+  const n = (name: string, value: number, min: number, max: number, step: number, label: string) => ({ [k(name)]: { value, min, max, step, label, render: v2 } });
+  return folder(
+    {
+      [k("Name")]: { value: d.name, label: "이름 (메모)", render: v2 },
+      ...n("Weight", d.weight, 0, 1, 0.05, "군중 속 비중 (0 = 없음)"),
+      ...n("Height", d.height, 1.2, 2.1, 0.01, "키 (m)"),
+      "몸 비례": folder(
+        {
+          ...n("Legs", d.legs, 0.8, 1.25, 0.01, "다리 길이 ×"),
+          ...n("Torso", d.torso, 0.8, 1.25, 0.01, "상체 길이 ×"),
+          ...n("Shoulders", d.shoulders, 0.75, 1.35, 0.01, "어깨 너비 ×"),
+          ...n("Hips", d.hips, 0.75, 1.35, 0.01, "골반 너비 ×"),
+          ...n("Arms", d.arms, 0.8, 1.2, 0.01, "팔 길이 ×"),
+        },
+        { collapsed: true },
+      ),
+      "두께": folder(
+        {
+          ...n("Girth", d.girth, 0.7, 1.6, 0.01, "몸통 ×"),
+          ...n("Belly", d.belly, 0.7, 1.6, 0.01, "허리·배 ×"),
+          ...n("Limbs", d.limbs, 0.7, 1.6, 0.01, "팔다리 굵기 ×"),
+          ...n("Head", d.head, 0.8, 1.3, 0.01, "머리 크기 ×"),
+        },
+        { collapsed: true },
+      ),
+      "자세": folder(
+        {
+          ...n("Lean", d.lean, -8, 20, 0.5, "앞으로 기울기 (°)"),
+          ...n("Hunch", d.hunch, 0, 1, 0.05, "구부정함"),
+          ...n("HeadDown", d.headDown, -10, 40, 1, "고개 숙임 (°)"),
+        },
+        { collapsed: true },
+      ),
+      "걸음": folder(
+        {
+          [k("Gait")]: { options: GAITS, value: d.gait, label: "캡처한 걸음", render: v2 },
+          ...n("Stride", d.stride, 0.5, 1.5, 0.01, "보폭 ×"),
+          ...n("Swing", d.swing, 0, 2.5, 0.05, "팔 흔들기 ×"),
+          ...n("Bounce", d.bounce, 0, 3, 0.05, "위아래 출렁임 ×"),
+          ...n("Sway", d.sway, 0, 3, 0.05, "좌우 흔들림 ×"),
+          ...n("Lift", d.lift, 0.3, 2, 0.05, "발 들기 ×"),
+          ...n("Pace", d.pace, 0.5, 1.6, 0.01, "걷는 빠르기 ×"),
+        },
+        { collapsed: true },
+      ),
+      "팔과 옷": folder(
+        {
+          [k("Arms2")]: { options: ARM_STYLES, value: d.armStyle, label: "팔", render: v2 },
+          [k("Hem")]: { options: HEMS, value: d.hem, label: "윗옷 길이", render: v2 },
+          [k("Hair")]: { options: HAIRS, value: d.hair, label: "머리", render: v2 },
+          [k("Fixed")]: { value: d.fixedColour, label: "옷 색 지정 (끄면 팔레트에서 사람마다)", render: v2 },
+          [k("Top")]: { value: d.top, label: "윗옷 색", render: v2 },
+          [k("Pants")]: { value: d.pants, label: "바지 색", render: v2 },
+        },
+        { collapsed: true },
+      ),
+    },
+    { collapsed: true },
+  );
+}
+
+/**
+ * The afterimages and the archetypes (bodyArchetypes.ts — the artist, 2026-11-23), each a folder of the group with its
+ * own saved set; their values go to `bodyTuning`, which PointPeople reads every frame.
+ */
+function useBodyKnobs(isV2: boolean) {
+  const v2 = () => isV2;
+  const show = () => isV2 && labLists("bot-present");
+  const G = LAB_GROUP["bot-present"];
+  const trailRoot = `${G}.잔흔 — 동세의 시공간 덩어리`;
+  const t = useControls(
+    trailRoot,
+    savable(trailRoot, {
+      trOn: { value: DEFAULT_TRAIL.on, label: "잔흔 켜기", render: v2 },
+      trSec: { value: DEFAULT_TRAIL.sec, min: 0.2, max: 4, step: 0.05, label: "남는 시간 (s)", render: v2 },
+      trCount: { value: DEFAULT_TRAIL.count, min: 2, max: 24, step: 1, label: "잔흔 수 (그 시간 동안)", render: v2 },
+      trNow: { value: DEFAULT_TRAIL.now, min: 0, max: 1, step: 0.05, label: "지금의 몸 진하기", render: v2 },
+      trInk: { value: DEFAULT_TRAIL.ink, min: 0, max: 1, step: 0.05, label: "잔흔 진하기 (겹치면 한 몸만큼)", render: v2 },
+      trFall: { value: DEFAULT_TRAIL.fall, min: 0.3, max: 4, step: 0.05, label: "오래된 것이 빠지는 정도", render: v2 },
+      trSoftNow: { value: DEFAULT_TRAIL.softNow, min: 0, max: 10, step: 0.1, label: "지금 몸 가장자리 번짐 (cm)", render: v2 },
+      trSoftOld: { value: DEFAULT_TRAIL.softOld, min: 0, max: 40, step: 0.5, label: "가장 오래된 잔흔 번짐 (cm)", render: v2 },
+      trSat: { value: DEFAULT_TRAIL.sat, min: 0, max: 2.5, step: 0.05, label: "잔흔 색 채도 ×", render: v2 },
+    }),
+    { collapsed: false, render: show },
+  ) as unknown as Record<string, number | boolean>;
+  const archRoot = `${G}.체형 아키타입`;
+  const archSchema: Record<string, unknown> = {
+    archView: { options: { "군중 — 비중대로": "all", "1만": 0, "2만": 1, "3만": 2, "4만": 3, "5만": 4 } as Record<string, ArchetypeView>, value: "all", label: "보기 (이 랩 페이지에서만)", render: v2 },
+  };
+  for (let i = 0; i < DEFAULT_ARCHETYPES.length; i++) archSchema[`아키타입 ${i + 1}`] = archetypeSchema(i, v2);
+  const a = useControls(archRoot, savable(archRoot, archSchema) as Parameters<typeof useControls>[1], { collapsed: false, render: show }) as unknown as Record<string, unknown>;
+  bodyTuning.trail = {
+    on: !!t.trOn,
+    sec: Number(t.trSec),
+    count: Number(t.trCount),
+    now: Number(t.trNow),
+    ink: Number(t.trInk),
+    fall: Number(t.trFall),
+    softNow: Number(t.trSoftNow),
+    softOld: Number(t.trSoftOld),
+    sat: Number(t.trSat),
+  };
+  bodyTuning.view = (a.archView as ArchetypeView) ?? "all";
+  bodyTuning.archetypes = DEFAULT_ARCHETYPES.map((d, i) => {
+    const g = (name: string) => a[`a${i}${name}`];
+    const num = (name: string, def: number) => (typeof g(name) === "number" ? (g(name) as number) : def);
+    return {
+      name: String(g("Name") ?? d.name),
+      weight: num("Weight", d.weight),
+      height: num("Height", d.height),
+      legs: num("Legs", d.legs),
+      torso: num("Torso", d.torso),
+      shoulders: num("Shoulders", d.shoulders),
+      hips: num("Hips", d.hips),
+      arms: num("Arms", d.arms),
+      girth: num("Girth", d.girth),
+      belly: num("Belly", d.belly),
+      limbs: num("Limbs", d.limbs),
+      head: num("Head", d.head),
+      lean: num("Lean", d.lean),
+      hunch: num("Hunch", d.hunch),
+      headDown: num("HeadDown", d.headDown),
+      gait: num("Gait", d.gait),
+      stride: num("Stride", d.stride),
+      swing: num("Swing", d.swing),
+      bounce: num("Bounce", d.bounce),
+      sway: num("Sway", d.sway),
+      lift: num("Lift", d.lift),
+      pace: num("Pace", d.pace),
+      armStyle: (g("Arms2") as ArmStyle) ?? d.armStyle,
+      hem: (g("Hem") as HemChoice) ?? d.hem,
+      hair: (g("Hair") as HairChoice) ?? d.hair,
+      fixedColour: typeof g("Fixed") === "boolean" ? (g("Fixed") as boolean) : d.fixedColour,
+      top: typeof g("Top") === "string" ? (g("Top") as string) : d.top,
+      pants: typeof g("Pants") === "string" ? (g("Pants") as string) : d.pants,
+    };
+  });
+}
+
+// (the labels say what each draws on the white ground now — 2026-11-23; the stored values stay "boxes" / "points")
 const PEOPLE_MODES: Record<string, PeopleMode> = {
-  "깜빡이는 상자 속 실루엣 — 상자는 지금 네모(멜로디로 깜빡임), 안에 걷는 실루엣": "boxes",
-  "점 실루엣 — 점 480개의 몸": "points",
+  "3D 몸 + 잔흔 + 체형 아키타입 (흰 바탕)": "boxes",
+  "점 몸 — 점 N개 + 시간 번짐 복사본": "points",
 };
 
 export function useBotPresentKnobs(isV2: boolean) {
   const v2 = () => isV2;
+  useBodyKnobs(isV2);
   return useControls(
     LAB_GROUP["bot-present"],
     savable(LAB_GROUP["bot-present"], {
@@ -35,10 +188,12 @@ export function useBotPresentKnobs(isV2: boolean) {
       }),
       "지나간 자리 — 사람마다의 창": folder({
         paperInk: { value: 1, min: 0.2, max: 1, step: 0.05, label: "몸의 진하기", render: v2 },
-        paperFlicker: { value: true, label: "표본마다 점프 (보간 없음)", render: v2 },
-        paperStretch: { value: 1, min: 0, max: 3, step: 0.1, label: "창이 이동만큼 늘어남 (배수)", render: v2 },
-        paperShake: { value: 2, min: 0, max: 8, step: 0.5, label: "표본이 올 때 떨림 (cm)", render: v2 },
-        paperTail: { value: 1.6, min: 0.2, max: 6, step: 0.1, label: "사라질 때 꼬리 (s)", render: v2 },
+        // (hidden 2026-11-23 — the artist: "플리커링 있어 보이는 거 끔찍": on the white the body walks continuously and
+        // the window neither jumps nor shakes; the values are kept)
+        paperFlicker: { value: true, label: "표본마다 점프 (보간 없음)", render: () => false },
+        paperStretch: { value: 1, min: 0, max: 3, step: 0.1, label: "창이 잔흔만큼 늘어남 (배수)", render: v2 },
+        paperShake: { value: 2, min: 0, max: 8, step: 0.5, label: "표본이 올 때 떨림 (cm)", render: () => false },
+        paperTail: { value: 1.6, min: 0.2, max: 6, step: 0.1, label: "사라질 때 옅어지는 시간 (s)", render: v2 },
         paperFrame: { value: 1, min: 0, max: 2, step: 0.1, label: "창 필름의 세기", render: v2 },
         paperAspectMin: { value: 0.5, min: 0.2, max: 2, step: 0.05, label: "창 비율 최소 (폭/키)", render: v2 },
         paperAspectMax: { value: 1.3, min: 0.2, max: 2.5, step: 0.05, label: "창 비율 최대", render: v2 },

@@ -141,9 +141,27 @@ animation in `labKnobsScanFuture.ts`; captures against 3 stills into `docs/img/m
 
 ### bot (present)
 
-**State: paused 2026-11-23 (machine load) before anything was built — the page is as the lab's first commit left it.**
-Work in progress (not in the repo, nothing live): `side-session-notes/local_90c2440b-…/bot-present-wip/` — a patch of
-`bodySheet.ts` + `PointPeople.tsx` and a new `bodyArchetypes.ts`, with a hand-over note.
+**State (2026-11-23, after the resume): built — afterimages, continuous motion, archetypes, their knobs — awaiting the
+artist's eye.** Checks: type check; one headless text run per change (no captures — the artist: "비주얼은 내가 보고
+피드백할테니까 캡처해서 … 토큰 최소화"): no shader errors (one found and fixed: `projectionMatrix` undeclared in the
+fragment stage). **The afterimages and archetypes draw only with `그리기 = 3D 몸 + 잔흔 + 체형 아키타입`**; the artist's
+save of 15:55 has `그리기 = 점 몸` (her look at the point bodies) — her choice is left as it is; switch to see the new.
+On the point bodies the motion is continuous too (no jumps), the rest as it was.
+
+Knobs (all under `bot (present) · 현재의 사람`): folder **잔흔 — 동세의 시공간 덩어리** (own saved set): on, time a trace
+stays (1.2 s), how many in that time (8), the body now (0.6 of the ink), the traces together (0.85 — where they pile up,
+one body's worth), fall-off (1.4), edge softness now / oldest (0.5 / 6 cm), the old traces' saturation (×1.35). Folder
+**체형 아키타입** (own saved set): 보기 (this lab page only: all by share, or one slot alone), then 아키타입 1–5, each:
+이름, 비중, 키, 몸 비례 (다리·상체·어깨·골반·팔), 두께 (몸통·허리·팔다리·머리), 자세 (기울기·구부정함·고개), 걸음 (캡처 1–4 or each
+their own, 보폭·팔 흔들기·출렁임·좌우·발 들기·빠르기), 팔과 옷 (팔: 흔들며·주머니·뒷짐·폰·팔짱, 윗옷 길이, 머리, 옷 색 지정 +
+윗옷·바지 색). Hidden (values kept): 표본마다 점프, 표본이 올 때 떨림. Relabelled: 그리기's two options, 창이 잔흔만큼 늘어남,
+사라질 때 옅어지는 시간. Console: `__bodyTuning` (live values), `__street.traces`.
+
+Cost: each trace is a ray-marched body (cheaper than the body now: fewer, longer steps; colour by height; a phone draws
+half as many). Measured once, on a machine at load average ~30 (other sessions and the artist's tabs; headless 540×960
+dpr 1, `?crowd=24&presets=default`): 24 bodies + 192 traces ≈ 8 fps. That number says little about the traces' own share
+(the on/off comparison did not take: the knobs' hook rewrites `__bodyTuning` each render) — to be measured again on a
+quiet machine before the show; the knobs (잔흔 수, 남는 시간, 잔흔 켜기) are the levers meanwhile.
 
 **The artist's direction (2026-11-23, in this asset's chat), which replaces the stage-by-stage notes in `street-feel.md` §12–15:**
 - "지금 플리커링 있어 보이는 거 끔찍하고" (future too) — no sample jumps, no per-sample shake or stretch pulses, no
@@ -160,7 +178,7 @@ Work in progress (not in the repo, nothing live): `side-session-notes/local_90c2
 - "골격이나 움직이는 것들도 레바로 세세하게 조절해보고, 체형 아키타입도 present 에서 만들고 싶음 … 커스텀이나 다양화를 하려고
   이 세션을 만든 것" — knobs for the skeleton and the motion, and body ARCHETYPES the artist makes herself.
 
-**The plan, ready in the WIP (to build on resume, her check after each):**
+**What was built (the plan as it was written at the pause; her check after each):**
 1. Afterimages + no flicker: `makeBodyMaterial(poses, "paper")` draws each body and trace straight into the scene as a
    coloured filter multiplied on the white (layer 0, depth-tested at the body's real surface via `gl_FragDepth`), a
    `"depth"` pass writes the bodies' depth for the scene's near-sharp/far-soft rule; per-instance strength, saturation
@@ -172,9 +190,12 @@ Work in progress (not in the repo, nothing live): `side-session-notes/local_90c2
    phone · crossed), hem, hair, fixed top/trouser colours. First slots: 보통 · 키 큰 코트 · 다부진 · 구부정한 · 폰 보는.
    A lab-only view knob shows one archetype alone.
 
-**Interface for bot-future (when it lands):** `bodySheet.ts` grows three texels a row (girth; own top colour; own
+**Interface for bot-future (landed with this commit):** `bodySheet.ts` grows three texels a row (girth; own top colour; own
 trousers colour) — `POSE_TEXELS` 18 → 21, `BodyPoses.write(row, J, build, code, girth?, colours?)`; rows written the old
 way read as before (zeros = defaults). `BODY_GLSL` gains globals `bSoft` (0 unless set after `loadPose`), `bLimb`,
 `bGirth`, `bBelly`, `bHeadS`, `bTop`, `bPants`, `bOwnCol`; `marchBody`'s signature is unchanged. `standOf(cycle)` exported.
+`makeBodyMaterial` takes `"paper"` and `"depth"` too (both define `BODY_FRAGDEPTH` and write `gl_FragDepth`); `iBody2.w`
+is the edge softness (metres) in the vertex stage's box — 0 keeps the box as before. The archetypes' joints come from
+`bodyArchetypes.shapePose(pose, standPose, archetype, moving)` — bot-future may dress its observers in them too.
 
 ### bot (future)
