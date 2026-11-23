@@ -170,6 +170,9 @@ export interface FuturePresenceVisual extends PresenceConfig {
   winAberr: number;
   winTear: number;
   winGlitch: number;
+  /** The drips under (and a few over) the body, as a long exposure leaves them: the longest's length (of the screen's
+   *  height; each column its own). */
+  winStreak: number;
   winGap: number;
   winStay: number;
   winMax: number;
@@ -244,8 +247,9 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
           winTear: { value: 0.5, min: 0, max: 1, step: 0.05, label: "찢김 (가로 띠가 밀려남)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
           winGlitch: { value: 0.35, min: 0, max: 1, step: 0.05, label: "글리치 (블록이 튐)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
           winExposure: { value: 0.7, min: 0.03, max: 3, step: 0.01, label: "장노출 길이 (s · 길수록 끌림이 김)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
-          winShake: { value: 0.035, min: 0, max: 0.1, step: 0.002, label: "세로 끌림 (화면 높이 대비)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
-          winDrag: { value: 0.09, min: 0, max: 0.5, step: 0.01, label: "몸 안의 끌림 (키 대비 · 옷의 경계가 번지는 길이)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
+          winShake: { value: 0.014, min: 0, max: 0.1, step: 0.002, label: "세로 끌림 (화면 높이 대비)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
+          winStreak: { value: 0.07, min: 0, max: 0.3, step: 0.005, label: "흘러내림 (세로 줄 · 화면 높이 대비)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
+          winDrag: { value: 0.09, min: 0, max: 0.5, step: 0.01, label: "몸 안에 비치는 미래의 끌림 (키 대비)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
           winGap: { value: 2, min: 0.3, max: 6, step: 0.1, label: "창과 창 사이 (관찰자가 걸은 거리)" },
           winStay: { value: 20, min: 2, max: 120, step: 1, label: "창이 남는 시간 (s)" },
           winMax: { value: 10, min: 2, max: 12, step: 1, label: "서 있는 창 수" },
@@ -449,6 +453,7 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
       winAberr: k.winAberr,
       winTear: k.winTear,
       winGlitch: k.winGlitch,
+      winStreak: k.winStreak,
       winGap: k.winGap,
       winStay: k.winStay,
       winMax: Math.round(k.winMax),
@@ -484,7 +489,7 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
       frameCurve: k.frameCurve,
       frameReread: k.frameReread,
     };
-  }, [url, k.on, k.look, k.radius, k.everySec, k.readLatest, k.unit, k.band, k.ruin, k.maxBuildings, k.strip, k.lastSteel, k.lastPile, k.showTraces, k.showRemains, k.showPlants, k.showDeposits, k.edgeColor, k.plantColor, k.excCount, k.excRoam, k.excLegSec, k.meetR, k.cloudR, k.pointSize, k.surface, k.wild, k.inSec, k.holdSec, k.outSec, k.cooldownSec, k.darkPresent, k.fxLevel, k.dreamR, k.dreamPx, k.scanR, k.scanPix, k.scanFrames, k.scanTurn, k.scanStill, k.scanBase, k.scanGain, k.scanNew, k.scanPx, k.scanGlow, k.scanSplat, k.scanHold, k.scanDark, k.scanArrive, k.scanArriveDist, k.scanArriveSec, k.scanFlow, k.frameR, k.frameEvery, k.frameTurn, k.frameMove, k.frameMax, k.frameHold, k.frameLife, k.frameH, k.frameAlpha, k.frameFilm, k.frameInk, k.frameSplat, k.frameSmear, k.frameJitter, k.frameArriveSec, k.frameRest, k.framePass, k.frameRevealSec, k.frameBody, k.frameOut, k.framePaper, k.frameTone, k.frameDistort, k.frameDistortAmt, k.frameEdge, k.frameCurve, k.frameReread, k.winR, k.winSeeR, k.winH, k.winShape, bodyUrl, k.winSee, k.winExposure, k.winShake, k.winDrag, k.winBoost, k.winPersonH, k.winAberr, k.winTear, k.winGlitch, k.winGap, k.winStay, k.winMax, k.winFillR, k.winFillFull, k.winFillAlpha, k.winFillHow]);
+  }, [url, k.on, k.look, k.radius, k.everySec, k.readLatest, k.unit, k.band, k.ruin, k.maxBuildings, k.strip, k.lastSteel, k.lastPile, k.showTraces, k.showRemains, k.showPlants, k.showDeposits, k.edgeColor, k.plantColor, k.excCount, k.excRoam, k.excLegSec, k.meetR, k.cloudR, k.pointSize, k.surface, k.wild, k.inSec, k.holdSec, k.outSec, k.cooldownSec, k.darkPresent, k.fxLevel, k.dreamR, k.dreamPx, k.scanR, k.scanPix, k.scanFrames, k.scanTurn, k.scanStill, k.scanBase, k.scanGain, k.scanNew, k.scanPx, k.scanGlow, k.scanSplat, k.scanHold, k.scanDark, k.scanArrive, k.scanArriveDist, k.scanArriveSec, k.scanFlow, k.frameR, k.frameEvery, k.frameTurn, k.frameMove, k.frameMax, k.frameHold, k.frameLife, k.frameH, k.frameAlpha, k.frameFilm, k.frameInk, k.frameSplat, k.frameSmear, k.frameJitter, k.frameArriveSec, k.frameRest, k.framePass, k.frameRevealSec, k.frameBody, k.frameOut, k.framePaper, k.frameTone, k.frameDistort, k.frameDistortAmt, k.frameEdge, k.frameCurve, k.frameReread, k.winR, k.winSeeR, k.winH, k.winShape, bodyUrl, k.winSee, k.winExposure, k.winShake, k.winDrag, k.winBoost, k.winPersonH, k.winAberr, k.winTear, k.winGlitch, k.winStreak, k.winGap, k.winStay, k.winMax, k.winFillR, k.winFillFull, k.winFillAlpha, k.winFillHow]);
 }
 
 const MAX_EDGE_VERTS = 120000;
