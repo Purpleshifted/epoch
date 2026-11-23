@@ -131,6 +131,11 @@ interface Look {
   /** The colour flowing inside people standing or talking, set apart (2026-11-23: "이동중이 아닌 클립들은 색 출렁임 따로"):
    *  how much, which combination (−1 = as the moving ones), speed × and wave size × of the moving ones'. */
   gradStill: { amt: number; pick: number; speed: number; scale: number };
+  /** The frames' thickness (m), reaching back to the copy before or not, its ink and its fading towards the ends. */
+  thick: number;
+  thickFill: boolean;
+  thickInk: number;
+  thickSoft: number;
   edgeTh: number;
   /** The cut's softness above the threshold; the colour's contrast and brightness. */
   edgeW: number;
@@ -191,6 +196,8 @@ interface Walker {
 const VERT = /* glsl */ `
 uniform float uCols;
 uniform float uRows;
+uniform float uThick;      // the frame's thickness (m), and whether it reaches back to the copy before
+uniform float uThickFill;
 uniform float uAspect;
 uniform float uFacing;     // 0 eye · 1 along the path · 2 across it
 uniform float uStretch;
@@ -232,6 +239,19 @@ void main() {
   }
   float h = iA.z;
   float w = h * uAspect * (iE.w > 0.0 ? iE.w : 1.0);
+#ifdef SIDE
+  // THE FRAME'S THICKNESS (the artist, 2026-11-23: "프레임 자체에 두께를 좀 둘 수 있나? … 옆에 빈공간이 보이는 경우"): a
+  // second card square to this one, along its normal — seen from the side it shows the body's width at each height, so
+  // the frames read as a mass, not slices; it may reach back to the copy before (the gap filled)
+  vec3 nrm = vec3(-right.z, 0.0, right.x);
+  float back = (uThickFill > 0.5 && iC.z > 0.5) ? dot(vec3(iC.x, 0.0, iC.y) - feet, nrm) : 0.0;
+  float lo = min(-0.5 * uThick, back), hi = max(0.5 * uThick, back);
+  float sx = position.x < 0.0 ? lo : hi;
+  vec3 p = feet + nrm * sx + vec3(0.0, position.y * h + iC.w, 0.0);
+  gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
+  vUv = vec2(position.x + 0.5, position.y);
+  vSide = 1.0;
+#else
   // the move to the copy before, across the card (in card widths): the stretch reaches towards it
   float e = 0.0;
   // (only a card facing the eye or along the path stretches; a stretch under 6 % of its width is none — a card standing
@@ -245,6 +265,7 @@ void main() {
   gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
   vUv = vec2(x, position.y);
   vSide = e >= 0.0 ? 1.0 : -1.0;
+#endif
   vAlpha = iA.w;
   // (the frame's row and column, and the mirror: flat, the same over the card)
   vRow = iB.x;
@@ -310,6 +331,24 @@ vec4 cellB(float u, float v) {
   }
   return acc;
 }
+#ifdef SIDE
+uniform float uThickInk;
+uniform float uThickSoft;
+// the thickness's face: at each height, the body as wide as the frame shows it there (seven taps across), its colour
+void main() {
+  vec4 acc = vec4(0.0);
+  float amax = 0.0;
+  for (int i = 0; i < 7; i++) {
+    vec4 c = cell(0.2 + 0.1 * float(i), vUv.y);
+    acc += vec4(c.rgb * c.a, c.a);
+    amax = max(amax, c.a);
+  }
+  vec4 t = vec4(acc.a > 1e-3 ? acc.rgb / acc.a : vec3(1.0), amax);
+  // (fading towards its two ends by the softness: a blur through the space in front and behind)
+  float d = abs(vUv.x - 0.5) * 2.0;
+  float a = t.a * vAlpha * uThickInk * (1.0 - uThickSoft * smoothstep(0.0, 1.0, d));
+  if (a < 0.004) discard;
+#else
 void main() {
   float x = vUv.x;              // card widths from the card's middle
   float slitHalf = 0.5 * uSlit;
@@ -335,6 +374,7 @@ void main() {
   }
   a *= vAlpha;
   if (a < 0.004) discard;
+#endif
   t.rgb = mix(t.rgb, vTint.rgb, vTint.a);
   t.rgb = mix(t.rgb, gradAt(vWorld, vUv.y, vAge, vPal, floor(vGradSS / 1000.0 + 0.001) / 100.0, mod(vGradSS + 0.5, 1000.0) / 100.0), uGradAmt * vGradK);
   t.rgb = mix(t.rgb, vec3(dot(t.rgb, vec3(0.299, 0.587, 0.114))), vDesat);
@@ -376,10 +416,28 @@ function gradUniforms(): Record<string, THREE.IUniform> {
   };
 }
 
+/** The frames' thickness: the same cards drawn again square to themselves (SIDE), sharing the frames' uniforms. */
+function makeSideMaterial(main: THREE.ShaderMaterial): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: main.uniforms,
+    defines: { SIDE: "" },
+    vertexShader: main.vertexShader,
+    fragmentShader: main.fragmentShader,
+    side: THREE.DoubleSide,
+    depthTest: false,
+    depthWrite: false,
+    transparent: true,
+  });
+}
+
 function makeMaterial(): THREE.ShaderMaterial {
   // (three turns attribute/varying/texture2D/gl_FragColor into GLSL 3 for WebGL2; "flat varying" becomes flat out/in)
   return new THREE.ShaderMaterial({
     uniforms: {
+      uThick: { value: 0 },
+      uThickFill: { value: 0 },
+      uThickInk: { value: 0.6 },
+      uThickSoft: { value: 0.5 },
       uSheet: { value: null },
       uCols: { value: 16 },
       uRows: { value: 1 },
@@ -478,6 +536,8 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
     return g;
   }, []);
   const mat = useMemo(() => makeMaterial(), []);
+  const sideMat = useMemo(() => makeSideMaterial(mat), [mat]);
+  useEffect(() => () => sideMat.dispose(), [sideMat]);
   useEffect(() => () => geom.dispose(), [geom]);
   useEffect(() => () => mat.dispose(), [mat]);
   const idx = useRef<SpriteIndex | null>(null);
@@ -499,6 +559,7 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
   }, [mat]);
   useEffect(() => {
     setBlend(mat, L.multiply);
+    setBlend(sideMat, L.multiply);
   }, [mat, L.multiply]);
   const walkers = useRef<Walker[]>([]);
 
@@ -817,7 +878,7 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
     }
     geom.instanceCount = n;
     // (a readout for the console, like __street)
-    (window as unknown as { __frames?: unknown }).__frames = { cards: n, walkers: W.length, sheet: I ? I.sheet.rows.length : 0 };
+    (window as unknown as { __frames?: unknown }).__frames = { cards: n, walkers: W.length, sheet: I ? I.sheet.rows.length : 0, thick: L.thick, fill: L.thickFill };
     for (const name of ["iA", "iB", "iC", "iD", "iE", "iF"]) {
       const at = geom.getAttribute(name) as THREE.InstancedBufferAttribute;
       at.addUpdateRange(0, n * 4);
@@ -846,12 +907,17 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
     u.uStretchKind.value = L.stretchKind;
     u.uStreakSoft.value = L.streakSoft;
     u.uMultiply.value = L.multiply ? 1 : 0;
+    u.uThick.value = L.thick;
+    u.uThickFill.value = L.thickFill ? 1 : 0;
+    u.uThickInk.value = L.thickInk;
+    u.uThickSoft.value = L.thickSoft;
   });
 
   return (
     <>
       <OrbitControls ref={controls} makeDefault target={[0, 0.9, -L.dist]} enableDamping dampingFactor={0.12} />
       <mesh geometry={geom} material={mat} frustumCulled={false} />
+      {(L.thick > 0 || L.thickFill) && L.thickInk > 0 && <mesh geometry={geom} material={sideMat} frustumCulled={false} />}
       {L.floor && <gridHelper args={[40, 40, "#e4e4e4", "#efefef"]} position={[0, 0, -L.dist]} />}
     </>
   );
@@ -1097,6 +1163,13 @@ export default function FrameLab() {
           flCon: { value: 1, min: 0.2, max: 4, step: 0.05, label: "색 대비 ×" },
           flBright: { value: 0, min: -0.6, max: 0.6, step: 0.01, label: "밝기 ±" },
           flMultiply: { value: true, label: "곱하기로 겹침" },
+          // (the artist, 2026-11-23: "프레임 자체에 두께를 좀 둘 수 있나? 아니면 블러가 앞뒤 공간으로도")
+          "두께 (옆에서 본 빈 공간 메우기)": folder({
+            flThick: { value: 0, min: 0, max: 1.5, step: 0.01, label: "두께 (m, 0 = 없음)" },
+            flThickFill: { value: false, label: "앞 잔상까지 이어 채우기" },
+            flThickInk: { value: 0.6, min: 0, max: 1, step: 0.05, label: "두께 진하기" },
+            flThickSoft: { value: 0.5, min: 0, max: 1, step: 0.05, label: "앞뒤로 흐려짐" },
+          }),
           "늘어짐 · 슬릿 (나를 향하거나 진행 방향을 따라 설 때)": folder(
             {
               flStretch: { value: 1, min: 0, max: 1.5, step: 0.05, label: "늘어짐 (앞 잔상까지, 가로지르는 만큼)" },
@@ -1214,6 +1287,10 @@ export default function FrameLab() {
     pals: PALETTE_DEFAULTS.flatMap((d, i) => d.map((hex, j) => String(c[`flP${i + 1}${"abc"[j]}`] ?? hex))),
     gradPick: Number(c.flGradPick),
     gradStill: { amt: Number(c.flGsAmt ?? 0.8), pick: Number(c.flGsPick ?? -1), speed: Number(c.flGsSpeed ?? 1), scale: Number(c.flGsScale ?? 1) },
+    thick: Number(c.flThick ?? 0),
+    thickFill: !!c.flThickFill,
+    thickInk: Number(c.flThickInk ?? 0.6),
+    thickSoft: Number(c.flThickSoft ?? 0.5),
     edgeTh: Number(c.flEdge),
     edgeW: Number(c.flEdgeW),
     con: Number(c.flCon),
