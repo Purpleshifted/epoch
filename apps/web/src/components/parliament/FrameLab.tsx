@@ -13,9 +13,14 @@
  * frame itself widened. Cards may show only a vertical slit of their frame (slit-scan laid out in space).
  *
  * Camera: drag to orbit; the knobs' buttons put it at the side, behind, in front, above, or at eye level among them.
+ *
+ * Seen from the side, frames standing square to the path leave the space between them empty; the SIDE FILL lays a band
+ * along the path from each frame to the next, carrying the body's height profile (how much of each height is body, and
+ * its colour there) from one frame to the other — from the side one mass through time, from behind edge-on and gone.
+ * Each clip keeps its own set: the distance a frame carries the body and how long a frame is held.
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { button, folder, useControls } from "leva";
@@ -37,8 +42,11 @@ interface Look {
   speed: number;
   spread: number;
   dist: number;
-  frameRate: number;
+  /** Seconds a frame of the clip is held (the clip's own set). */
+  frameSec: number;
   row: number;
+  /** The side fill between frames (0 … 1). */
+  fill: number;
   height: number;
   stamp: boolean;
   sampleSec: number;
@@ -178,6 +186,70 @@ void main() {
   else gl_FragColor = vec4(t.rgb, a);
 }`;
 
+const BAND_VERT = /* glsl */ `
+attribute vec4 bA;         // from x, z; to x, z
+attribute vec4 bB;         // row, frame at the start, frame at the end, 0
+attribute vec4 bC;         // height, alpha at the start, alpha at the end, 0
+varying vec2 vXY;
+varying float vAlpha;
+flat varying float vRow;
+flat varying float vFA;
+flat varying float vFB;
+void main() {
+  vec3 A = vec3(bA.x, 0.0, bA.y), B = vec3(bA.z, 0.0, bA.w);
+  vec3 p = mix(A, B, position.x) + vec3(0.0, position.y * bC.x, 0.0);
+  gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
+  vXY = position.xy;
+  vAlpha = mix(bC.y, bC.z, position.x);
+  vRow = bB.x;
+  vFA = bB.y;
+  vFB = bB.z;
+}`;
+
+const BAND_FRAG = /* glsl */ `
+uniform sampler2D uSheet;
+uniform float uCols;
+uniform float uRows;
+uniform float uMultiply;
+varying vec2 vXY;
+varying float vAlpha;
+flat varying float vRow;
+flat varying float vFA;
+flat varying float vFB;
+// a frame's row at height v: how much of it is body (its widest), and the body's mean colour there
+vec4 profileAt(float frame, float v) {
+  float amax = 0.0, ws = 0.0;
+  vec3 cs = vec3(0.0);
+  for (int i = 0; i < 9; i++) {
+    float u = 0.1 + 0.8 * float(i) / 8.0;
+    vec4 t = texture2D(uSheet, vec2((frame + u) / uCols, (uRows - 1.0 - vRow + clamp(v, 0.001, 0.999)) / uRows));
+    amax = max(amax, t.a);
+    cs += t.rgb * t.a;
+    ws += t.a;
+  }
+  return vec4(ws > 1e-3 ? cs / ws : vec3(1.0), amax);
+}
+void main() {
+  vec4 pa = profileAt(vFA, vXY.y), pb = profileAt(vFB, vXY.y);
+  vec4 p = mix(pa, pb, vXY.x);
+  float a = p.a * vAlpha;
+  if (a < 0.004) discard;
+  if (uMultiply > 0.5) gl_FragColor = vec4(mix(vec3(1.0), p.rgb, a), 1.0);
+  else gl_FragColor = vec4(p.rgb, a);
+}`;
+
+function makeBandMaterial(): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: { uSheet: { value: null }, uCols: { value: 16 }, uRows: { value: 1 }, uMultiply: { value: 1 } },
+    vertexShader: BAND_VERT,
+    fragmentShader: BAND_FRAG,
+    side: THREE.DoubleSide,
+    depthTest: false,
+    depthWrite: false,
+    transparent: true,
+  });
+}
+
 function makeMaterial(): THREE.ShaderMaterial {
   // (three turns attribute/varying/texture2D/gl_FragColor into GLSL 3 for WebGL2; "flat varying" becomes flat out/in)
   return new THREE.ShaderMaterial({
@@ -272,6 +344,19 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
     return g;
   }, []);
   const mat = useMemo(() => makeMaterial(), []);
+  // the side fill: a band along the path between each two frames (bandGeom / bandMat)
+  const bandGeom = useMemo(() => {
+    const g = new THREE.InstancedBufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0]), 3));
+    g.setIndex([0, 1, 2, 0, 2, 3]);
+    for (const name of ["bA", "bB", "bC"]) g.setAttribute(name, new THREE.InstancedBufferAttribute(new Float32Array(MAX_CARDS * 4), 4).setUsage(THREE.DynamicDrawUsage));
+    g.instanceCount = 0;
+    g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
+    return g;
+  }, []);
+  const bandMat = useMemo(() => makeBandMaterial(), []);
+  useEffect(() => () => bandGeom.dispose(), [bandGeom]);
+  useEffect(() => () => bandMat.dispose(), [bandMat]);
   useEffect(() => () => geom.dispose(), [geom]);
   useEffect(() => () => mat.dispose(), [mat]);
   const idx = useRef<SpriteIndex | null>(null);
@@ -284,12 +369,18 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
       mat.uniforms.uCols.value = index.sheet.cols;
       mat.uniforms.uRows.value = Math.max(1, index.sheet.rows.length);
       mat.uniforms.uAspect.value = index.sheet.cellW / index.sheet.cellH;
+      bandMat.uniforms.uSheet.value = texture;
+      bandMat.uniforms.uCols.value = index.sheet.cols;
+      bandMat.uniforms.uRows.value = Math.max(1, index.sheet.rows.length);
     });
     return () => {
       live = false;
     };
-  }, [mat]);
-  useEffect(() => setBlend(mat, L.multiply), [mat, L.multiply]);
+  }, [mat, bandMat]);
+  useEffect(() => {
+    setBlend(mat, L.multiply);
+    setBlend(bandMat, L.multiply);
+  }, [mat, bandMat, L.multiply]);
   const walkers = useRef<Walker[]>([]);
 
   useFrame((state, delta) => {
@@ -316,7 +407,6 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
       W.push({ hash, x: (hash - 0.5) * 8, z: -L.dist + (frac(hash * 7.3) - 0.5) * 8, h: hash * TAU, ph: hash, s: hash * 16, dir: i % 2 ? -1 : 1, gx: 0, gz: 0, hist: [], stamps: [], lastHist: -1, lastSample: -1 });
     }
     W.length = Math.min(W.length, L.count);
-    const strideSec = (row: number) => idx.current?.sheet.rows[row]?.strideSec ?? 1.1;
     W.forEach((w, i) => {
       // move
       w.s += L.speed * dt;
@@ -346,7 +436,7 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
       }
       // the frames run at their own rate (× the clip's own tempo), apart from how fast the body travels — the artist finds
       // each clip's best match of the two ("이동속도랑 프레임 속도 내가 조절할 수 있도록 … 클립별 베스트 매치")
-      w.ph = (w.ph + (dt / strideSec(L.row > 0 ? L.row - 1 : 0)) * L.frameRate) % 1;
+      w.ph = (w.ph + dt / Math.max(1e-3, L.frameSec * (idx.current?.sheet.cols ?? 16))) % 1;
       if (now - w.lastHist >= 1 / 30) {
         w.lastHist = now;
         w.hist.push({ t: now, x: w.x, z: w.z, h: w.h, ph: w.ph });
@@ -366,6 +456,10 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
     const B = (geom.getAttribute("iB") as THREE.InstancedBufferAttribute).array as Float32Array;
     const C = (geom.getAttribute("iC") as THREE.InstancedBufferAttribute).array as Float32Array;
     let n = 0;
+    const BA = (bandGeom.getAttribute("bA") as THREE.InstancedBufferAttribute).array as Float32Array;
+    const BBb = (bandGeom.getAttribute("bB") as THREE.InstancedBufferAttribute).array as Float32Array;
+    const BC = (bandGeom.getAttribute("bC") as THREE.InstancedBufferAttribute).array as Float32Array;
+    let nb = 0;
     const I = idx.current;
     const cols = I?.sheet.cols ?? 16;
     const cam = camera.position;
@@ -407,11 +501,32 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
         list.push({ s: { t: now, x: w.x, z: w.z, h: w.h, ph: w.ph }, age: 0 });
       }
       let prev: Stamp | null = null;
+      let prevAlpha = 0;
       for (const { s, age } of list) {
         const isNow = age === 0;
         const fade = isNow ? 1 : Math.pow(Math.max(0, 1 - age / Math.max(0.05, L.lifeSec)), L.fall);
-        put(w, s, (isNow ? L.ink : L.trailInk) * fade, prev);
+        const alpha = (isNow ? L.ink : L.trailInk) * fade;
+        put(w, s, alpha, prev);
+        // the side fill: the band from the frame before to this one (seen from the side, the body's height profile
+        // carried through time; seen from behind or ahead it stands edge-on and is not there)
+        if (prev && L.fill > 0 && I && nb < MAX_CARDS && Math.hypot(s.x - prev.x, s.z - prev.z) > 1e-3) {
+          const row = L.row > 0 ? Math.min(I.sheet.rows.length, L.row) - 1 : 0;
+          BA[nb * 4] = prev.x;
+          BA[nb * 4 + 1] = prev.z;
+          BA[nb * 4 + 2] = s.x;
+          BA[nb * 4 + 3] = s.z;
+          BBb[nb * 4] = row;
+          BBb[nb * 4 + 1] = Math.floor((((prev.ph % 1) + 1) % 1) * cols);
+          BBb[nb * 4 + 2] = Math.floor((((s.ph % 1) + 1) % 1) * cols);
+          BBb[nb * 4 + 3] = 0;
+          BC[nb * 4] = L.height * (0.94 + 0.12 * w.hash);
+          BC[nb * 4 + 1] = Math.min(prevAlpha, L.trailInk) * L.fill;
+          BC[nb * 4 + 2] = Math.min(alpha, L.trailInk) * L.fill;
+          BC[nb * 4 + 3] = 0;
+          nb++;
+        }
         prev = s;
+        prevAlpha = alpha;
       }
     }
     geom.instanceCount = n;
@@ -422,6 +537,13 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
       at.addUpdateRange(0, n * 4);
       at.needsUpdate = true;
     }
+    bandGeom.instanceCount = nb;
+    for (const name of ["bA", "bB", "bC"]) {
+      const at = bandGeom.getAttribute(name) as THREE.InstancedBufferAttribute;
+      at.addUpdateRange(0, nb * 4);
+      at.needsUpdate = true;
+    }
+    bandMat.uniforms.uMultiply.value = L.multiply ? 1 : 0;
     const u = mat.uniforms;
     u.uFacing.value = L.facing === "eye" ? 0 : L.facing === "along" ? 1 : 2;
     u.uStretch.value = L.stretch;
@@ -434,6 +556,7 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
   return (
     <>
       <OrbitControls ref={controls} makeDefault target={[0, 0.9, -L.dist]} enableDamping dampingFactor={0.12} />
+      <mesh geometry={bandGeom} material={bandMat} frustumCulled={false} />
       <mesh geometry={geom} material={mat} frustumCulled={false} />
       {L.floor && <gridHelper args={[40, 40, "#e4e4e4", "#efefef"]} position={[0, 0, -L.dist]} />}
     </>
@@ -448,6 +571,36 @@ const FACINGS: Record<string, Facing> = { "진행 방향대로 (걷는 방향에
 export default function FrameLab() {
   const G = LAB_GROUP.frames;
   const viewRef = useRef<string | null>("side");
+  // THE CLIPS' OWN SETS (the artist, 2026-11-23: "영상마다 골라서 이동거리랑 프레임 간격 세트로 저장"): for each clip of the
+  // sheet, how far a frame carries the body (m) and how long a frame is held (s) — speed = distance / interval. Saved with
+  // the group, a pair of knobs a clip (keys by the clip's name, so a clip keeps its set when others are added)
+  const [clips, setClips] = useState<{ id: string; strideSec: number }[]>([]);
+  useEffect(() => {
+    loadSpriteSheet()
+      .then(({ index }) => setClips(index.sheet.rows.map((r) => ({ id: r.id, strideSec: r.strideSec }))))
+      .catch(() => undefined);
+  }, []);
+  const ck = (id: string) => id.replace(/[^A-Za-z0-9]/g, "_");
+  const clipRoot = `${G}.클립 — 이동거리 · 프레임 간격`;
+  const clipSchema = useMemo(() => {
+    const s: Record<string, unknown> = {
+      clipPick: { options: { "보는 각도로 자동 (설정은 첫 클립)": 0, ...Object.fromEntries(clips.map((c, i) => [`${i + 1} · ${c.id}`, i + 1])) }, value: clips.length ? 1 : 0, label: "걷는 클립" },
+    };
+    clips.forEach((c, i) => {
+      // (defaults: what looked natural with the man's clip — 3.9 m/s with the frames at 3 × the clip's own tempo)
+      const gap = c.strideSec / 16 / 3;
+      s[`${i + 1} · ${c.id}`] = folder({
+        [`cd_${ck(c.id)}`]: { value: +(3.9 * gap).toFixed(3), min: 0.005, max: 1, step: 0.005, label: "한 프레임에 가는 거리 (m)" },
+        [`cg_${ck(c.id)}`]: { value: +gap.toFixed(3), min: 0.01, max: 0.5, step: 0.005, label: "프레임 간격 (s)" },
+      });
+    });
+    return s;
+  }, [clips]);
+  const cs = useControls(clipRoot, savable(clipRoot, clipSchema) as Parameters<typeof useControls>[1], { collapsed: false }, [clips.length]) as unknown as Record<string, number>;
+  const pick = Number(cs.clipPick ?? 0);
+  const setOf = clips[Math.max(0, pick - 1)];
+  const dist = setOf ? Number(cs[`cd_${ck(setOf.id)}`] ?? 0.15) : 0.15;
+  const gapSec = setOf ? Number(cs[`cg_${ck(setOf.id)}`] ?? 0.04) : 0.04;
   const c = useControls(
     G,
     savable(G, {
@@ -472,13 +625,8 @@ export default function FrameLab() {
       "사람": folder({
         flCount: { value: 3, min: 1, max: 24, step: 1, label: "사람 수" },
         flPath: { options: PATHS, value: "across" as Path, label: "길" },
-        // (the artist with the man's clip: speed ~3.9 looked natural when the frames ran with the speed — the defaults
-        // keep that look: 3.9 m/s and the frames at 3 × the clip's own tempo)
-        flSpeed: { value: 3.9, min: 0.2, max: 8, step: 0.05, label: "이동 속도 (m/s)" },
-        flFrame: { value: 3, min: 0.1, max: 6, step: 0.05, label: "프레임 속도 (× 원본 영상)" },
         flSpread: { value: 1.6, min: 0, max: 6, step: 0.1, label: "사람 사이 간격 (m)" },
         flDist: { value: 6, min: 1, max: 20, step: 0.5, label: "나와의 거리 (m)" },
-        flRow: { value: 0, min: 0, max: 8, step: 1, label: "클립 (0 = 보는 각도로 자동, 1… = 그 줄)" },
         flHeight: { value: 1.72, min: 1.2, max: 2.2, step: 0.01, label: "키 (m)" },
       }),
       "프레임 남기기": folder({
@@ -498,6 +646,7 @@ export default function FrameLab() {
         flKind: { options: { "번짐 — 몸 가운데가 옆으로 끌림": 0, "프레임 자체가 넓어짐": 1 }, value: 0, label: "늘어나는 방식" },
         flSoft: { value: 0.8, min: 0.05, max: 4, step: 0.05, label: "번짐 길이 (프레임 폭)" },
         flSlit: { value: 1, min: 0.05, max: 1, step: 0.01, label: "슬릿 — 프레임의 가운데 몫만 (1 = 전체)" },
+        flFill: { value: 0.6, min: 0, max: 1, step: 0.05, label: "옆면 채움 — 프레임 사이를 몸의 높이 윤곽으로 이음" },
         flMultiply: { value: true, label: "곱하기로 겹침 (끄면 보통 겹침)" },
       }),
     }),
@@ -506,11 +655,12 @@ export default function FrameLab() {
   const L: Look = {
     count: Number(c.flCount),
     path: c.flPath as Path,
-    speed: Number(c.flSpeed),
+    speed: dist / Math.max(1e-3, gapSec),
     spread: Number(c.flSpread),
     dist: Number(c.flDist),
-    frameRate: Number(c.flFrame),
-    row: Number(c.flRow),
+    frameSec: gapSec,
+    row: pick,
+    fill: Number(c.flFill),
     height: Number(c.flHeight),
     stamp: !!c.flStamp,
     sampleSec: Number(c.flSample),
