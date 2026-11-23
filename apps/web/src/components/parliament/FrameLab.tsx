@@ -21,7 +21,8 @@
  * (standing, moving, moving fast, talking, or unused), and how it looks (height, width, ink, feet, colour, reversed, start,
  * playback speed, a ping-pong loop).
  * A DISTANCE HIERARCHY: near, middle and far from the eye (blended at their borders) — each tier scales the afterimages,
- * the ink, the blur and the flowing colour; far off a card may face the eye and a profile clip walks across.
+ * the ink, the blur and the flowing colour; far off a card may face the eye and a profile clip walks across, turned so
+ * the clip's walker faces the way the person goes on the screen.
  * Front shots only, square to the way they go — a silhouette's front and back are one (the artist, 2026-11-23).
  * Inside the silhouettes a colour may flow (a three-colour gradient that waves along the height, through space, or with
  * a copy's age), from one of five colour combinations (one for all, or each walker their own). Old copies blur with
@@ -70,6 +71,8 @@ interface ClipSet {
   fill: number;
   /** Seen far off walking across: this profile clip is used (the distance hierarchy's far tier). */
   farSide: boolean;
+  /** Which way the profile clip's walker faces in the picture: +1 right, -1 left. */
+  faces: number;
 }
 type Facing = "eye" | "along" | "across";
 /** A walker's state for its afterimages: walking, walking briskly, running, standing, talking. */
@@ -622,11 +625,14 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
     const rowFor = (w: Walker, s: Stamp, far: number): { row: number; mirror: number } => {
       // far off and walking across the view: a profile clip, mirrored by the way they go
       if (L.tier.farSide && far > 0.5 && sideRows.length && !w.standing) {
-        const rel = s.h - Math.atan2(cam.x - s.x, cam.z - s.z);
-        const a = Math.atan2(Math.sin(rel), Math.cos(rel));
-        if (Math.abs(Math.sin(a)) > 0.6) {
+        // (the artist, 2026-11-23: "멀리 있을 때는 본인 진행방향이랑 영상 방향 정렬을 따로") — which way they go across the
+        // card that faces me (its +x is the picture's right), against which way the clip's walker faces
+        const tx = cam.x - s.x, tz = cam.z - s.z, tl = Math.hypot(tx, tz) || 1;
+        const across = Math.sin(s.h) * (tz / tl) - Math.cos(s.h) * (tx / tl);
+        if (Math.abs(across) > 0.6) {
           const row = byHash(sideRows, w.hash * 1.7);
-          return { row, mirror: (CL[row]?.flip ? -1 : 1) * (a > 0 ? 1 : -1) };
+          const faces = CL[row]?.faces || 1;
+          return { row, mirror: (CL[row]?.flip ? -1 : 1) * faces * (across > 0 ? 1 : -1) };
         }
       }
       return { row: w.home, mirror: (CL[w.home]?.flip ? -1 : 1) * (frac(w.hash * 3.3) > 0.5 ? -1 : 1) };
@@ -828,11 +834,11 @@ export default function FrameLab() {
   // THE CLIPS' OWN SETS (the artist, 2026-11-23: "영상마다 골라서 이동거리랑 프레임 간격 세트로 저장"): for each clip of the
   // sheet, how far a frame carries the body (m) and how long a frame is held (s) — speed = distance / interval. Saved with
   // the group, a pair of knobs a clip (keys by the clip's name, so a clip keeps its set when others are added)
-  const [clips, setClips] = useState<{ id: string; strideSec: number; loop: number; lum: number; side: boolean; walking: boolean; fill: number }[]>([]);
+  const [clips, setClips] = useState<{ id: string; strideSec: number; loop: number; lum: number; side: boolean; walking: boolean; fill: number; faces: number }[]>([]);
   useEffect(() => {
     loadSpriteSheet()
       .then(({ index }) =>
-        setClips(index.sheet.rows.map((r) => ({ id: r.id, strideSec: r.strideSec, loop: (r as { loop?: number }).loop ?? 1, lum: (r as { lum?: number }).lum ?? 0, side: r.view === "side", walking: (r as { walking?: boolean }).walking ?? true, fill: (r as { fill?: number }).fill ?? 1 }))),
+        setClips(index.sheet.rows.map((r) => ({ id: r.id, strideSec: r.strideSec, loop: (r as { loop?: number }).loop ?? 1, lum: (r as { lum?: number }).lum ?? 0, side: r.view === "side", walking: (r as { walking?: boolean }).walking ?? true, fill: (r as { fill?: number }).fill ?? 1, faces: (r as { faces?: number }).faces ?? 0 }))),
       )
       .catch(() => undefined);
   }, []);
@@ -860,6 +866,7 @@ export default function FrameLab() {
         [`cp_${ck(c.id)}`]: { value: 1, min: 0.05, max: 4, step: 0.01, label: "재생 빠르기 × (서 있음·소통에도)" },
         [`cb_${ck(c.id)}`]: { value: false, label: "왕복 재생 — a → 거꾸로 → a 루프" },
         [`cs_${ck(c.id)}`]: { value: c.side, label: "멀리서 옆모습으로 쓰기 (거리 위계의 먼 단계)" },
+        [`cf2_${ck(c.id)}`]: { options: { "자동 (시트에서 판별)": 0, "오른쪽": 1, "왼쪽": -1 }, value: 0, label: "옆모습이 향하는 쪽" },
         [`cr_${ck(c.id)}`]: { value: false, label: "거꾸로 재생" },
         [`co_${ck(c.id)}`]: { value: 0, min: 0, max: 1, step: 0.01, label: "시작 위상 (0 … 1)" },
         // (finer steps — the artist: "한 프레임당 가는 거리 더 촘촘하게")
@@ -899,6 +906,7 @@ export default function FrameLab() {
       pingpong: !!raw[`cb_${k}`],
       fill: cl.fill,
       farSide: !!raw[`cs_${k}`],
+      faces: Number(raw[`cf2_${k}`] ?? 0) || cl.faces || 1,
       offset: Number(raw[`co_${k}`] ?? 0),
     };
   });

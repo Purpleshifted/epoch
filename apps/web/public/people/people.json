@@ -10,7 +10,8 @@
    "loop": 0.94,
    "lum": 0.03,
    "walking": true,
-   "source": "gemini"
+   "source": "gemini",
+   "faces": 0
   },
   {
    "id": "gemini-F568499F_front",
@@ -19,7 +20,8 @@
    "loop": 0.96,
    "lum": 0.02,
    "walking": true,
-   "source": "gemini"
+   "source": "gemini",
+   "faces": 0
   },
   {
    "id": "vecteezy-2981804#1",
@@ -28,7 +30,8 @@
    "loop": 0.84,
    "lum": 0.0,
    "walking": false,
-   "source": "vecteezy"
+   "source": "vecteezy",
+   "faces": 0
   },
   {
    "id": "vecteezy-2981804#2",
@@ -37,7 +40,8 @@
    "loop": 0.81,
    "lum": 0.0,
    "walking": true,
-   "source": "vecteezy"
+   "source": "vecteezy",
+   "faces": 0
   },
   {
    "id": "vecteezy-2981804#3",
@@ -46,7 +50,8 @@
    "loop": 0.84,
    "lum": 0.0,
    "walking": true,
-   "source": "vecteezy"
+   "source": "vecteezy",
+   "faces": -1
   },
   {
    "id": "vecteezy-33199516#1",
@@ -55,7 +60,9 @@
    "loop": 0.99,
    "lum": 0.0,
    "walking": true,
-   "source": "vecteezy"
+   "fill": 1.0,
+   "source": "vecteezy",
+   "faces": 0
   },
   {
    "id": "vecteezy-33199516#2",
@@ -64,7 +71,9 @@
    "loop": 0.99,
    "lum": 0.0,
    "walking": true,
-   "source": "vecteezy"
+   "fill": 1.0,
+   "source": "vecteezy",
+   "faces": 0
   },
   {
    "id": "vecteezy-33199516#3",
@@ -73,7 +82,9 @@
    "loop": 0.92,
    "lum": 0.0,
    "walking": true,
-   "source": "vecteezy"
+   "fill": 1.0,
+   "source": "vecteezy",
+   "faces": 0
   },
   {
    "id": "vecteezy-33199516#4",
@@ -82,7 +93,9 @@
    "loop": 0.96,
    "lum": 0.0,
    "walking": true,
-   "source": "vecteezy"
+   "fill": 1.0,
+   "source": "vecteezy",
+   "faces": 0
   },
   {
    "id": "vecteezy-33199516#5",
@@ -91,7 +104,9 @@
    "loop": 0.99,
    "lum": 0.0,
    "walking": true,
-   "source": "vecteezy"
+   "fill": 1.0,
+   "source": "vecteezy",
+   "faces": 0
   },
   {
    "id": "vecteezy-33199516#6",
@@ -100,7 +115,9 @@
    "loop": 1.0,
    "lum": 0.0,
    "walking": true,
-   "source": "vecteezy"
+   "fill": 1.0,
+   "source": "vecteezy",
+   "faces": 0
   },
   {
    "id": "vecteezy-33199516#7",
@@ -109,7 +126,9 @@
    "loop": 0.98,
    "lum": 0.0,
    "walking": true,
-   "source": "vecteezy"
+   "fill": 1.0,
+   "source": "vecteezy",
+   "faces": 0
   },
   {
    "id": "vecteezy-33199516#8",
@@ -118,7 +137,9 @@
    "loop": 0.98,
    "lum": 0.0,
    "walking": true,
-   "source": "vecteezy"
+   "fill": 1.0,
+   "source": "vecteezy",
+   "faces": 0
   },
   {
    "id": "vecteezy-33199516#9",
@@ -127,7 +148,9 @@
    "loop": 0.98,
    "lum": 0.0,
    "walking": true,
-   "source": "vecteezy"
+   "fill": 0.837,
+   "source": "vecteezy",
+   "faces": 1
   },
   {
    "id": "vecteezy-33199516#10",
@@ -136,25 +159,31 @@
    "loop": 0.98,
    "lum": 0.0,
    "walking": true,
-   "source": "vecteezy"
+   "fill": 0.861,
+   "source": "vecteezy",
+   "faces": 1
   },
   {
    "id": "vecteezy-33199516#11",
    "view": "side",
    "strideSec": 1.233,
-   "loop": 0.9,
+   "loop": 0.91,
    "lum": 0.0,
    "walking": true,
-   "source": "vecteezy"
+   "fill": 0.853,
+   "source": "vecteezy",
+   "faces": 1
   },
   {
    "id": "vecteezy-33199516#12",
    "view": "side",
    "strideSec": 1.433,
-   "loop": 0.93,
+   "loop": 0.94,
    "lum": 0.0,
    "walking": true,
-   "source": "vecteezy"
+   "fill": 0.96,
+   "source": "vecteezy",
+   "faces": 1
   },
   {
    "id": "vecteezy-33199516#13",
@@ -163,7 +192,9 @@
    "loop": 0.98,
    "lum": 0.0,
    "walking": true,
-   "source": "vecteezy"
+   "fill": 0.834,
+   "source": "vecteezy",
+   "faces": 1
   },
   {
    "id": "vecteezy-33199516#14",
@@ -172,7 +203,9 @@
    "loop": 0.98,
    "lum": 0.0,
    "walking": true,
-   "source": "vecteezy"
+   "fill": 0.867,
+   "source": "vecteezy",
+   "faces": 1
   },
   {
    "id": "vecteezy-33199516#15",
@@ -181,7 +214,9 @@
    "loop": 0.92,
    "lum": 0.0,
    "walking": true,
-   "source": "vecteezy"
+   "fill": 0.809,
+   "source": "vecteezy",
+   "faces": 1
   },
   {
    "id": "vecteezy-33199516#16",
@@ -190,25 +225,31 @@
    "loop": 0.92,
    "lum": 0.0,
    "walking": true,
-   "source": "vecteezy"
+   "fill": 0.821,
+   "source": "vecteezy",
+   "faces": 1
   },
   {
    "id": "vecteezy-68657935",
    "view": "front",
    "strideSec": 4.0,
-   "loop": 0.52,
+   "loop": 0.43,
    "lum": 0.96,
    "walking": false,
-   "source": "vecteezy"
+   "fill": 0.659,
+   "source": "vecteezy",
+   "faces": 0
   },
   {
    "id": "vecteezy-73585152",
    "view": "side",
    "strideSec": 2.2,
    "loop": 1.0,
-   "lum": 0.0,
+   "lum": 0.01,
    "walking": true,
-   "source": "vecteezy"
+   "fill": 0.725,
+   "source": "vecteezy",
+   "faces": 1
   },
   {
    "id": "vecteezy-76497518_front",
@@ -217,7 +258,8 @@
    "loop": 0.9,
    "lum": 0.0,
    "walking": true,
-   "source": "vecteezy"
+   "source": "vecteezy",
+   "faces": 0
   },
   {
    "id": "vecteezy-78421716_front",
@@ -226,7 +268,8 @@
    "loop": 1.0,
    "lum": 0.0,
    "walking": true,
-   "source": "vecteezy"
+   "source": "vecteezy",
+   "faces": 0
   }
  ]
 }

@@ -349,6 +349,29 @@ def main() -> None:
         tracks, count, (lw, lh) = follow(path)
         usable_frames = max(1, len({f for t in tracks for f in t.frames}))
         people = [t for t in tracks if len(t.frames) >= max(int(1.2 * FPS), 0.3 * usable_frames)]
+        if not people and tracks:
+            # nobody followed long enough (a dancer breaking into pieces in the same frame — Johnny, 2026-11-23): the
+            # largest blob of each frame is the one person
+            byf: dict = {}
+            for t in tracks:
+                for j, fr in enumerate(t.frames):
+                    b = t.boxes[j]
+                    area = (b[2] - b[0]) * (b[3] - b[1])
+                    if fr not in byf or area > byf[fr][0]:
+                        byf[fr] = (area, t, j)
+            order = sorted(byf)
+            if len(order) >= int(1.2 * FPS):
+                _, t0, j0 = byf[order[0]]
+                one = Track(order[0], t0.boxes[j0])
+                one.cuts, one.feet, one.masks = [t0.cuts[j0]], [t0.feet[j0]], [t0.masks[j0]]
+                for fr in order[1:]:
+                    _, tt, jj = byf[fr]
+                    one.frames.append(fr)
+                    one.boxes.append(tt.boxes[jj])
+                    one.cuts.append(tt.cuts[jj])
+                    one.feet.append(tt.feet[jj])
+                    one.masks.append(tt.masks[jj])
+                people = [one]
         # the people in reading order (rows of the frame, then left to right), as many as asked, spread evenly
         people.sort(key=lambda t: (round(np.median([b[3] for b in t.boxes]) / (0.25 * lh)), np.median([(b[0] + b[2]) / 2 for b in t.boxes])))
         if len(people) > per_clip:
@@ -430,7 +453,20 @@ def main() -> None:
                     spreads.append((xs.max() - xs.min()) / CELL_H)
             # (only a walk: a dancer's kick or a talker's stance spreads the feet too)
             side = walking and bool(spreads) and float(np.percentile(spreads, 80)) > 0.24
-            meta.append({"id": rid, "view": "side" if side and not m else view, "strideSec": round(sec, 3), "loop": round(score, 2), "lum": round(lum, 2), "walking": walking, "fill": round(float(fill), 3), "source": name.split("-")[0].lower()})
+            # which way a profile walker faces (+1 right, -1 left): the feet's middle moves forward between the sheet's
+            # frames (16 a stride: the swinging foot outruns the planted one) — checked against the crowd's 8 profile
+            # walkers, all facing right (2026-11-23)
+            faces = 0
+            if side:
+                xs = []
+                for i in range(COLS):
+                    feet = al[int(CELL_H * 0.86):, i * CELL_W:(i + 1) * CELL_W, 0]
+                    wsum = float(feet.sum())
+                    xs.append(float((feet.sum(0) * np.arange(CELL_W)).sum() / wsum) if wsum > 1 else np.nan)
+                dx = np.diff(np.array(xs + xs[:1]))
+                dx = dx[~np.isnan(dx)]
+                faces = 1 if len(dx) and float(np.median(dx)) > 0 else -1
+            meta.append({"id": rid, "view": "side" if side and not m else view, "strideSec": round(sec, 3), "loop": round(score, 2), "lum": round(lum, 2), "walking": walking, "fill": round(float(fill), 3), "faces": faces, "source": name.split("-")[0].lower()})
             print(f"{rid}: {view}, loop {sec:.2f} s (periodic {score:.2f})")
     sheet = np.concatenate(rows, 0)
     bgra = np.dstack([sheet[..., 2], sheet[..., 1], sheet[..., 0], sheet[..., 3]])
