@@ -241,8 +241,8 @@ void main() {
   float w = h * uAspect * (iE.w > 0.0 ? iE.w : 1.0);
 #ifdef SIDE
   // THE FRAME'S THICKNESS (the artist, 2026-11-23: "프레임 자체에 두께를 좀 둘 수 있나? … 옆에 빈공간이 보이는 경우"): a
-  // second card square to this one, along its normal — seen from the side it shows the body's width at each height, so
-  // the frames read as a mass, not slices; it may reach back to the copy before (the gap filled)
+  // second card square to this one, along its normal — seen from the side it shows the frame's silhouette squeezed into
+  // the thickness, so the frames read as a mass, not slices; it may reach back to the copy before (the gap filled)
   vec3 nrm = vec3(-right.z, 0.0, right.x);
   float back = (uThickFill > 0.5 && iC.z > 0.5) ? dot(vec3(iC.x, 0.0, iC.y) - feet, nrm) : 0.0;
   float lo = min(-0.5 * uThick, back), hi = max(0.5 * uThick, back);
@@ -334,16 +334,11 @@ vec4 cellB(float u, float v) {
 #ifdef SIDE
 uniform float uThickInk;
 uniform float uThickSoft;
-// the thickness's face: at each height, the body as wide as the frame shows it there (seven taps across), its colour
+// the thickness's face: the frame's own silhouette again, squeezed into the thickness — seen from the side the body keeps
+// its shape (the artist, 2026-11-23: "이것봐, 모양이 다 죽어" — the first face filled each height with the body's width,
+// a blank block)
 void main() {
-  vec4 acc = vec4(0.0);
-  float amax = 0.0;
-  for (int i = 0; i < 7; i++) {
-    vec4 c = cell(0.2 + 0.1 * float(i), vUv.y);
-    acc += vec4(c.rgb * c.a, c.a);
-    amax = max(amax, c.a);
-  }
-  vec4 t = vec4(acc.a > 1e-3 ? acc.rgb / acc.a : vec3(1.0), amax);
+  vec4 t = cell(vUv.x, vUv.y);
   // (fading towards its two ends by the softness: a blur through the space in front and behind)
   float d = abs(vUv.x - 0.5) * 2.0;
   float a = t.a * vAlpha * uThickInk * (1.0 - uThickSoft * smoothstep(0.0, 1.0, d));
