@@ -800,11 +800,11 @@ export default function FrameLab() {
   // THE CLIPS' OWN SETS (the artist, 2026-11-23: "영상마다 골라서 이동거리랑 프레임 간격 세트로 저장"): for each clip of the
   // sheet, how far a frame carries the body (m) and how long a frame is held (s) — speed = distance / interval. Saved with
   // the group, a pair of knobs a clip (keys by the clip's name, so a clip keeps its set when others are added)
-  const [clips, setClips] = useState<{ id: string; strideSec: number; loop: number; lum: number; side: boolean }[]>([]);
+  const [clips, setClips] = useState<{ id: string; strideSec: number; loop: number; lum: number; side: boolean; walking: boolean }[]>([]);
   useEffect(() => {
     loadSpriteSheet()
       .then(({ index }) =>
-        setClips(index.sheet.rows.map((r) => ({ id: r.id, strideSec: r.strideSec, loop: (r as { loop?: number }).loop ?? 1, lum: (r as { lum?: number }).lum ?? 0, side: r.view === "side" }))),
+        setClips(index.sheet.rows.map((r) => ({ id: r.id, strideSec: r.strideSec, loop: (r as { loop?: number }).loop ?? 1, lum: (r as { lum?: number }).lum ?? 0, side: r.view === "side", walking: (r as { walking?: boolean }).walking ?? true }))),
       )
       .catch(() => undefined);
   }, []);
@@ -818,8 +818,9 @@ export default function FrameLab() {
       // (defaults: what looked natural with the man's clip — 3.9 m/s with the frames at 3 × the clip's own tempo)
       const gap = c.strideSec / 16 / 3;
       s[`${i + 1} · ${c.id}`] = folder({
-        // (walking in profile — the pipeline sees the feet spread wide — is not used by default: front shots only)
-        [`ct_${ck(c.id)}`]: { options: STATES, value: (c.side || c.loop < 0.6 ? "none" : "walk") as ClipState, label: "언제 쓰나 (상태 · 미지정 = 안 씀)" },
+        // (walking in profile — the pipeline sees the feet spread wide — is not used by default: front shots only; a clip
+        // whose legs do not walk starts as standing)
+        [`ct_${ck(c.id)}`]: { options: STATES, value: (c.side ? "none" : c.walking ? "walk" : "stand") as ClipState, label: "언제 쓰나 (상태 · 미지정 = 안 씀)" },
         [`cf_${ck(c.id)}`]: { value: false, label: "좌우 뒤집기" },
         [`ch_${ck(c.id)}`]: { value: 1.72, min: 0.8, max: 2.3, step: 0.01, label: "키 (m)" },
         [`cw_${ck(c.id)}`]: { value: 1, min: 0.5, max: 1.8, step: 0.01, label: "폭 ×" },

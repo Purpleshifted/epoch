@@ -259,25 +259,36 @@ def split_wide(b: tuple, a: np.ndarray) -> list:
 
 
 def loop_of(t: Track) -> tuple:
-    """(start, frames a loop, how periodic): the legs' rhythm (a stride) or, weaker, the whole body's (a dance)."""
+    """(start, frames a loop, how periodic, walking): a stride by the legs' rhythm when the legs really move (walking,
+    running); otherwise the whole body's loop over 1.5 … 4 s (standing, talking, dancing — a short loop of a still body
+    matched best and showed nothing, 2026-11-23); a long stretch when nothing repeats."""
     M = np.stack(t.masks)
     n = len(M)
-    best = (0, min(n - 1, 16), 0.0)
-    for part in ("legs", "body"):
-        X = (M[:, 34:, :] if part == "legs" else M).reshape(n, -1)
+
+    def search(X: np.ndarray, lo: int, hi: int) -> tuple:
         X = X - X.mean(1, keepdims=True)
         nrm = np.linalg.norm(X, axis=1) + 1e-6
-        lo, hi = int(0.4 * FPS), min(int(4.0 * FPS), n // 2)
+        best = (0, max(1, min(n - 1, hi)), -1.0)
         for L in range(lo, max(lo + 1, hi)):
             if L >= n:
                 break
             c = float((np.sum(X[:-L] * X[L:], 1) / (nrm[:-L] * nrm[L:])).mean())
-            if c > best[2] + (0.0 if part == "legs" else 0.05):
-                s = [float(np.dot(X[i], X[i + L]) / (nrm[i] * nrm[i + L])) for i in range(0, n - L)]
-                best = (int(np.argmax(s[: max(1, min(len(s), 3 * FPS))])), L, c)
-        if part == "legs" and best[2] > 0.8:
-            break
-    return best
+            if c > best[2]:
+                sc = [float(np.dot(X[i], X[i + L]) / (nrm[i] * nrm[i + L])) for i in range(0, n - L)]
+                best = (int(np.argmax(sc[: max(1, min(len(sc), 3 * FPS))])), L, c)
+        return best
+
+    legs = M[:, 34:, :].reshape(n, -1)
+    # do the legs move? (a walk swaps them every half stride; a standing body's legs hardly change)
+    energy = float(np.mean(np.abs(legs[5:] - legs[:-5]))) / max(1e-4, float(np.mean(legs)))
+    if energy > 0.12:
+        s0, L0, c0 = search(legs, int(0.4 * FPS), min(int(2.4 * FPS), n // 2))
+        if c0 > 0.8:
+            return s0, L0, c0, True
+    s1, L1, c1 = search(M.reshape(n, -1), int(1.5 * FPS), min(int(4.0 * FPS), n // 2))
+    if c1 > 0.6:
+        return s1, L1, c1, False
+    return 0, min(n - 1, int(4.0 * FPS)), c1, False
 
 
 def main() -> None:
@@ -299,11 +310,11 @@ def main() -> None:
             people = [people[i] for i in pick]
         jobs = []
         for k, t in enumerate(people):
-            start, L, score = loop_of(t)
+            start, L, score, walking = loop_of(t)
             idx = [t.frames[start + int(round(i * L / COLS))] for i in range(COLS)]
             boxes = {t.frames[start + int(round(i * L / COLS))]: (t.boxes[start + int(round(i * L / COLS))], t.cuts[start + int(round(i * L / COLS))]) for i in range(COLS)}
             hmax = max(b[3] - b[1] for b in t.boxes[start:start + L + 1])
-            jobs.append((k, t, idx, boxes, hmax, L / FPS, score))
+            jobs.append((k, t, idx, boxes, hmax, L / FPS, score, walking))
         need = {f for j in jobs for f in j[2]}
         W, H, _ = probe(path)
         s = H / lh
@@ -313,7 +324,7 @@ def main() -> None:
                 continue
             im, matte = split_rgba(im4)
             bg = backdrop(im) if matte is None else np.array([1.0, 1.0, 1.0], np.float32)
-            for k, t, idx, boxes, hmax, _, _ in jobs:
+            for k, t, idx, boxes, hmax, _, _, _ in jobs:
                 if f not in boxes:
                     continue
                 b, (cl, cr) = boxes[f]
@@ -339,7 +350,7 @@ def main() -> None:
                 for i, ff in enumerate(idx):
                     if ff == f:
                         cells[k][:, i * CELL_W:(i + 1) * CELL_W] = rgba
-        for k, t, idx, boxes, hmax, sec, score in jobs:
+        for k, t, idx, boxes, hmax, sec, score, walking in jobs:
             row = cells[k]
             al = row[..., 3:4]
             rgb = np.where(al > 0.004, row[..., :3] / np.maximum(al, 1e-3), 0.0).clip(0, 1)
@@ -360,8 +371,9 @@ def main() -> None:
                 xs = np.where(feet.any(0))[0]
                 if len(xs):
                     spreads.append((xs.max() - xs.min()) / CELL_H)
-            side = bool(spreads) and float(np.percentile(spreads, 80)) > 0.24
-            meta.append({"id": rid, "view": "side" if side and not m else view, "strideSec": round(sec, 3), "loop": round(score, 2), "lum": round(lum, 2), "source": name.split("-")[0].lower()})
+            # (only a walk: a dancer's kick or a talker's stance spreads the feet too)
+            side = walking and bool(spreads) and float(np.percentile(spreads, 80)) > 0.24
+            meta.append({"id": rid, "view": "side" if side and not m else view, "strideSec": round(sec, 3), "loop": round(score, 2), "lum": round(lum, 2), "walking": walking, "source": name.split("-")[0].lower()})
             print(f"{rid}: {view}, loop {sec:.2f} s (periodic {score:.2f})")
     sheet = np.concatenate(rows, 0)
     bgra = np.dstack([sheet[..., 2], sheet[..., 1], sheet[..., 0], sheet[..., 3]])
