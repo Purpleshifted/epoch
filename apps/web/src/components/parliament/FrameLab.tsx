@@ -62,6 +62,25 @@ interface ClipSet {
   offset: number;
 }
 type Facing = "eye" | "along" | "across";
+/** A walker's state for its afterimages: moving, moving fast, standing, talking. */
+type StateKey = "walk" | "run" | "stand" | "talk";
+/** How a state's afterimages are left and age: how long they stay (s), their ink, how many and how far apart in time
+ *  (when copies are left by time, not by samples), the frames between two of them (count, ink ×), and with their age —
+ *  size ×, rise (m), scatter (m), turn (rad), colour faded, blur (a share of the frame's width). */
+interface Trail {
+  life: number;
+  ink: number;
+  copies: number;
+  gap: number;
+  betweenN: number;
+  betweenInk: number;
+  scale: number;
+  rise: number;
+  scatter: number;
+  turn: number;
+  desat: number;
+  blur: number;
+}
 
 interface Look {
   count: number;
@@ -72,19 +91,16 @@ interface Look {
   clips: ClipSet[];
   row: number;
   standShare: number;
+  /** How fast people go: 0 by the clips' sets, 1 each their own speed (base ± variety); faster than runFrom they run. */
+  speedMode: number;
+  speedBase: number;
+  speedVar: number;
+  runFrom: number;
   /** The card turned from its walking direction (rad); what fills between two copies (0 none · 2 a count of frames · 3 one per frame time). */
   yaw: number;
   between: number;
-  betweenN: number;
-  betweenInk: number;
-  /** With a copy's age (0 now … 1 at its life's end): size ×, rise (m), scatter (m), turn (rad), colour faded (0 … 1). */
-  ageScale: number;
-  ageRise: number;
-  ageScatter: number;
-  ageTurn: number;
-  ageDesat: number;
-  /** The oldest copy's blur (a share of the frame's width). */
-  ageBlur: number;
+  /** The afterimages by the walker's state (the artist, 2026-11-23: "서있을 때 잔상 날리는 거랑 처리하는 것도 따로 모드별로"). */
+  trails: Record<StateKey, Trail>;
   /** The colour flowing inside: how much, three colours, the size of a wave, its speed, along what (0 height · 1 space ·
    *  2 age), how much it wavers. */
   gradAmt: number;
@@ -101,12 +117,8 @@ interface Look {
   stamp: boolean;
   sampleSec: number;
   dashSec: number;
-  copies: number;
-  gapSec: number;
-  lifeSec: number;
   fall: number;
   ink: number;
-  trailInk: number;
   facing: Facing;
   stretch: number;
   stretchKind: number; // 0 streak · 1 widen the frame
@@ -159,6 +171,7 @@ attribute vec4 iB;         // row, frame, mirror, heading
 attribute vec4 iC;         // previous copy x, z, has one (0/1), lift (m)
 attribute vec4 iD;         // colour faded (0 … 1), the clip's colour laid over (0 … 1), age (0 … 1), colour combination
 attribute vec4 iE;         // the clip's colour (linear rgb), width ×
+attribute vec4 iF;         // blur at this card's age (a share of the frame's width), 0, 0, 0
 varying vec2 vUv;          // the frame's own u (may run outside 0 … 1 on the stretched side), v
 varying float vAlpha;
 varying float vSide;       // the trailing side (−1 left, +1 right) in the card's own u
@@ -170,6 +183,7 @@ flat varying vec4 vTint;
 varying vec3 vWorld;
 flat varying float vAge;
 flat varying float vPal;
+flat varying float vBlur;
 void main() {
   vec3 feet = vec3(iA.x, 0.0, iA.y);
   vec3 right;
@@ -204,6 +218,7 @@ void main() {
   vWorld = p;
   vAge = iD.z;
   vPal = iD.w;
+  vBlur = iF.x;
 }`;
 
 const FRAG = /* glsl */ `
@@ -214,7 +229,7 @@ uniform float uSlit;
 uniform float uStretchKind;
 uniform float uStreakSoft;
 uniform float uMultiply;
-uniform float uAgeBlur;   // the oldest copy's blur (a share of the frame's width)
+flat varying float vBlur; // this card's blur (its state's, at its age)
 varying vec2 vUv;
 varying float vAlpha;
 varying float vSide;
@@ -239,7 +254,7 @@ vec4 cell(float u, float v) {
 // an old copy blurred (the artist, 2026-11-23: "오래된 잔상에는 블러"): two rings of taps round the point, their radius the
 // copy's age × the knob (the body now stays sharp)
 vec4 cellB(float u, float v) {
-  float r = uAgeBlur * vAge;
+  float r = vBlur;
   if (r < 0.002) return cell(u, v);
   vec4 acc = cell(u, v) * 0.2;
   for (int i = 0; i < 8; i++) {
@@ -328,7 +343,6 @@ function makeMaterial(): THREE.ShaderMaterial {
       uStretchKind: { value: 0 },
       uStreakSoft: { value: 0.6 },
       uMultiply: { value: 1 },
-      uAgeBlur: { value: 0 },
       uEdgeTh: { value: 0.15 },
       ...gradUniforms(),
     },
@@ -406,7 +420,7 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
     const g = new THREE.InstancedBufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(new Float32Array([-0.5, 0, 0, 0.5, 0, 0, 0.5, 1, 0, -0.5, 1, 0]), 3));
     g.setIndex([0, 1, 2, 0, 2, 3]);
-    for (const name of ["iA", "iB", "iC", "iD", "iE"]) g.setAttribute(name, new THREE.InstancedBufferAttribute(new Float32Array(MAX_CARDS * 4), 4).setUsage(THREE.DynamicDrawUsage));
+    for (const name of ["iA", "iB", "iC", "iD", "iE", "iF"]) g.setAttribute(name, new THREE.InstancedBufferAttribute(new Float32Array(MAX_CARDS * 4), 4).setUsage(THREE.DynamicDrawUsage));
     g.instanceCount = 0;
     g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
     return g;
@@ -463,15 +477,32 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
     const CL = L.clips;
     const rowsOf = (...st: ClipState[]) => CL.map((c, i) => (st.includes(c.state) ? i : -1)).filter((i) => i >= 0);
     const byHash = (list: number[], h: number) => (list.length ? list[Math.floor(frac(h * 13.7) * list.length) % list.length] : 0);
-    const walkRows = rowsOf("walk"), runRows = rowsOf("run"), standRows = rowsOf("stand", "talk"), noneRows = rowsOf("none");
-    const allRows = CL.map((_, i) => i);
+    /** The state a walker's afterimages follow: standing (talking, when its clip is for talking) or moving (fast, when
+     *  its clip runs). */
+    const stateOf = (w: Walker): StateKey => {
+      const st = CL[w.home]?.state;
+      return w.standing ? (st === "talk" ? "talk" : "stand") : st === "run" ? "run" : "walk";
+    };
+    const keepSec = Math.max(...Object.values(L.trails).map((t) => Math.max(t.life, t.copies * t.gap)));
+    // (a clip left 미지정 is never chosen — the artist, 2026-11-23: "미지정 하면 그 클립은 안 쓰는 걸로"; a state with no clip
+    // of its own borrows any clip that is in use; none in use: nobody is drawn)
+    const walkRows = rowsOf("walk"), runRows = rowsOf("run"), standRows = rowsOf("stand", "talk");
+    const usedRows = rowsOf("walk", "run", "stand", "talk");
     for (const w of W) {
       w.standing = frac(w.hash * 5.1) < L.standShare;
-      w.home = L.row > 0 ? Math.min(CL.length, L.row) - 1 : w.standing ? byHash(standRows.length ? standRows : noneRows.length ? noneRows : allRows, w.hash) : byHash(walkRows.length ? walkRows : runRows.length ? runRows : allRows, w.hash);
+      // THE SPEED (the artist, 2026-11-23: "속도 threshold 정해서 특정 수준 이상은 '뛰기'에 넣고, 뛰기 케이스는 내가 따로 지정"):
+      // by the clips' own sets (for matching a clip), or each person their own speed — above the threshold they run, and
+      // take a clip set as running
+      const vOwn = L.speedBase * Math.max(0.1, 1 + L.speedVar * (frac(w.hash * 11.3) * 2 - 1));
+      const fast = L.speedMode === 1 && !w.standing && vOwn >= L.runFrom;
+      const moving = fast ? (runRows.length ? runRows : walkRows.length ? walkRows : usedRows) : walkRows.length ? walkRows : runRows.length ? runRows : usedRows;
+      w.home = L.row > 0 ? Math.min(CL.length, L.row) - 1 : w.standing ? byHash(standRows.length ? standRows : usedRows, w.hash) : byHash(moving, w.hash);
+      if (L.row === 0 && !usedRows.length) w.home = -1;
       const set = CL[w.home];
-      const still = w.standing || (set && (set.state === "stand" || set.state === "talk" || set.state === "none") && L.row > 0 && false);
-      w.speed = !set || still || set.state === "stand" || set.state === "talk" ? 0 : set.dist / Math.max(1e-3, set.gap);
-      w.gap = set ? set.gap : 0.04;
+      const still = w.standing || !set || set.state === "stand" || set.state === "talk";
+      w.speed = still ? 0 : L.speedMode === 1 ? vOwn : set.dist / Math.max(1e-3, set.gap);
+      // (the frames follow the speed: a frame for each of the clip's own steps, so the feet keep to the ground)
+      w.gap = !set ? 0.04 : w.speed > 0 && L.speedMode === 1 ? set.dist / w.speed : set.gap;
     }
     W.forEach((w, i) => {
       // move
@@ -507,7 +538,7 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
         w.lastHist = now;
         w.hist.push({ t: now, x: w.x, z: w.z, h: w.h, ph: w.ph });
       }
-      const keep = now - Math.max(L.lifeSec, L.copies * L.gapSec) - 0.5;
+      const keep = now - keepSec - 0.5;
       let drop = 0;
       while (drop < w.hist.length && w.hist[drop].t < keep) drop++;
       if (drop) w.hist.splice(0, drop);
@@ -515,7 +546,7 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
         w.lastSample = now;
         w.stamps.unshift({ t: now, x: w.x, z: w.z, h: w.h, ph: w.ph });
       }
-      while (w.stamps.length && now - w.stamps[w.stamps.length - 1].t > L.lifeSec + L.sampleSec) w.stamps.pop();
+      while (w.stamps.length && now - w.stamps[w.stamps.length - 1].t > L.trails[stateOf(w)].life + L.sampleSec) w.stamps.pop();
     });
     // the cards
     const A = (geom.getAttribute("iA") as THREE.InstancedBufferAttribute).array as Float32Array;
@@ -523,6 +554,7 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
     const C = (geom.getAttribute("iC") as THREE.InstancedBufferAttribute).array as Float32Array;
     const Dd = (geom.getAttribute("iD") as THREE.InstancedBufferAttribute).array as Float32Array;
     const Ee = (geom.getAttribute("iE") as THREE.InstancedBufferAttribute).array as Float32Array;
+    const Ff = (geom.getAttribute("iF") as THREE.InstancedBufferAttribute).array as Float32Array;
 
     let n = 0;
     const I = idx.current;
@@ -531,26 +563,27 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
      *  one), mirrored by the clip's knob and, for variety, by the walker. */
     const rowFor = (w: Walker): { row: number; mirror: number } => ({ row: w.home, mirror: (CL[w.home]?.flip ? -1 : 1) * (frac(w.hash * 3.3) > 0.5 ? -1 : 1) });
     /** One card: a copy (or the body now) at its place, its age 0 … 1, the copy before it (for the stretch). */
-    const put = (w: Walker, s: Stamp, alpha: number, prev: Stamp | null, u: number) => {
-      if (n >= MAX_CARDS || alpha < 0.004 || !I) return;
+    const put = (w: Walker, s: Stamp, alpha: number, prev: Stamp | null, u: number, T: Trail) => {
+      if (n >= MAX_CARDS || alpha < 0.004 || !I || w.home < 0) return;
       const pick = rowFor(w);
       const set = CL[pick.row];
       // with age: scattered sideways (each copy its own way), grown or shrunk, risen or sunk, turned, faded in colour
       const seedA = frac(Math.sin(s.t * 12.9898 + w.hash * 78.233) * 43758.5453) * TAU;
-      A[n * 4] = s.x + Math.sin(seedA) * L.ageScatter * u;
-      A[n * 4 + 1] = s.z + Math.cos(seedA) * L.ageScatter * u;
-      A[n * 4 + 2] = (set?.height ?? 1.72) * (0.97 + 0.06 * w.hash) * (1 + (L.ageScale - 1) * u);
+      A[n * 4] = s.x + Math.sin(seedA) * T.scatter * u;
+      A[n * 4 + 1] = s.z + Math.cos(seedA) * T.scatter * u;
+      A[n * 4 + 2] = (set?.height ?? 1.72) * (0.97 + 0.06 * w.hash) * (1 + (T.scale - 1) * u);
       A[n * 4 + 3] = alpha * (set?.ink ?? 1);
       B[n * 4] = pick.row;
       const ph = (set?.reverse ? -s.ph : s.ph) + (set?.offset ?? 0);
       B[n * 4 + 1] = (((ph % 1) + 1) % 1) * cols;
       B[n * 4 + 2] = pick.mirror;
-      B[n * 4 + 3] = s.h + L.yaw + L.ageTurn * u;
+      B[n * 4 + 3] = s.h + L.yaw + T.turn * u;
       C[n * 4] = prev ? prev.x : 0;
       C[n * 4 + 1] = prev ? prev.z : 0;
       C[n * 4 + 2] = prev ? 1 : 0;
-      C[n * 4 + 3] = L.ageRise * u + (set?.lift ?? 0);
-      Dd[n * 4] = L.ageDesat * u;
+      C[n * 4 + 3] = T.rise * u + (set?.lift ?? 0);
+      Dd[n * 4] = T.desat * u;
+      Ff[n * 4] = T.blur * u;
       Dd[n * 4 + 1] = set?.tintAmt ?? 0;
       Dd[n * 4 + 2] = u;
       // the colour combination: one for all, or each walker their own
@@ -570,6 +603,7 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
       return { t: a.t + (b.t - a.t) * f, x: a.x + (b.x - a.x) * f, z: a.z + (b.z - a.z) * f, h: a.h + dh * f, ph: a.ph + dp * f };
     };
     for (const w of W) {
+      const T = L.trails[stateOf(w)];
       // the copies, oldest first, each reaching towards the one before it
       const list: { s: Stamp; age: number }[] = [];
       if (L.stamp) {
@@ -584,45 +618,45 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
           let dh = s0.h - from.h;
           dh = ((((dh + Math.PI) % TAU) + TAU) % TAU) - Math.PI;
           const tAt = from.t + (s0.t - from.t) * e;
-          const set = CL[w.home];
-          const ph = from.ph + (tAt - from.t) / Math.max(1e-3, (set?.gap ?? 0.04) * cols);
+          // (the walker's own frame time — its speed over the clip's step — so the feet keep to the ground)
+          const ph = from.ph + (tAt - from.t) / Math.max(1e-3, w.gap * cols);
           list.push({ s: { t: tAt, x: from.x + (s0.x - from.x) * e, z: from.z + (s0.z - from.z) * e, h: from.h + dh * e, ph }, age: 0 });
         }
       } else {
-        for (let k = L.copies; k >= 1; k--) {
-          const hh = histAt(w.hist, now - k * L.gapSec);
-          if (hh) list.push({ s: hh, age: k * L.gapSec });
+        for (let k = T.copies; k >= 1; k--) {
+          const hh = histAt(w.hist, now - k * T.gap);
+          if (hh) list.push({ s: hh, age: k * T.gap });
         }
         list.push({ s: { t: now, x: w.x, z: w.z, h: w.h, ph: w.ph }, age: 0 });
       }
       let prev: Stamp | null = null;
       let prevAlpha = 0;
       let prevAge = 0;
-      const life = Math.max(0.05, L.lifeSec);
+      const life = Math.max(0.05, T.life);
       for (const { s, age } of list) {
         const isNow = age === 0;
         const fade = isNow ? 1 : Math.pow(Math.max(0, 1 - age / life), L.fall);
-        const alpha = (isNow ? L.ink : L.trailInk) * fade;
+        const alpha = (isNow ? L.ink : T.ink) * fade;
         // between this copy and the one before: frames of its own in between (place, step, way and age carried over)
         let last = prev;
-        if (prev && (L.between === 2 || L.between === 3) && Math.hypot(s.x - prev.x, s.z - prev.z) > 1e-3) {
+        // (standing, copies stand on one spot: in-betweens there only when their age effects move them apart)
+        if (prev && (L.between === 2 || L.between === 3) && (Math.hypot(s.x - prev.x, s.z - prev.z) > 1e-3 || T.rise !== 0 || T.scatter > 0)) {
           // 3 — BY THE CLIP'S OWN BEAT (the artist, 2026-11-23: "사이를 메우는 게, 걷는 속도랑 프레임 머무는 시간이랑 매치가
           // 되어야"): one card for each time a frame of the clip is held between the two copies — at the place the body
           // was then, the clip's next frame each (the phase counted on by time, never the short way round); 2 — a count
-          const set = CL[w.home];
           const span = Math.max(0, s.t - prev.t);
-          const nIn = L.between === 3 ? Math.min(80, Math.max(0, Math.round(span / Math.max(1e-3, set?.gap ?? 0.04)) - 1)) : L.betweenN;
+          const nIn = L.between === 3 ? Math.min(80, Math.max(0, Math.round(span / Math.max(1e-3, w.gap)) - 1)) : T.betweenN;
           for (let k = 1; k <= nIn; k++) {
             const f = k / (nIn + 1);
             const mid = lerpStamp(prev, s, f);
             // (the step counted on by time in both ways — a short-way-round blend ran the walk backwards)
-            if (set) mid.ph = prev.ph + (f * span) / Math.max(1e-3, set.gap * cols);
+            mid.ph = prev.ph + (f * span) / Math.max(1e-3, w.gap * cols);
             const ag = prevAge + (age - prevAge) * f;
-            put(w, mid, (prevAlpha + (alpha - prevAlpha) * f) * L.betweenInk, last, Math.min(1, ag / life));
+            put(w, mid, (prevAlpha + (alpha - prevAlpha) * f) * T.betweenInk, last, Math.min(1, ag / life), T);
             last = mid;
           }
         }
-        put(w, s, alpha, last, Math.min(1, age / life));
+        put(w, s, alpha, last, Math.min(1, age / life), T);
         prev = s;
         prevAlpha = alpha;
         prevAge = age;
@@ -631,7 +665,7 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
     geom.instanceCount = n;
     // (a readout for the console, like __street)
     (window as unknown as { __frames?: unknown }).__frames = { cards: n, walkers: W.length, sheet: I ? I.sheet.rows.length : 0 };
-    for (const name of ["iA", "iB", "iC", "iD", "iE"]) {
+    for (const name of ["iA", "iB", "iC", "iD", "iE", "iF"]) {
       const at = geom.getAttribute(name) as THREE.InstancedBufferAttribute;
       at.addUpdateRange(0, n * 4);
       at.needsUpdate = true;
@@ -646,7 +680,6 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
       g.uGradDir.value = L.gradDir;
       g.uGradWarp.value = L.gradWarp;
       g.uTime.value = now;
-      if (g.uAgeBlur) g.uAgeBlur.value = L.ageBlur;
       if (g.uEdgeTh) g.uEdgeTh.value = L.edgeTh;
     }
     const u = mat.uniforms;
@@ -684,6 +717,16 @@ const PALETTE_DEFAULTS: readonly (readonly [string, string, string])[] = [
   ["#2f6b3a", "#c8f560", "#f4f1e8"],
   ["#111111", "#8a8a8a", "#f0f0f0"],
 ];
+
+const STATE_NAMES: Record<StateKey, string> = { walk: "이동 중", run: "빠르게 이동", stand: "서 있을 때", talk: "소통 중" };
+/** Each state's afterimages to begin with (the turn in degrees): walking and running leave a trail; standing ones blow
+ *  away — rising, scattering, growing a little, fading and blurring (the artist: "서있을 때 잔상 날리는"). */
+const TRAIL_DEFAULTS: Record<StateKey, Omit<Trail, "turn"> & { turn: number }> = {
+  walk: { life: 2, ink: 0.45, copies: 10, gap: 0.12, betweenN: 6, betweenInk: 0.5, scale: 1, rise: 0, scatter: 0, turn: 0, desat: 0, blur: 0.08 },
+  run: { life: 1.2, ink: 0.4, copies: 10, gap: 0.08, betweenN: 6, betweenInk: 0.5, scale: 1, rise: 0, scatter: 0, turn: 0, desat: 0, blur: 0.12 },
+  stand: { life: 3, ink: 0.35, copies: 8, gap: 0.35, betweenN: 4, betweenInk: 0.4, scale: 1.12, rise: 0.7, scatter: 0.5, turn: 12, desat: 0.4, blur: 0.22 },
+  talk: { life: 2.5, ink: 0.4, copies: 8, gap: 0.3, betweenN: 4, betweenInk: 0.4, scale: 1.05, rise: 0.25, scatter: 0.25, turn: 0, desat: 0.2, blur: 0.15 },
+};
 
 const STATES: Record<string, ClipState> = { "이동 중 (걷기)": "walk", "빠르게 이동 (뛰기)": "run", "서 있을 때 (머무름)": "stand", "소통 중 (말 걸기 · 응답)": "talk", "미지정": "none" };
 const PATHS: Record<string, Path> = { "가로지름 (옆으로 지나감)": "across", "원 (나를 둘러 돔)": "circle", "다가옴 · 멀어짐": "toward", "흩어진 산책": "wander" };
@@ -780,6 +823,10 @@ export default function FrameLab() {
       "사람": folder({
         flCount: { value: 3, min: 1, max: 24, step: 1, label: "사람 수" },
         flStand: { value: 0, min: 0, max: 1, step: 0.05, label: "멈춰 있는 사람의 몫 (서 있음·소통 클립)" },
+        flSpeedMode: { options: { "클립 세트대로 (클립 맞추기)": 0, "사람마다 빠르기 지정 — 문턱 넘으면 뛰기": 1 }, value: 0, label: "빠르기 정하는 법" },
+        flSpeedBase: { value: 1.6, min: 0.2, max: 8, step: 0.05, label: "빠르기 (m/s, 지정일 때)" },
+        flSpeedVar: { value: 0.6, min: 0, max: 1, step: 0.05, label: "사람마다 빠르기 차이 (±)" },
+        flRunFrom: { value: 2.5, min: 0.5, max: 8, step: 0.05, label: "뛰기 문턱 (m/s) — 넘으면 '빠르게 이동' 클립" },
         flPath: { options: PATHS, value: "across" as Path, label: "길" },
         flSpread: { value: 1.6, min: 0, max: 6, step: 0.1, label: "사람 사이 간격 (m)" },
         flDist: { value: 6, min: 1, max: 20, step: 0.5, label: "나와의 거리 (m)" },
@@ -789,12 +836,8 @@ export default function FrameLab() {
         flStamp: { value: true, label: "표본마다 슉 — 위치가 도착할 때 쓸려 가며 그 자리에 잔상 (끄면: 이어 걷고 일정 시간마다 잔상)" },
         flSample: { value: 0.5, min: 0.1, max: 2, step: 0.05, label: "슉: 위치가 도착하는 간격 (s)" },
         flDash: { value: 0.12, min: 0.02, max: 0.5, step: 0.01, label: "슉 — 쓸려 가는 시간 (s)" },
-        flCopies: { value: 10, min: 0, max: 60, step: 1, label: "일정 시간마다: 남는 잔상 수" },
-        flGap: { value: 0.12, min: 0.02, max: 1, step: 0.01, label: "일정 시간마다: 잔상 사이 시간 (s)" },
-        flLife: { value: 2, min: 0.1, max: 10, step: 0.1, label: "잔상이 남는 시간 (s)" },
         flFall: { value: 1.3, min: 0.3, max: 4, step: 0.05, label: "잔상이 옅어지는 곡선" },
         flInk: { value: 1, min: 0.1, max: 1, step: 0.05, label: "지금 몸의 진하기" },
-        flTrailInk: { value: 0.45, min: 0, max: 1, step: 0.05, label: "잔상의 진하기" },
       }),
       "늘어놓기": folder({
         flFacing: { options: FACINGS, value: "across" as Facing, label: "프레임이 서는 방향" },
@@ -802,8 +845,6 @@ export default function FrameLab() {
         // (the artist, 2026-11-23: "사이 프레임은 박자보단 개수가 낫다")
         flBetween: { options: { "사이 프레임 — 개수로": 2, "사이 프레임 — 클립 박자대로 (영상 한 장마다 한 판)": 3, "없음": 0 }, value: 2, label: "잔상 사이 채우기" },
         // (by the clip's beat the count follows from the time between two copies and the clip's frame time)
-        flBetweenN: { value: 6, min: 0, max: 30, step: 1, label: "사이 프레임 수 (개수로일 때)" },
-        flBetweenInk: { value: 0.5, min: 0, max: 1, step: 0.05, label: "사이 프레임 진하기 (잔상에 곱함)" },
         flStretch: { value: 1, min: 0, max: 1.5, step: 0.05, label: "늘어짐 — 나를 향함·진행 방향을 따라일 때만 (이전 프레임까지, 상대 각도만큼)" },
         flKind: { options: { "번짐 — 몸 가운데가 옆으로 끌림": 0, "프레임 자체가 넓어짐": 1 }, value: 0, label: "늘어나는 방식" },
         flSoft: { value: 0.8, min: 0.05, max: 4, step: 0.05, label: "번짐 길이 (프레임 폭)" },
@@ -825,14 +866,33 @@ export default function FrameLab() {
         flGradSpeed: { value: 1, min: 0, max: 6, step: 0.05, label: "출렁이는 속도" },
         flGradWarp: { value: 0.6, min: 0, max: 3, step: 0.05, label: "일렁임" },
       }),
-      "잔상의 나이에 따라": folder({
-        flAgeScale: { value: 1, min: 0.3, max: 2, step: 0.01, label: "크기 × (가장 오래된 것)" },
-        flAgeRise: { value: 0, min: -1.5, max: 1.5, step: 0.01, label: "떠오름 (+) · 가라앉음 (−) (m)" },
-        flAgeScatter: { value: 0, min: 0, max: 3, step: 0.01, label: "옆으로 흩어짐 (m)" },
-        flAgeTurn: { value: 0, min: -180, max: 180, step: 1, label: "돌아감 (°)" },
-        flAgeDesat: { value: 0, min: 0, max: 1, step: 0.05, label: "색이 바램" },
-        flAgeBlur: { value: 0.08, min: 0, max: 0.4, step: 0.005, label: "흐려짐 (가장 오래된 것 · 프레임 폭 비율)" },
-      }),
+      // the afterimages by state (each its own folder; standing ones blow away by default)
+      ...Object.fromEntries(
+        (Object.keys(TRAIL_DEFAULTS) as StateKey[]).map((st) => {
+          const d = TRAIL_DEFAULTS[st];
+          const k = (n: string) => `t_${st}_${n}`;
+          return [
+            `잔상 · ${STATE_NAMES[st]}`,
+            folder(
+              {
+                [k("life")]: { value: d.life, min: 0.1, max: 10, step: 0.1, label: "남는 시간 (s)" },
+                [k("ink")]: { value: d.ink, min: 0, max: 1, step: 0.05, label: "진하기" },
+                [k("copies")]: { value: d.copies, min: 0, max: 60, step: 1, label: "일정 시간마다: 잔상 수" },
+                [k("gap")]: { value: d.gap, min: 0.02, max: 1.5, step: 0.01, label: "일정 시간마다: 잔상 사이 시간 (s)" },
+                [k("betweenN")]: { value: d.betweenN, min: 0, max: 30, step: 1, label: "사이 프레임 수" },
+                [k("betweenInk")]: { value: d.betweenInk, min: 0, max: 1, step: 0.05, label: "사이 프레임 진하기 ×" },
+                [k("scale")]: { value: d.scale, min: 0.3, max: 2.5, step: 0.01, label: "나이 들며: 크기 ×" },
+                [k("rise")]: { value: d.rise, min: -2, max: 3, step: 0.01, label: "나이 들며: 떠오름 (+) · 가라앉음 (−) (m)" },
+                [k("scatter")]: { value: d.scatter, min: 0, max: 4, step: 0.01, label: "나이 들며: 흩어짐 (m)" },
+                [k("turn")]: { value: d.turn, min: -180, max: 180, step: 1, label: "나이 들며: 돌아감 (°)" },
+                [k("desat")]: { value: d.desat, min: 0, max: 1, step: 0.05, label: "나이 들며: 색이 바램" },
+                [k("blur")]: { value: d.blur, min: 0, max: 0.4, step: 0.005, label: "나이 들며: 흐려짐 (프레임 폭 비율)" },
+              },
+              { collapsed: st !== "walk" && st !== "stand" },
+            ),
+          ];
+        }),
+      ),
     }),
     { collapsed: false },
   ) as unknown as Record<string, unknown>;
@@ -844,16 +904,19 @@ export default function FrameLab() {
     clips: sets,
     row: pick,
     standShare: Number(c.flStand),
+    speedMode: Number(c.flSpeedMode),
+    speedBase: Number(c.flSpeedBase),
+    speedVar: Number(c.flSpeedVar),
+    runFrom: Number(c.flRunFrom),
     yaw: (Number(c.flYaw) * Math.PI) / 180,
     between: Number(c.flBetween),
-    betweenN: Number(c.flBetweenN),
-    betweenInk: Number(c.flBetweenInk),
-    ageScale: Number(c.flAgeScale),
-    ageRise: Number(c.flAgeRise),
-    ageScatter: Number(c.flAgeScatter),
-    ageTurn: (Number(c.flAgeTurn) * Math.PI) / 180,
-    ageDesat: Number(c.flAgeDesat),
-    ageBlur: Number(c.flAgeBlur),
+    trails: Object.fromEntries(
+      (Object.keys(TRAIL_DEFAULTS) as StateKey[]).map((st) => {
+        const d = TRAIL_DEFAULTS[st];
+        const g = (n: keyof Trail) => Number(c[`t_${st}_${n}`] ?? d[n]);
+        return [st, { life: g("life"), ink: g("ink"), copies: g("copies"), gap: g("gap"), betweenN: g("betweenN"), betweenInk: g("betweenInk"), scale: g("scale"), rise: g("rise"), scatter: g("scatter"), turn: (g("turn") * Math.PI) / 180, desat: g("desat"), blur: g("blur") }];
+      }),
+    ) as Record<StateKey, Trail>,
     gradAmt: Number(c.flGradAmt),
     pals: PALETTE_DEFAULTS.flatMap((d, i) => d.map((hex, j) => String(c[`flP${i + 1}${"abc"[j]}`] ?? hex))),
     gradPick: Number(c.flGradPick),
@@ -865,12 +928,8 @@ export default function FrameLab() {
     stamp: !!c.flStamp,
     sampleSec: Number(c.flSample),
     dashSec: Number(c.flDash),
-    copies: Number(c.flCopies),
-    gapSec: Number(c.flGap),
-    lifeSec: Number(c.flLife),
     fall: Number(c.flFall),
     ink: Number(c.flInk),
-    trailInk: Number(c.flTrailInk),
     facing: c.flFacing as Facing,
     stretch: Number(c.flStretch),
     stretchKind: Number(c.flKind),

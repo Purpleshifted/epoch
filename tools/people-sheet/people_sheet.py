@@ -281,8 +281,9 @@ def loop_of(t: Track) -> tuple:
     legs = M[:, 34:, :].reshape(n, -1)
     # do the legs move? (a walk swaps them every half stride; a standing body's legs hardly change)
     energy = float(np.mean(np.abs(legs[5:] - legs[:-5]))) / max(1e-4, float(np.mean(legs)))
-    if energy > 0.12:
-        s0, L0, c0 = search(legs, int(0.4 * FPS), min(int(2.4 * FPS), n // 2))
+    # (a walking stride takes 0.6 s or more — a running one ~0.7 s; a talker's weight shift matched at 0.4 s)
+    if energy > 0.15:
+        s0, L0, c0 = search(legs, int(0.6 * FPS), min(int(2.4 * FPS), n // 2))
         if c0 > 0.8:
             return s0, L0, c0, True
     s1, L1, c1 = search(M.reshape(n, -1), int(1.5 * FPS), min(int(4.0 * FPS), n // 2))
@@ -292,12 +293,34 @@ def loop_of(t: Track) -> tuple:
 
 
 def main() -> None:
-    src, out = sys.argv[1], sys.argv[2]
-    per_clip = int(sys.argv[3]) if len(sys.argv) > 3 else 16
+    """INCREMENTAL (the artist keeps adding clips): the sheet already in `out` is read; a clip already in it is kept as it
+    is, a new clip is cut and added, a clip no longer in the folder is dropped; `--redo=<part of a name>` cuts that clip
+    again. Rows stay in the clips' name order."""
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    redo = [a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--redo=")]
+    src, out = args[0], args[1]
+    per_clip = int(args[2]) if len(args) > 2 else 16
     os.makedirs(out, exist_ok=True)
+    old_rows: dict = {}
+    try:
+        with open(os.path.join(out, "people.json")) as fi:
+            old_meta = json.load(fi)
+        old_img = cv2.imread(os.path.join(out, "people.png"), cv2.IMREAD_UNCHANGED)
+        if old_img is not None and old_meta.get("cellW") == CELL_W and old_meta.get("cellH") == CELL_H:
+            rgba = np.dstack([old_img[..., 2], old_img[..., 1], old_img[..., 0], old_img[..., 3]]).astype(np.float32) / 255.0
+            for i, r in enumerate(old_meta["rows"]):
+                old_rows.setdefault(r["id"].split("#")[0], []).append((r, rgba[i * CELL_H:(i + 1) * CELL_H]))
+    except (OSError, ValueError, KeyError):
+        old_rows = {}
     rows, meta = [], []
     for path in sorted(glob.glob(os.path.join(src, "*.mp4")) + glob.glob(os.path.join(src, "*.mov"))):
         name = os.path.splitext(os.path.basename(path))[0]
+        if name in old_rows and not any(r in name for r in redo):
+            for r, img in old_rows[name]:
+                meta.append(r)
+                rows.append(img)
+            print(f"{name}: kept ({len(old_rows[name])})")
+            continue
         m = re.search(r"_(back|front|side|stand)$", name)
         view = m.group(1) if m else "front"
         tracks, count, (lw, lh) = follow(path)
