@@ -698,7 +698,8 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
           for (let k = 1; k <= nIn; k++) {
             const f = k / (nIn + 1);
             const mid = lerpStamp(prev, s, f);
-            if (L.between === 3 && set) mid.ph = prev.ph + (f * span) / Math.max(1e-3, set.gap * cols);
+            // (the step counted on by time in both ways — a short-way-round blend ran the walk backwards)
+            if (set) mid.ph = prev.ph + (f * span) / Math.max(1e-3, set.gap * cols);
             const ag = prevAge + (age - prevAge) * f;
             put(w, mid, (prevAlpha + (alpha - prevAlpha) * f) * L.betweenInk, last, Math.min(1, ag / life));
             last = mid;
@@ -900,7 +901,8 @@ export default function FrameLab() {
       "늘어놓기": folder({
         flFacing: { options: FACINGS, value: "across" as Facing, label: "프레임이 서는 방향" },
         flYaw: { value: 0, min: -90, max: 90, step: 1, label: "판 기울기 — 진행 방향에서 튼 각도 (°)" },
-        flBetween: { options: { "사이 프레임 — 클립 박자대로 (영상 한 장마다 한 판, 걷기 세트와 맞음)": 3, "사이 프레임 — 개수로": 2, "띠 — 몸의 높이 윤곽으로 이음": 1, "없음": 0 }, value: 3, label: "잔상 사이 채우기" },
+        // (the artist, 2026-11-23: "사이 프레임은 박자보단 개수가 낫다")
+        flBetween: { options: { "사이 프레임 — 개수로": 2, "사이 프레임 — 클립 박자대로 (영상 한 장마다 한 판)": 3, "띠 — 몸의 높이 윤곽으로 이음": 1, "없음": 0 }, value: 2, label: "잔상 사이 채우기" },
         // (by the clip's beat the count follows from the time between two copies and the clip's frame time)
         flBetweenN: { value: 6, min: 0, max: 30, step: 1, label: "사이 프레임 수 (개수로일 때)" },
         flBetweenInk: { value: 0.5, min: 0, max: 1, step: 0.05, label: "사이 프레임 진하기 (잔상에 곱함)" },
