@@ -13,6 +13,15 @@
    "source": "gemini"
   },
   {
+   "id": "gemini-F568499F_front",
+   "view": "front",
+   "strideSec": 1.8,
+   "loop": 0.96,
+   "lum": 0.02,
+   "walking": true,
+   "source": "gemini"
+  },
+  {
    "id": "vecteezy-2981804#1",
    "view": "front",
    "strideSec": 1.5,

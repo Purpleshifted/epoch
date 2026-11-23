@@ -18,7 +18,8 @@
  * (a count of them, or one per frame time of the clip). A band along the path carrying the body's height profile was
  * tried and dropped (2026-11-23).
  * Each clip keeps its own set: the distance a frame carries the body and how long a frame is held, what state it is for
- * (standing, moving, moving fast, talking, or unused), and how it looks (height, width, ink, feet, colour, reversed, start).
+ * (standing, moving, moving fast, talking, or unused), and how it looks (height, width, ink, feet, colour, reversed, start,
+ * playback speed, a ping-pong loop).
  * Front shots only, square to the way they go — a silhouette's front and back are one (the artist, 2026-11-23).
  * Inside the silhouettes a colour may flow (a three-colour gradient that waves along the height, through space, or with
  * a copy's age), from one of five colour combinations (one for all, or each walker their own). Old copies blur with
@@ -60,6 +61,9 @@ interface ClipSet {
   tintAmt: number;
   reverse: boolean;
   offset: number;
+  /** Playback speed × (every state — for standing and talking clips the only one), and a ping-pong loop (a → back → a). */
+  play: number;
+  pingpong: boolean;
 }
 type Facing = "eye" | "along" | "across";
 /** A walker's state for its afterimages: walking, walking briskly, running, standing, talking. */
@@ -158,6 +162,8 @@ interface Walker {
   standing: boolean;
   speed: number;
   gap: number;
+  // seconds a phase cycle takes (the clip's frames once — twice for a ping-pong loop)
+  cycle: number;
 }
 
 const VERT = /* glsl */ `
@@ -470,7 +476,7 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
     while (W.length < L.count) {
       const i = W.length;
       const hash = frac(Math.sin(i * 91.7 + 3.1) * 43758.5);
-      W.push({ hash, x: (hash - 0.5) * 8, z: -L.dist + (frac(hash * 7.3) - 0.5) * 8, h: hash * TAU, ph: hash, s: hash * 16, dir: i % 2 ? -1 : 1, gx: 0, gz: 0, hist: [], stamps: [], lastHist: -1, lastSample: -1, home: 0, standing: false, speed: 1.3, gap: 0.04 });
+      W.push({ hash, x: (hash - 0.5) * 8, z: -L.dist + (frac(hash * 7.3) - 0.5) * 8, h: hash * TAU, ph: hash, s: hash * 16, dir: i % 2 ? -1 : 1, gx: 0, gz: 0, hist: [], stamps: [], lastHist: -1, lastSample: -1, home: 0, standing: false, speed: 1.3, gap: 0.04, cycle: 0.64 });
     }
     W.length = Math.min(W.length, L.count);
     // each walker's clip: the one fixed, or one for their state (standing: a standing or talking clip; walking: a
@@ -506,6 +512,12 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
       w.speed = still ? 0 : L.speedMode === 1 ? vOwn : set.dist / Math.max(1e-3, set.gap);
       // (the frames follow the speed: a frame for each of the clip's own steps, so the feet keep to the ground)
       w.gap = !set ? 0.04 : w.speed > 0 && L.speedMode === 1 ? set.dist / w.speed : set.gap;
+      // the clip's playback speed: its frames faster or slower (moving by the clip's set, the pace with them — the feet
+      // stay matched); a ping-pong loop takes twice the frames a cycle
+      const play = Math.max(0.05, set?.play ?? 1);
+      w.gap /= play;
+      if (L.speedMode !== 1) w.speed *= play;
+      w.cycle = w.gap * (idx.current?.sheet.cols ?? 16) * (set?.pingpong ? 2 : 1);
     }
     W.forEach((w, i) => {
       // move
@@ -536,7 +548,7 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
       }
       // the frames run at their own rate (× the clip's own tempo), apart from how fast the body travels — the artist finds
       // each clip's best match of the two ("이동속도랑 프레임 속도 내가 조절할 수 있도록 … 클립별 베스트 매치")
-      w.ph = (w.ph + dt / Math.max(1e-3, w.gap * (idx.current?.sheet.cols ?? 16))) % 1;
+      w.ph = (w.ph + dt / Math.max(1e-3, w.cycle)) % 1;
       if (now - w.lastHist >= 1 / 30) {
         w.lastHist = now;
         w.hist.push({ t: now, x: w.x, z: w.z, h: w.h, ph: w.ph });
@@ -578,7 +590,9 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
       A[n * 4 + 3] = alpha * (set?.ink ?? 1);
       B[n * 4] = pick.row;
       const ph = (set?.reverse ? -s.ph : s.ph) + (set?.offset ?? 0);
-      B[n * 4 + 1] = (((ph % 1) + 1) % 1) * cols;
+      const pf = ((ph % 1) + 1) % 1;
+      // (ping-pong: the frames forward, then back — the artist, 2026-11-23: "a->a리버스->a 로 재생해서 루프")
+      B[n * 4 + 1] = set?.pingpong ? (pf < 0.5 ? 2 * pf : 2 - 2 * pf) * (cols - 1) + 0.5 : pf * cols;
       B[n * 4 + 2] = pick.mirror;
       B[n * 4 + 3] = s.h + L.yaw + T.turn * u;
       C[n * 4] = prev ? prev.x : 0;
@@ -622,7 +636,7 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
           dh = ((((dh + Math.PI) % TAU) + TAU) % TAU) - Math.PI;
           const tAt = from.t + (s0.t - from.t) * e;
           // (the walker's own frame time — its speed over the clip's step — so the feet keep to the ground)
-          const ph = from.ph + (tAt - from.t) / Math.max(1e-3, w.gap * cols);
+          const ph = from.ph + (tAt - from.t) / Math.max(1e-3, w.cycle);
           list.push({ s: { t: tAt, x: from.x + (s0.x - from.x) * e, z: from.z + (s0.z - from.z) * e, h: from.h + dh * e, ph }, age: 0 });
         }
       } else {
@@ -653,7 +667,7 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
             const f = k / (nIn + 1);
             const mid = lerpStamp(prev, s, f);
             // (the step counted on by time in both ways — a short-way-round blend ran the walk backwards)
-            mid.ph = prev.ph + (f * span) / Math.max(1e-3, w.gap * cols);
+            mid.ph = prev.ph + (f * span) / Math.max(1e-3, w.cycle);
             const ag = prevAge + (age - prevAge) * f;
             put(w, mid, (prevAlpha + (alpha - prevAlpha) * f) * T.betweenInk, last, Math.min(1, ag / life), T);
             last = mid;
@@ -773,11 +787,21 @@ export default function FrameLab() {
         // (a bright body — a white matte — is invisible on white paper: dark by default)
         [`cc_${ck(c.id)}`]: { value: "#141414", label: "몸 색 칠하기 — 색" },
         [`ca_${ck(c.id)}`]: { value: c.lum > 0.7 ? 1 : 0, min: 0, max: 1, step: 0.05, label: "몸 색 칠하기 — 세기 (0 = 영상 그대로)" },
+        [`cp_${ck(c.id)}`]: { value: 1, min: 0.05, max: 4, step: 0.01, label: "재생 빠르기 × (서 있음·소통에도)" },
+        [`cb_${ck(c.id)}`]: { value: false, label: "왕복 재생 — a → 거꾸로 → a 루프" },
         [`cr_${ck(c.id)}`]: { value: false, label: "거꾸로 재생" },
         [`co_${ck(c.id)}`]: { value: 0, min: 0, max: 1, step: 0.01, label: "시작 위상 (0 … 1)" },
         // (finer steps — the artist: "한 프레임당 가는 거리 더 촘촘하게")
-        [`cd_${ck(c.id)}`]: { value: +(3.9 * gap).toFixed(3), min: 0.001, max: 0.4, step: 0.001, label: "걷기: 영상 한 장 동안 가는 거리 (m)" },
-        [`cg_${ck(c.id)}`]: { value: +gap.toFixed(3), min: 0.005, max: 0.5, step: 0.001, label: "걷기: 영상 한 장이 머무는 시간 (s)" },
+        // (the distance only for a moving clip: standing or talking, the frames' time and the playback speed say it all)
+        [`cd_${ck(c.id)}`]: {
+          value: +(3.9 * gap).toFixed(3),
+          min: 0.001,
+          max: 0.4,
+          step: 0.001,
+          label: "이동: 영상 한 장 동안 가는 거리 (m)",
+          render: (get: (path: string) => unknown) => ["walk", "brisk", "run"].includes(String(get(`${clipRoot}.${i + 1} · ${c.id}.ct_${ck(c.id)}`))),
+        },
+        [`cg_${ck(c.id)}`]: { value: +gap.toFixed(3), min: 0.005, max: 0.5, step: 0.001, label: "영상 한 장이 머무는 시간 (s)" },
       });
     });
     return s;
@@ -800,6 +824,8 @@ export default function FrameLab() {
       tint: hexLin(String(raw[`cc_${k}`] ?? "#141414")),
       tintAmt: Number(raw[`ca_${k}`] ?? 0),
       reverse: !!raw[`cr_${k}`],
+      play: Number(raw[`cp_${k}`] ?? 1),
+      pingpong: !!raw[`cb_${k}`],
       offset: Number(raw[`co_${k}`] ?? 0),
     };
   });
