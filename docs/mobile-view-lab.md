@@ -43,6 +43,16 @@ lasts an hour. Asset pages show their asset alone: people only on bot (present),
 observers now run side by side (`FuturePresenceVisual.overlayOn` / `encounterOn`). The references (local only,
 `/api/dev-refs`) are listed per page in `mobileLab.ts LAB_INFO.refs`.
 
+## Test browser and load (the artist, 2026-11-23)
+
+- **Captures use Chrome for Testing, never `/Applications/Google Chrome.app`.** A test Chrome launched from the artist's
+  own app (headless or not) is the running "Google Chrome" to macOS, so her Dock click went to a windowless instance and
+  no window opened. Chrome for Testing is another app (`com.google.chrome.for.testing`), already on the machine:
+  `$HOME/.cache/puppeteer/chrome/mac_arm-148.0.7778.97/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`
+  — `--headless=new --mute-audio --no-first-run --user-data-dir=<own temp dir> --remote-debugging-port=<free port>`.
+- "헤드리스 크롬 필요할 때는 쓰는데, 지금 안 쓰는 건 닫아": close it as soon as a capture is done; one at a time.
+- One asset in focus at a time; the others stay paused (no captures, no builds) until the artist turns to them.
+
 ## Files per asset (who edits what)
 
 | asset | owns |
