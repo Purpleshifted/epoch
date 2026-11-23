@@ -128,6 +128,10 @@ animation in `labKnobsScanFuture.ts`; captures against 3 stills into `docs/img/m
   white (`blownGrain`), so the paper stays a clean 255. After: (255,255,255), R−B 0, 97 % of the frame ≥ 250.
   Code constants, not Leva values: they show without a re-save. **Approved by the artist on her local page
   (2026-11-23: "깔끔해졌어").**
+- Later the same day (bot-present's chat, the artist: "장노출 효과 좀 꺼봐 흐릿해서 비주얼 제대로 보기 어렵네"): bot-present
+  set her SAVED `바탕` values to no softening: inkNarrow 0, inkWide 0, inkFade 0, inkHalo 0, inkGrain 0 (shake was 0;
+  rolloff 0.5, burn 1.75, decay 0.88, density 0.97, exposure 0.75 kept). No code changed; the code defaults are still
+  the old softened ones, so a fresh browser without the server would differ — align the defaults if this stays.
 - Capture: `docs/img/mobile-view-lab/scan-present/paper-before-after.png` (before · after · IMG_1580).
 - Left, for the asset sessions: `MobileLabStage.tsx` loading placeholder still `bg-[#f4f2ec]` (a brief cream before
   the canvas). The artist also said the long exposure meant the LOOK, not a feedback run in the browser (bot-present
