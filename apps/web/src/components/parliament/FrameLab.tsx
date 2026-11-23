@@ -124,6 +124,10 @@ interface Look {
   pals: string[];
   gradPick: number;
   edgeTh: number;
+  /** The cut's softness above the threshold; the colour's contrast and brightness. */
+  edgeW: number;
+  con: number;
+  bright: number;
   gradScale: number;
   gradSpeed: number;
   gradDir: number;
@@ -264,13 +268,16 @@ varying vec3 vWorld;
 flat varying float vAge;
 flat varying float vPal;
 uniform float uEdgeTh;    // the alpha below which nothing is drawn (a faint box round a frame — the artist, 2026-11-23)
+uniform float uEdgeW;     // how soft the cut is (the width of the ramp above the threshold; small = a hard edge — 2026-11-23)
+uniform float uCon;       // the colour's contrast about mid-grey, and its brightness
+uniform float uBright;
 vec4 cell(float u, float v) {
   float uu = vMirror < 0.0 ? 1.0 - u : u;
   vec4 t = texture2D(uSheet, vec2((vFrame + clamp(uu, 0.001, 0.999)) / uCols, (uRows - 1.0 - vRow + clamp(v, 0.001, 0.999)) / uRows));
   // the frame's own border is always empty (shrunk far off, the sheet's neighbouring frames bleed into it), and what is
   // fainter than the threshold is not there (a faint box round a frame)
   float edge = smoothstep(0.0, 0.035, uu) * smoothstep(0.0, 0.035, 1.0 - uu) * smoothstep(0.0, 0.006, v) * smoothstep(0.0, 0.02, 1.0 - v);
-  t.a = smoothstep(uEdgeTh, uEdgeTh + 0.15, t.a) * edge;
+  t.a = smoothstep(uEdgeTh, min(1.0, uEdgeTh + uEdgeW), t.a) * edge;
   return t;
 }
 // an old copy blurred (the artist, 2026-11-23: "오래된 잔상에는 블러"): two rings of taps round the point, their radius the
@@ -314,6 +321,7 @@ void main() {
   t.rgb = mix(t.rgb, vTint.rgb, vTint.a);
   t.rgb = mix(t.rgb, gradAt(vWorld, vUv.y, vAge, vPal), uGradAmt * vGradK);
   t.rgb = mix(t.rgb, vec3(dot(t.rgb, vec3(0.299, 0.587, 0.114))), vDesat);
+  t.rgb = clamp((t.rgb - 0.5) * uCon + 0.5 + uBright, 0.0, 1.0);
   if (uMultiply > 0.5) gl_FragColor = vec4(mix(vec3(1.0), t.rgb, a), 1.0);
   else gl_FragColor = vec4(t.rgb, a);
 }`;
@@ -366,6 +374,9 @@ function makeMaterial(): THREE.ShaderMaterial {
       uStreakSoft: { value: 0.6 },
       uMultiply: { value: 1 },
       uEdgeTh: { value: 0.15 },
+      uEdgeW: { value: 0.15 },
+      uCon: { value: 1 },
+      uBright: { value: 0 },
       ...gradUniforms(),
     },
     vertexShader: VERT,
@@ -754,6 +765,9 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
       g.uGradWarp.value = L.gradWarp;
       g.uTime.value = now;
       if (g.uEdgeTh) g.uEdgeTh.value = L.edgeTh;
+      if (g.uEdgeW) g.uEdgeW.value = L.edgeW;
+      if (g.uCon) g.uCon.value = L.con;
+      if (g.uBright) g.uBright.value = L.bright;
     }
     const u = mat.uniforms;
     u.uFacing.value = L.facing === "eye" ? 0 : L.facing === "along" ? 1 : 2;
@@ -963,7 +977,10 @@ export default function FrameLab() {
         flStretch: { value: 1, min: 0, max: 1.5, step: 0.05, label: "늘어짐 — 나를 향함·진행 방향을 따라일 때만 (이전 프레임까지, 상대 각도만큼)" },
         flKind: { options: { "번짐 — 몸 가운데가 옆으로 끌림": 0, "프레임 자체가 넓어짐": 1 }, value: 0, label: "늘어나는 방식" },
         flSoft: { value: 0.8, min: 0.05, max: 4, step: 0.05, label: "번짐 길이 (프레임 폭)" },
-        flEdge: { value: 0.15, min: 0, max: 0.6, step: 0.01, label: "테두리 지우기 — 알파 문턱 (옅은 테두리·네모를 날림)" },
+        flEdge: { value: 0.15, min: 0, max: 0.95, step: 0.01, label: "테두리 지우기 — 알파 문턱 (옅은 테두리·네모를 날림)" },
+        flEdgeW: { value: 0.15, min: 0.005, max: 0.8, step: 0.005, label: "테두리 단단함 — 작을수록 칼같이 (문턱 위 경사 폭)" },
+        flCon: { value: 1, min: 0.2, max: 4, step: 0.05, label: "색 대비 ×" },
+        flBright: { value: 0, min: -0.6, max: 0.6, step: 0.01, label: "밝기 ±" },
         flSlit: { value: 1, min: 0.05, max: 1, step: 0.01, label: "슬릿 — 프레임의 가운데 몫만 (1 = 전체)" },
         flMultiply: { value: true, label: "곱하기로 겹침 (끄면 보통 겹침)" },
       }),
@@ -1048,6 +1065,9 @@ export default function FrameLab() {
     pals: PALETTE_DEFAULTS.flatMap((d, i) => d.map((hex, j) => String(c[`flP${i + 1}${"abc"[j]}`] ?? hex))),
     gradPick: Number(c.flGradPick),
     edgeTh: Number(c.flEdge),
+    edgeW: Number(c.flEdgeW),
+    con: Number(c.flCon),
+    bright: Number(c.flBright),
     gradScale: Number(c.flGradScale),
     gradSpeed: Number(c.flGradSpeed),
     gradDir: Number(c.flGradDir),
