@@ -161,6 +161,18 @@ mounted from `ConcreteOutline` (Marks.tsx), knobs `scan (present) › 라이다 
 
 ### bot (present)
 
+**New slot `/lab/mobile/frames` — `frames · 사람 프레임 배치` (`FrameLab.tsx`, 2026-11-23).** The artist: "나와의 상대 각도
+고려해서 프레임이 움직임에 따라 늘어져서 옆에서 보면 동세 덩어리로 보이도록 … 랩에 아예 다른 슬랏을 추가해서 거기는 아무런 요소도
+없이, 순수하게 사람 프레임을 어떻게 늘어놓을 건지 결정하게". White space, no ground or scan, only cut-out people (the
+sheet: her Gemini clip `gemini-D839B006_front` — a man in a dark coat walking towards the camera — and the Pexels back
+view; the pipeline's static-prop removal now only with a `_props` tag). Orbit with the mouse; buttons 옆·뒤·앞·위·눈높이.
+Each walker leaves copies (at each sample "슉", or at a time spacing), fading; a card stands facing the eye, along the
+path, or across it; each card STRETCHES towards the copy before it by the move's part across the view (the relative
+angle) — from behind they pile into one, from the side they run into a mass — as a streak of the silhouette's middle
+pulled sideways or as the frame itself widened; a slit keeps only the middle of each frame (slit-scan in space);
+multiply or normal overlap. Its own Leva group (saved under /lab/mobile like the others). The personal view is untouched
+by it; what she decides here goes into `PointPeople`'s 2D people after.
+
 **Evening, 2026-11-23 — 2D PEOPLE from real video become the default (`그리기 = 2D 사람`, mode `"sprites"`,
 `spritePeople.ts`).** The artist: "걍 3d 몸 버려야하나 … 후져 … 한계가 있어보여 … 2d 실루엣" → "Pexels 클립으로 먼저
 시험해봐" → "내가 찾을게". Pipeline: clips in `visual_reference_images/people_clips/` (gitignored; one person head to foot,

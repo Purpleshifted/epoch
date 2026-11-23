@@ -17,6 +17,8 @@ const ParliamentScene = dynamic(() => import("./ParliamentScene"), {
   ssr: false,
   loading: () => <div className="h-screen w-full bg-[#f4f2ec]" />,
 });
+// the frames study (bot-present, 2026-11-23): white space and the people's frames, nothing of the personal view
+const FrameLab = dynamic(() => import("./FrameLab"), { ssr: false, loading: () => <div className="h-screen w-full bg-white" /> });
 
 /** The address with what the page's test scene needs added; null when nothing is missing. */
 function withScene(page: LabPage): string | null {
@@ -55,13 +57,13 @@ export default function MobileLabStage({ page }: { page: LabPage }) {
   if (!ready) return <div className="fixed inset-0 bg-[#f4f2ec]" />;
   return (
     <div className="fixed inset-0 bg-[#f4f2ec]">
-      <ParliamentScene lab={page} />
+      {page === "frames" ? <FrameLab /> : <ParliamentScene lab={page} />}
       {/* the bar: back to the lab, this page, the other pages (a click here is never a gesture of the life — data-hud-control) */}
       <div data-hud-control className="pointer-events-auto absolute left-1/2 top-2 z-20 flex -translate-x-1/2 items-center gap-2 rounded bg-black/70 px-2 py-1 font-mono text-[10px] text-white/80">
         <Link href="/lab/mobile" className="text-white/50 hover:text-white">
           ← lab
         </Link>
-        {[...LAB_ASSETS, "preview" as const].map((p) => (
+        {[...LAB_ASSETS, "frames" as const, "preview" as const].map((p) => (
           <a key={p} href={`/lab/mobile/${p}`} className={p === page ? "text-white underline" : "text-white/50 hover:text-white"}>
             {LAB_INFO[p].name}
           </a>

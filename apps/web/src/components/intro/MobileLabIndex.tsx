@@ -22,6 +22,11 @@ export default function MobileLabIndex() {
           entries={LAB_ASSETS.map((a) => ({ href: href(a), name: LAB_INFO[a].name, sub: LAB_INFO[a].sub }))}
         />
         <EntryGroup
+          title="STUDY"
+          note="nothing else on the page"
+          entries={[{ href: href("frames"), name: LAB_INFO.frames.name, sub: LAB_INFO.frames.sub }]}
+        />
+        <EntryGroup
           title="RUN"
           note="no detail Leva"
           entries={[{ href: href("preview"), name: LAB_INFO.preview.name, sub: LAB_INFO.preview.sub, main: true }]}

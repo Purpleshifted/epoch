@@ -19,12 +19,14 @@ import { pinLevaGroup } from "./levaSave";
 export const MOBILE_LAB_PAGE = "/lab/mobile";
 
 export type LabAsset = "scan-future" | "scan-present" | "bot-present" | "bot-future";
-export type LabPage = LabAsset | "preview";
+/** "frames": a study of its own (FrameLab.tsx — how a person's frames are laid out, nothing else on the page). */
+export type LabPage = LabAsset | "preview" | "frames";
 
 export const LAB_ASSETS: readonly LabAsset[] = ["scan-future", "scan-present", "bot-present", "bot-future"];
 
 /** The Leva groups — names are storage keys: never rename one without a `legacy` entry in its savable(). */
-export const LAB_GROUP: Record<LabAsset | "base", string> = {
+export const LAB_GROUP: Record<LabAsset | "base" | "frames", string> = {
+  frames: "frames · 사람 프레임 배치",
   base: "바탕 · 종이와 노출",
   "bot-present": "bot (present) · 현재의 사람",
   "scan-present": "scan (present) · 현재의 장소",
@@ -68,6 +70,12 @@ export const LAB_INFO: Record<LabPage, LabAssetInfo> = {
     sub: "미래 발굴자 — 몸 모양의 창 · 남는 창 · 가까우면 화면을 채움",
     query: { botserver: "0", futurefix: "1" },
     refs: ["EDEFE77C-4594-4869-B8C2-AEA9C9F0706D.GIF", "IMG_1575.JPG", "IMG_1401 2.JPG", "IMG_1585.JPG"],
+  },
+  frames: {
+    name: "frames",
+    sub: "사람 프레임 배치 — 흰 공간에 사람 프레임만, 옆·뒤·앞에서 보며",
+    query: {},
+    refs: ["IMG_1575.JPG", "IMG_1580.JPG", "IMG_1573.JPG", "IMG_1401 2.JPG"],
   },
   preview: {
     name: "action preview",

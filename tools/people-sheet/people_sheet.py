@@ -7,6 +7,7 @@ them in visual_reference_images/people_clips/ (gitignored). The file name says t
     ..._front.mp4               walking towards the camera
     ..._side.mp4                walking across (any way; the app mirrors it)
     ..._stand.mp4               standing, a gesture (looped back and forth)
+    ..._back_props.mp4          + "_props": something that never moves stands at the feet (a treadmill) — dropped
 Each clip becomes one row of the sheet: the person cut out (the backdrop's colour keyed away, only the largest body
 kept, thin bars at the feet opened away), one stride found by the legs' own rhythm (or the clip's span when standing),
 16 frames in a common box with the feet at the bottom, colour white where there is no body (the app multiplies the
@@ -88,7 +89,7 @@ def stride(M: np.ndarray) -> tuple:
     return int(np.argmax(s[: max(1, min(len(s), 3 * FPS))])), P
 
 
-def row_of(path: str, view: str) -> tuple:
+def row_of(path: str, view: str, props: bool) -> tuple:
     with tempfile.TemporaryDirectory() as tmp:
         ims = frames_of(path, tmp)
     border = np.concatenate([ims[0][:12].reshape(-1, 3), ims[0][:, :12].reshape(-1, 3), ims[0][:, -12:].reshape(-1, 3)])
@@ -96,12 +97,14 @@ def row_of(path: str, view: str) -> tuple:
     K = [key(im, bg) for im in ims]
     # what never moves near the feet is not the person (a treadmill, a stand, a cable): below 78 % of the body's height,
     # a pixel that stays as the clip's median picture is dropped — the feet and the swinging legs come and go
-    med = np.median(np.stack(ims[::3]), 0)
-    ys = np.where(np.stack(K).max(0).max(1) > 0.5)[0]
-    cut = int(ys.min() + (ys.max() - ys.min()) * 0.78) if len(ys) else len(K[0])
-    for im, a in zip(ims, K):
-        still = np.linalg.norm(im[cut:] - med[cut:], axis=-1) < 0.08
-        a[cut:][still] = 0
+    # (only for clips tagged _props: a still dark shoe would go too)
+    if props:
+        med = np.median(np.stack(ims[::3]), 0)
+        ys = np.where(np.stack(K).max(0).max(1) > 0.5)[0]
+        cut = int(ys.min() + (ys.max() - ys.min()) * 0.78) if len(ys) else len(K[0])
+        for im, a in zip(ims, K):
+            still = np.linalg.norm(im[cut:] - med[cut:], axis=-1) < 0.08
+            a[cut:][still] = 0
     M = np.stack([body_only(a) for a in K])
     if view == "stand":
         start, P = 0, len(M) - 1
@@ -135,9 +138,9 @@ def main() -> None:
     rows, meta = [], []
     for path in sorted(glob.glob(os.path.join(src, "*.mp4")) + glob.glob(os.path.join(src, "*.mov"))):
         name = os.path.splitext(os.path.basename(path))[0]
-        m = re.search(r"_(back|front|side|stand)$", name)
+        m = re.search(r"_(back|front|side|stand)(_props)?$", name)
         view = m.group(1) if m else "back"
-        row, sec = row_of(path, view)
+        row, sec = row_of(path, view, bool(m and m.group(2)))
         rows.append(row)
         meta.append({"id": name, "view": view, "strideSec": round(sec, 3), "source": "pexels" if "pexels" in name else "other"})
         print(f"{name}: {view}, stride {sec:.2f} s")
