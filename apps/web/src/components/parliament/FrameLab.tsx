@@ -227,7 +227,10 @@ void main() {
   float w = h * uAspect * (iE.w > 0.0 ? iE.w : 1.0);
   // the move to the copy before, across the card (in card widths): the stretch reaches towards it
   float e = 0.0;
-  if (iC.z > 0.5) e = dot(vec3(iC.x, 0.0, iC.y) - feet, right) / max(w, 1e-4) * uStretch;
+  // (only a card facing the eye or along the path stretches; a stretch under 6 % of its width is none — a card standing
+  // square to its path got a sliver of the body's middle at its sides from tiny offsets: the lines the artist saw)
+  if (iC.z > 0.5 && fac < 1.5) e = dot(vec3(iC.x, 0.0, iC.y) - feet, right) / max(w, 1e-4) * uStretch;
+  if (abs(e) < 0.06) e = 0.0;
   float slitHalf = 0.5 * uSlit;
   float xl = min(-slitHalf, e), xr = max(slitHalf, e);
   float x = position.x < 0.0 ? xl : xr;
