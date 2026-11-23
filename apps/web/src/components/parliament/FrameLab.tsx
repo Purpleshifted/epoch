@@ -664,7 +664,10 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
       // the clip's playback speed: its frames faster or slower (moving by the clip's set, the pace with them — the feet
       // stay matched); a ping-pong loop takes twice the frames a cycle
       const play = Math.max(0.05, set?.play ?? 1);
-      w.gap /= play;
+      // (each person their own speed: a clip's matched set says how far the body goes a frame shown — its distance — so
+      // the frames follow the speed alone; the playback × was applied again here, the legs ran ahead of the body —
+      // "클립에서 맞춰둔 거랑 다른 경우도 보이는 게 의아해서", 2026-11-23. Standing and talking clips keep it.)
+      if (L.speedMode !== 1 || w.speed === 0) w.gap /= play;
       if (L.speedMode !== 1) w.speed *= play;
       w.cycle = w.gap * (idx.current?.sheet.cols ?? 16) * (set?.pingpong ? 2 : 1);
     }
@@ -823,7 +826,11 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
       B[n * 4] = slot;
       // standing or talking past the near band: one still frame of their own (no frames run where nobody reads them)
       const still = L.tier.stillNear && w.standing && Q.mid > 0.5;
-      const ph = still ? frac(w.hash * 5.37) : (set?.reverse ? -s.ph : s.ph) + (set?.offset ?? 0);
+      // (a clip standing in for the walker's own — a profile one crossing my view, a front one for a profile home — steps
+      // at its OWN distance a frame: the walker's phase counted in the home clip's frames, turned into this clip's)
+      const home = CL[w.home];
+      const swap = pick.row !== w.home && !w.standing && w.speed > 0 && home && set ? (home.dist / Math.max(1e-4, set.dist)) * ((home.pingpong ? 2 : 1) / (set.pingpong ? 2 : 1)) : 1;
+      const ph = still ? frac(w.hash * 5.37) : (set?.reverse ? -s.ph : s.ph) * swap + (set?.offset ?? 0);
       const pf = ((ph % 1) + 1) % 1;
       // (ping-pong: the frames forward, then back — the artist, 2026-11-23: "a->a리버스->a 로 재생해서 루프")
       // (a profile clip walking never plays back: its ping-pong's return half walked backwards — the cycle's two halves
