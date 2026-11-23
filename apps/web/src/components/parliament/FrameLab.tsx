@@ -48,6 +48,8 @@ import {
   TRAIL_DEFAULTS,
   drawFrames,
   frac,
+  lookFromValues,
+  setsFromValues,
   hexLin,
   keepSecOf,
   makeMaterial,
@@ -329,32 +331,8 @@ export default function FrameLab() {
   const nameKey = clips.map((cl) => String((cs as unknown as Record<string, unknown>)[`cn_${ck(cl.id)}`] ?? "").trim()).join("\u0001");
   useEffect(() => setNames(nameKey.split("\u0001")), [nameKey]);
   const pick = Number(cs.clipPick ?? 0);
-  const sets: ClipSet[] = clips.map((cl) => {
-    const k = ck(cl.id);
-    const raw = cs as unknown as Record<string, unknown>;
-    return {
-      id: cl.id,
-      state: (raw[`ct_${k}`] as ClipState) ?? "walk",
-      flip: !!raw[`cf_${k}`],
-      dist: Number(raw[`cd_${k}`] ?? 0.15),
-      gap: Number(raw[`cg_${k}`] ?? 0.04),
-      height: Number(raw[`ch_${k}`] ?? 1.72),
-      width: Number(raw[`cw_${k}`] ?? 1),
-      ink: Number(raw[`ci_${k}`] ?? 1),
-      lift: Number(raw[`cy_${k}`] ?? 0),
-      tint: hexLin(String(raw[`cc_${k}`] ?? "#141414")),
-      tintAmt: Number(raw[`ca_${k}`] ?? 0),
-      reverse: !!raw[`cr_${k}`],
-      play: Number(raw[`cp_${k}`] ?? 1),
-      pingpong: !!raw[`cb_${k}`],
-      fill: cl.fill,
-      farSide: !!raw[`cs_${k}`],
-      profile: cl.side || !!raw[`cs_${k}`],
-      faces: Number(raw[`cf2_${k}`] ?? 0) || cl.faces || 1,
-      stride: cl.strideSec,
-      offset: Number(raw[`co_${k}`] ?? 0),
-    };
-  });
+  const sets: ClipSet[] = setsFromValues(cs as unknown as Record<string, unknown>, clips);
+
   // where each state's colour flow starts: the old shared (moving) knobs and the still ones' set, as they were saved
   const gradStart = useMemo(() => {
     const old = (key: string, dflt: number) => {
@@ -586,83 +564,8 @@ export default function FrameLab() {
     }),
     { collapsed: false },
   ) as unknown as Record<string, unknown>;
-  const L: Look = {
-    count: Number(c.flCount),
-    path: c.flPath as Path,
-    spread: Number(c.flSpread),
-    dist: Number(c.flDist),
-    clips: sets,
-    row: pick,
-    standShare: Number(c.flStand),
-    tier: {
-      r1: Number(c.flR1),
-      r2: Number(c.flR2),
-      band: Number(c.flBand),
-      farEye: !!c.flFarEye,
-      stillNear: c.flStillNear !== false,
-      useSide: !!c.flUseSide,
-      sideNear: !!c.flUseSide && c.flSideNear !== false,
-      sideCross: Number(c.flSideCross ?? 0.8),
-      farSide: !!c.flUseSide && !!c.flFarSide,
-      trail: [Number(c.flNTrail), Number(c.flMTrail), Number(c.flFTrail)],
-      betweenMax: [Number(c.flNBetMax ?? 12), Number(c.flMBetMax ?? 6), Number(c.flFBetMax ?? 2)],
-      ink: [Number(c.flNInk), Number(c.flMInk), Number(c.flFInk)],
-      blur: [Number(c.flNBlur), Number(c.flMBlur), Number(c.flFBlur)],
-      grad: [Number(c.flNGrad), Number(c.flMGrad), Number(c.flFGrad)],
-    },
-    speedMode: Number(c.flSpeedMode),
-    speedMin: Number(c.flSpeedMin ?? 0.5),
-    speedMax: Number(c.flSpeedMax ?? 2.6),
-    speedSkew: Number(c.flSpeedSkew ?? 1.8),
-    speedTol: Number(c.flSpeedTol ?? 0.25),
-    pickBySpeed: !!c.flPickBySpeed,
-    briskFrom: Number(c.flBriskFrom ?? 1.55),
-    runFrom: Number(c.flRunFrom ?? 2.5),
-    nearCut: Number(c.flNearCut ?? 0.8),
-    nearBand: Number(c.flNearBand ?? 0.8),
-    yaw: (Number(c.flYaw) * Math.PI) / 180,
-    between: Number(c.flBetween),
-    trails: Object.fromEntries(
-      (Object.keys(TRAIL_DEFAULTS) as StateKey[]).map((st) => {
-        const d = TRAIL_DEFAULTS[st];
-        const g = (n: keyof Trail) => Number(c[`t_${st}_${n}`] ?? d[n]);
-        return [st, { life: g("life"), ink: g("ink"), copies: g("copies"), gap: g("gap"), betweenN: g("betweenN"), betweenInk: g("betweenInk"), scale: g("scale"), rise: g("rise"), scatter: g("scatter"), turn: (g("turn") * Math.PI) / 180, desat: g("desat"), blur: g("blur") }];
-      }),
-    ) as Record<StateKey, Trail>,
-    pals: PALETTE_DEFAULTS.flatMap((d, i) => d.map((hex, j) => String(c[`flP${i + 1}${"abc"[j]}`] ?? hex))),
-    grads: Object.fromEntries(
-      STATE_KEYS.map((st) => {
-        const d = gradStart[st];
-        const g = (k: keyof Grad) => Number(c[`g_${st}_${k}`] ?? d[k]);
-        return [st, { amt: g("amt"), pick: g("pick"), dir: g("dir"), scale: g("scale"), speed: g("speed"), warp: g("warp") }];
-      }),
-    ) as Record<StateKey, Grad>,
-    thick: Number(c.flThick ?? 0),
-    thickFill: !!c.flThickFill,
-    thickInk: Number(c.flThickInk ?? 0.6),
-    minAng: Number(c.flMinAng ?? 0),
-    sideFade: Number(c.flSideFade ?? 0.35),
-    dragKind: Number(c.flDragKind ?? 2),
-    dragLen: Number(c.flDragLen ?? 1.5),
-    edgeTh: Number(c.flEdge),
-    edgeW: Number(c.flEdgeW),
-    con: Number(c.flCon),
-    bright: Number(c.flBright),
-    stamp: !!c.flStamp,
-    standMode: c.flStandMode !== false,
-    standCarry: c.flStandCarry !== false,
-    sampleSec: Number(c.flSample),
-    dashSec: Number(c.flDash),
-    fall: Number(c.flFall),
-    ink: Number(c.flInk),
-    facing: c.flFacing as Facing,
-    stretch: Number(c.flStretch),
-    stretchKind: Number(c.flKind),
-    streakSoft: Number(c.flSoft),
-    slit: Number(c.flSlit),
-    multiply: !!c.flMultiply,
-    floor: !!c.flFloor,
-  };
+  const L: Look = lookFromValues(c, sets, pick, gradStart);
+
   return (
     <div className="absolute inset-0 bg-white">
       {/* (how many cards are drawn and how fast — the phone's budget is ~300–500 cards, 2026-11-23) */}

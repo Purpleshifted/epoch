@@ -217,6 +217,8 @@ function useBodyKnobs(isV2: boolean) {
 
 // (the labels say what each draws on the white ground now — 2026-11-23; the stored values stay "boxes" / "points")
 const PEOPLE_MODES: Record<string, PeopleMode> = {
+  // (the artist, 2026-11-23: "이제 슬슬 봇 랩에 연결해보자" — the frames study's people, its values as saved there)
+  "프레임 — frames 랩에서 정한 대로 (도착마다 서는 프레임)": "frames",
   "2D 사람 — 영상에서 오린 실제 사람 (people_clips)": "sprites",
   "점 몸 — 뼈대 위의 점, 점마다 섬유 · 흩날림 (체형 아키타입)": "fibers",
   "3D 몸 — 면, 잔흔 (체형 아키타입)": "boxes",

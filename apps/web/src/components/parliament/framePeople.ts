@@ -944,3 +944,140 @@ export function makeFrameGeometry(): THREE.InstancedBufferGeometry {
   g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
   return g;
 }
+
+/** The Look from a frames group's values (the study's live Leva values, or what is saved, on another page); a value
+ *  never saved takes the knob's default. */
+export function lookFromValues(c: Record<string, unknown>, sets: ClipSet[], pick: number, gradStart: Record<StateKey, Grad>): Look {
+  const num = (k: string, d: number) => {
+    const v = Number(c[k] ?? d);
+    return Number.isFinite(v) ? v : d;
+  };
+  return {
+    count: num("flCount", 3),
+    path: (c.flPath ?? "across") as Path,
+    spread: num("flSpread", 1.6),
+    dist: num("flDist", 6),
+    clips: sets,
+    row: pick,
+    standShare: num("flStand", 0),
+    tier: {
+      r1: num("flR1", 6),
+      r2: num("flR2", 15),
+      band: num("flBand", 3),
+      farEye: c.flFarEye !== false,
+      stillNear: c.flStillNear !== false,
+      useSide: !!c.flUseSide,
+      sideNear: !!c.flUseSide && c.flSideNear !== false,
+      sideCross: Number(c.flSideCross ?? 0.8),
+      farSide: !!c.flUseSide && !!c.flFarSide,
+      trail: [num("flNTrail", 1), num("flMTrail", 0.5), num("flFTrail", 0.15)],
+      betweenMax: [Number(c.flNBetMax ?? 12), Number(c.flMBetMax ?? 6), Number(c.flFBetMax ?? 2)],
+      ink: [num("flNInk", 1), num("flMInk", 0.85), num("flFInk", 0.6)],
+      blur: [num("flNBlur", 0), num("flMBlur", 0.04), num("flFBlur", 0.12)],
+      grad: [num("flNGrad", 1), num("flMGrad", 0.7), num("flFGrad", 0.3)],
+    },
+    speedMode: num("flSpeedMode", 0),
+    speedMin: Number(c.flSpeedMin ?? 0.5),
+    speedMax: Number(c.flSpeedMax ?? 2.6),
+    speedSkew: Number(c.flSpeedSkew ?? 1.8),
+    speedTol: Number(c.flSpeedTol ?? 0.25),
+    pickBySpeed: !!c.flPickBySpeed,
+    briskFrom: Number(c.flBriskFrom ?? 1.55),
+    runFrom: Number(c.flRunFrom ?? 2.5),
+    nearCut: Number(c.flNearCut ?? 0.8),
+    nearBand: Number(c.flNearBand ?? 0.8),
+    yaw: (num("flYaw", 0) * Math.PI) / 180,
+    between: num("flBetween", 2),
+    trails: Object.fromEntries(
+      (Object.keys(TRAIL_DEFAULTS) as StateKey[]).map((st) => {
+        const d = TRAIL_DEFAULTS[st];
+        const g = (n: keyof Trail) => Number(c[`t_${st}_${n}`] ?? d[n]);
+        return [st, { life: g("life"), ink: g("ink"), copies: g("copies"), gap: g("gap"), betweenN: g("betweenN"), betweenInk: g("betweenInk"), scale: g("scale"), rise: g("rise"), scatter: g("scatter"), turn: (g("turn") * Math.PI) / 180, desat: g("desat"), blur: g("blur") }];
+      }),
+    ) as Record<StateKey, Trail>,
+    pals: PALETTE_DEFAULTS.flatMap((d, i) => d.map((hex, j) => String(c[`flP${i + 1}${"abc"[j]}`] ?? hex))),
+    grads: Object.fromEntries(
+      STATE_KEYS.map((st) => {
+        const d = gradStart[st];
+        const g = (k: keyof Grad) => Number(c[`g_${st}_${k}`] ?? d[k]);
+        return [st, { amt: g("amt"), pick: g("pick"), dir: g("dir"), scale: g("scale"), speed: g("speed"), warp: g("warp") }];
+      }),
+    ) as Record<StateKey, Grad>,
+    thick: Number(c.flThick ?? 0),
+    thickFill: !!c.flThickFill,
+    thickInk: Number(c.flThickInk ?? 0.6),
+    minAng: Number(c.flMinAng ?? 0),
+    sideFade: Number(c.flSideFade ?? 0.35),
+    dragKind: Number(c.flDragKind ?? 2),
+    dragLen: Number(c.flDragLen ?? 1.5),
+    edgeTh: num("flEdge", 0.15),
+    edgeW: num("flEdgeW", 0.15),
+    con: num("flCon", 1),
+    bright: num("flBright", 0),
+    stamp: c.flStamp !== false,
+    standMode: c.flStandMode !== false,
+    standCarry: c.flStandCarry !== false,
+    sampleSec: num("flSample", 0.5),
+    dashSec: num("flDash", 0.12),
+    fall: num("flFall", 1.3),
+    ink: num("flInk", 1),
+    facing: (c.flFacing ?? "across") as Facing,
+    stretch: num("flStretch", 1),
+    stretchKind: num("flKind", 0),
+    streakSoft: num("flSoft", 0.8),
+    slit: num("flSlit", 1),
+    multiply: c.flMultiply !== false,
+    floor: !!c.flFloor,
+  };}
+
+/** Each clip's set from the clip group's values (keys by the clip's name). */
+export function setsFromValues(raw: Record<string, unknown>, clips: readonly ClipInfo[]): ClipSet[] {
+  return clips.map((cl) => {
+    const k = clipKey(cl.id);
+    return {
+      id: cl.id,
+      state: (raw[`ct_${k}`] as ClipState) ?? (cl.side ? "none" : cl.walking ? "walk" : "stand"),
+      flip: !!raw[`cf_${k}`],
+      dist: Number(raw[`cd_${k}`] ?? 0.15),
+      gap: Number(raw[`cg_${k}`] ?? 0.04),
+      height: Number(raw[`ch_${k}`] ?? 1.72),
+      width: Number(raw[`cw_${k}`] ?? 1),
+      ink: Number(raw[`ci_${k}`] ?? 1),
+      lift: Number(raw[`cy_${k}`] ?? 0),
+      tint: hexLin(String(raw[`cc_${k}`] ?? "#141414")),
+      tintAmt: Number(raw[`ca_${k}`] ?? (cl.lum > 0.7 ? 1 : 0)),
+      reverse: !!raw[`cr_${k}`],
+      play: Number(raw[`cp_${k}`] ?? 1),
+      pingpong: !!raw[`cb_${k}`],
+      fill: cl.fill,
+      farSide: !!(raw[`cs_${k}`] ?? cl.side),
+      profile: cl.side || !!raw[`cs_${k}`],
+      faces: Number(raw[`cf2_${k}`] ?? 0) || cl.faces || 1,
+      stride: cl.strideSec,
+      offset: Number(raw[`co_${k}`] ?? 0),
+    };
+  });
+}
+
+/** A clip of the sheet as the study lists it. */
+export interface ClipInfo {
+  id: string;
+  strideSec: number;
+  loop: number;
+  lum: number;
+  side: boolean;
+  walking: boolean;
+  fill: number;
+  faces: number;
+}
+
+/** A clip's key in the saved values (its name, letters and digits). */
+export const clipKey = (id: string) => id.replace(/[^A-Za-z0-9]/g, "_");
+
+/** Where each state's colour flow starts when never set by state: the old shared (moving) knobs and the still ones'. */
+export function gradStartFrom(old: (key: string, dflt: number) => number): Record<StateKey, Grad> {
+  const moving: Grad = { amt: old("flGradAmt", 0.8), pick: old("flGradPick", 1), dir: old("flGradDir", 0), scale: old("flGradScale", 1), speed: old("flGradSpeed", 1), warp: old("flGradWarp", 0.6) };
+  const gsPick = old("flGsPick", -1);
+  const still: Grad = { ...moving, amt: old("flGsAmt", 0.8), pick: gsPick >= 0 ? gsPick : moving.pick, scale: Math.min(6, moving.scale * old("flGsScale", 1)), speed: Math.min(6, moving.speed * old("flGsSpeed", 1)) };
+  return { walk: moving, brisk: moving, run: moving, stand: still, talk: still };
+}

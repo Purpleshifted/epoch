@@ -34,11 +34,12 @@ import { BodyPoses, cutOf, cycleOf, makeBodyGeometry, makeBodyMaterial, paletteI
 import { DEFAULT_ARCHETYPES, STAND_GESTURES, archetypeIndexOf, bodyTuning, hexToLinear, runPose, shapePose, strideScaleOf, type Archetype } from "./bodyArchetypes";
 import { makeFiberGeometry, makeFiberMaterial } from "./fiberBody";
 import { loadSpriteSheet, makeSpriteGeometry, makeSpriteMaterial, spriteRow, type SpriteIndex } from "./spritePeople";
+import { FramePeopleLayer } from "./FramePeopleLayer";
 import { mobileLab } from "./mobileLab";
 import { streetGaze } from "./streetLook";
 import { onLifeEvent } from "./lifeEvents";
 
-export type PeopleMode = "boxes" | "points" | "fibers" | "sprites";
+export type PeopleMode = "boxes" | "points" | "fibers" | "sprites" | "frames";
 
 export interface PeopleLook {
   /** How the others are drawn (the artist, 2026-11-22 night: "깜빡이는 상자 속에서 사람 실루엣이 걸어가는 것처럼 … 점 낭비 안 해도
@@ -658,6 +659,7 @@ export function PointPeople({
 
   const people = useRef(new Map<string, Person>());
   const lastList = useRef<readonly Other[] | null>(null);
+  const framesList = useRef<readonly Other[] | null>(null);
   // 흰 바탕: the 3D bodies (bodySheet.ts) — each person now and their traces, ray-marched, drawn as filters on the white
   // (bodySheet "paper"); the bodies now once more into the depth only (the scene's near-sharp/far-soft rule reads them)
   const poses = useMemo(() => new BodyPoses(MAX_BODIES), []);
@@ -781,6 +783,8 @@ export function PointPeople({
       }
       list = C.both;
     }
+    // (the frames layer reads the same list — the record's places and the crowd test's)
+    framesList.current = list;
     if (list && list !== lastList.current) {
       lastList.current = list;
       for (const o of list) {
@@ -1500,6 +1504,7 @@ export function PointPeople({
       {look.mode === "boxes" && <mesh geometry={depthGeom} material={depthMat} frustumCulled={false} renderOrder={11} />}
       {look.mode === "fibers" && <mesh geometry={fiberGeom} material={fiberMat} frustumCulled={false} renderOrder={10} />}
       {look.mode === "sprites" && <mesh geometry={spriteGeom} material={spriteMat} frustumCulled={false} renderOrder={10} />}
+      {look.mode === "frames" && <FramePeopleLayer getList={() => framesList.current} playerPosRef={playerPosRef} unit={k} />}
       {/* 흰 바탕: the record device's labels — the being's number and a leader line, by the nearest few */}
       {look.paper &&
         labels.map((l) => (

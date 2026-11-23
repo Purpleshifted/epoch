@@ -346,6 +346,13 @@ export function savedValue(root: string, key: string, legacy: readonly string[] 
   return loadWithLegacy(root, legacy)?.[key];
 }
 
+/** All the values saved under `root` (or its old names), {} when none — for a page that reads another page's group
+ *  without showing it (the bot lab reading the frames study, 2026-11-23). */
+export function savedGroup(root: string, legacy: readonly string[] = []): Record<string, unknown> {
+  if (typeof window === "undefined" || presetsDefault()) return {};
+  return loadWithLegacy(root, legacy) ?? {};
+}
+
 export function savable<S extends object>(root: string, schema: S, legacy: readonly string[] = [], migrations: readonly SavedMigration[] = []): S {
   if (typeof window === "undefined") return schema;
   const key = storageKey(root);
