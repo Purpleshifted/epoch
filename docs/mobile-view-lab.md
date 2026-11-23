@@ -145,6 +145,25 @@ animation in `labKnobsScanFuture.ts`; captures against 3 stills into `docs/img/m
 
 ### bot (present)
 
+**Later the same day — the POINT BODY with FIBERS becomes the default (`그리기 = 점 몸`, mode `"fibers"`, `fiberBody.ts`).**
+The artist: lag ("생각보다 랙이 심해서") → "3d 몸을 점으로 하면 td 랑도 비슷해지고 … 흩날리는 효과 … 잔흔 계산해서 다 남길필요
+없이 점 자체에 fiber 효과도"; "봇 속도 일정 이상이면 뛰어가야 … 경공술"; "제스처 다양하게"; "방향 돌거나 하는 것도 어색해서,
+사이사이 위치 들어오는 간격은 그냥 보간하지 말고 그때그때 장노출 사진처럼 슉슉 남는 게"; "보간은 껐다 켤 수 있게" (she is not
+sure yet whether points + fibers or the 3D body gives "각자의 몸이 점한 시공간 덩어리" / a transparent-collage feel — both stay
+switchable); "안 쓰는 노브는 다 지워가고 새로운 건 추가해가면서"; the long exposure's blur was switched off in her saved
+`바탕` values at her word (inkNarrow/Wide/Fade/Halo/Grain 0; scan-present told).
+- Points sampled once on the body's shapes (trunk, coat, hips, limbs, shoulders, neck, head, hands, shoes, long hair), each
+  remembering its bone, place along it and angle round it; the GPU places them on each person's archetype pose (BodyPoses
+  rows: girth, cut, own colours — the archetypes and clothes are wired in). Each point is a round-ended thread through three
+  moments (now, a little ago, longer ago): standing a dot, moving a fiber; its tail fades and scatters; a share of the
+  points drift off (흩날림). Multiplied on the white, depth-tested, one draw.
+- `움직임` folder: 보간 끄기 (default on = "슉": at each sample the body sweeps there in `dashSec` and holds; the fibers carry
+  the sweep and draw back over the fiber time; off = continuous walking with dead reckoning), run above `runFrom` m/s
+  (longer reach, high knees, bent elbows, lean; the cadence cap lifts — no gliding), standing gestures every
+  `gestureSec` (주머니 · 팔짱 · 폰 · 뒷짐 · 허리에 손 · 머리 긁기 · 둘러보기 · 앞에 손 모음 · 턱 괴기), eased over 1.2 s, with a slow
+  weight shift. `점 몸 · 섬유` folder: points a person, size, least px, ink, fiber time, tail ink, scatter, loose share,
+  distance, speed, saturation. Folders show only for their mode (잔흔 for the 3D body, 옛 노브 for the old point body).
+
 **State (2026-11-23, after the resume): built — afterimages, continuous motion, archetypes, their knobs — awaiting the
 artist's eye.** Checks: type check; one headless text run per change (no captures — the artist: "비주얼은 내가 보고
 피드백할테니까 캡처해서 … 토큰 최소화"): no shader errors (one found and fixed: `projectionMatrix` undeclared in the

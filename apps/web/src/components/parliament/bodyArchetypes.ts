@@ -16,8 +16,14 @@
  */
 
 import type { Joints } from "@/lib/parliament/pointPeople";
+import { DEFAULT_FIBER, type FiberLook } from "./fiberBody";
 
-export type ArmStyle = "swing" | "pockets" | "behind" | "phone" | "crossed";
+export type ArmStyle = "swing" | "pockets" | "behind" | "phone" | "crossed" | "hips" | "scratch" | "clasp" | "chin";
+
+/** What someone standing does with themselves (gestures; the artist, 2026-11-23: "제스처 다양하게", "가만히 서있거나 정주할 때
+ *  제스처도 자연스럽게 좀 다양화"): each standing person
+ *  takes one of these for a few seconds, then another, by their hash and the time. "look" turns the body to look round. */
+export const STAND_GESTURES: readonly (ArmStyle | "look")[] = ["swing", "pockets", "crossed", "phone", "behind", "hips", "scratch", "look", "clasp", "chin", "pockets", "phone", "look", "swing"];
 export type HemChoice = "any" | "waist" | "hip" | "knee";
 export type HairChoice = "any" | "short" | "long";
 
@@ -137,8 +143,51 @@ export const DEFAULT_TRAIL: TrailLook = { on: true, sec: 1.2, count: 8, now: 0.6
 /** The lab's view of the crowd: every archetype by its share, or only one (on the lab page alone; slot 0 … 4). */
 export type ArchetypeView = "all" | number;
 
-export const bodyTuning: { archetypes: Archetype[]; trail: TrailLook; view: ArchetypeView } = {
+/** HOW THEY MOVE between the record's samples (the artist, 2026-11-23: "사이사이 위치 들어오는 간격은 그냥 보간하지 말고
+ *  그때그때 장노출 사진처럼 슉슉 남는 게"; "봇 속도 일정 이상이면 뛰어가야"; "제스처 다양하게"). */
+export interface MoveLook {
+  /** true: at each sample the body sweeps to its new place in `dashSec` and holds there (the fibers leave the sweep);
+   *  false: it walks on continuously. */
+  stamp: boolean;
+  dashSec: number;
+  /** Faster than this (m/s) a person runs; how much (0 … 1 = a full run). */
+  runFrom: number;
+  run: number;
+  /** Standing people take a gesture for this many seconds, then another. */
+  gestures: boolean;
+  gestureSec: number;
+}
+
+export const DEFAULT_MOVE: MoveLook = { stamp: true, dashSec: 0.12, runFrom: 2.2, run: 1, gestures: true, gestureSec: 5 };
+
+/** A captured walking pose made a run (amount 0 … 1): longer reach, higher knees and feet, the arms bent at the elbow
+ *  and swinging wider, the body leaning in. Applied to the archetype's pose; returns the same object. */
+export function runPose(J: Joints, S: Joints, amount: number): Joints {
+  if (amount <= 0) return J;
+  const k = amount;
+  for (const key of ["kneeL", "kneeR", "ankleL", "ankleR", "toeL", "toeR"] as const) {
+    J[key][2] = S[key][2] + (J[key][2] - S[key][2]) * (1 + 0.55 * k);
+    J[key][1] = S[key][1] + (J[key][1] - S[key][1]) * (1 + 1.4 * k) + (key.startsWith("knee") ? 0.04 * k : 0.03 * k);
+  }
+  for (const [sh, el, wr] of [["shL", "elbowL", "wristL"], ["shR", "elbowR", "wristR"]] as const) {
+    // the swing wider, then the forearm bent up ~80° about the elbow
+    for (const q of [el, wr] as const) for (let i = 0; i < 3; i++) J[q][i] = J[sh][i] + (S[q][i] - S[sh][i]) + (J[q][i] - J[sh][i] - (S[q][i] - S[sh][i])) * (1 + 0.9 * k);
+    const f: V = sub(J[wr], J[el]);
+    const ang = -1.35 * k;
+    const c = Math.cos(ang), s = Math.sin(ang);
+    J[wr][1] = J[el][1] + f[1] * c - f[2] * s;
+    J[wr][2] = J[el][2] + f[2] * c + f[1] * s;
+  }
+  const lean = (12 * k * Math.PI) / 180;
+  const pivot: V = [J.pelvis[0], J.pelvis[1] - 0.05, J.pelvis[2]];
+  for (const key of ["shoulders", "head", "shL", "shR", "elbowL", "elbowR", "wristL", "wristR"] as const) rotX(J[key], pivot, lean);
+  return J;
+}
+
+export const bodyTuning: { archetypes: Archetype[]; trail: TrailLook; view: ArchetypeView; fiber: FiberLook; move: MoveLook } = {
   archetypes: DEFAULT_ARCHETYPES.map((a) => ({ ...a })),
+  fiber: { ...DEFAULT_FIBER },
+  move: { ...DEFAULT_MOVE },
   trail: { ...DEFAULT_TRAIL },
   view: "all",
 };
@@ -295,6 +344,29 @@ export function shapePose(P: Joints, S: Joints, a: Archetype, moving: number): J
       } else if (a.armStyle === "crossed") {
         eT = [sh[0] + s * 0.03 * L, sh[1] - 0.22 * L, sh[2] + 0.1 * L];
         wT = [J.shoulders[0] - s * 0.13, sh[1] - 0.16 * L, sh[2] + 0.19 * L];
+      } else if (a.armStyle === "hips") {
+        // hands on the hips, elbows out
+        eT = [sh[0] + s * 0.2 * L, sh[1] - 0.2 * L, sh[2] - 0.02 * L];
+        wT = [J.pelvis[0] + s * 0.17, J.pelvis[1] + 0.06, J.pelvis[2] + 0.02];
+      } else if (a.armStyle === "clasp") {
+        // the hands held together in front, low
+        eT = [sh[0] + s * 0.05 * L, sh[1] - 0.25 * L, sh[2] + 0.03 * L];
+        wT = [J.pelvis[0] + s * 0.03, J.pelvis[1] - 0.02, J.pelvis[2] + 0.16];
+      } else if (a.armStyle === "chin") {
+        // the right hand at the chin, the left arm across under its elbow
+        if (s < 0) {
+          eT = [sh[0] + 0.06 * L, sh[1] - 0.2 * L, sh[2] + 0.12 * L];
+          wT = [J.head[0] - 0.02, J.head[1] - 0.04, J.head[2] + 0.12];
+        } else {
+          eT = [sh[0] + 0.03 * L, sh[1] - 0.24 * L, sh[2] + 0.08 * L];
+          wT = [J.shoulders[0] - 0.12, sh[1] - 0.22 * L, sh[2] + 0.17 * L];
+        }
+      } else if (a.armStyle === "scratch") {
+        // the right hand to the back of the head; the left hangs
+        if (s < 0) {
+          eT = [sh[0] - 0.14 * L, sh[1] + 0.06 * L, sh[2] + 0.05 * L];
+          wT = [J.head[0] - 0.04, J.head[1] + 0.12, J.head[2] - 0.05];
+        } else continue;
       } else {
         // a phone in the right hand before the chest; the left arm hangs, swinging less
         if (s < 0) {

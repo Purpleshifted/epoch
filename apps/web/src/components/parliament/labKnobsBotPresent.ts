@@ -12,9 +12,10 @@ import { folder, useControls } from "leva";
 import { savable } from "./levaSave";
 import { LAB_GROUP, labLists } from "./mobileLab";
 import { DEFAULT_PEOPLE, type PeopleMode } from "./PointPeople";
-import { DEFAULT_ARCHETYPES, DEFAULT_TRAIL, bodyTuning, type ArchetypeView, type ArmStyle, type HairChoice, type HemChoice } from "./bodyArchetypes";
+import { DEFAULT_ARCHETYPES, DEFAULT_MOVE, DEFAULT_TRAIL, bodyTuning, type ArchetypeView, type ArmStyle, type HairChoice, type HemChoice } from "./bodyArchetypes";
+import { DEFAULT_FIBER } from "./fiberBody";
 
-const ARM_STYLES: Record<string, ArmStyle> = { "흔들며 걷기": "swing", "주머니에 손": "pockets", "뒷짐": "behind", "휴대폰 보기": "phone", "팔짱": "crossed" };
+const ARM_STYLES: Record<string, ArmStyle> = { "흔들며 걷기": "swing", "주머니에 손": "pockets", "뒷짐": "behind", "휴대폰 보기": "phone", "팔짱": "crossed", "허리에 손": "hips", "앞에 손 모음": "clasp", "턱 괴기": "chin" };
 const HEMS: Record<string, HemChoice> = { "사람마다": "any", "허리까지 (윗옷)": "waist", "엉덩이까지 (재킷)": "hip", "무릎까지 (코트)": "knee" };
 const HAIRS: Record<string, HairChoice> = { "사람마다": "any", "짧은 머리": "short", "긴 머리": "long" };
 const GAITS: Record<string, number> = { "사람마다 (넷 중 하나)": -1, "캡처 1 · CMU 07_01": 0, "캡처 2 · CMU 07_02": 1, "캡처 3 · CMU 02_01": 2, "캡처 4 · CMU 35_01": 3 };
@@ -92,6 +93,42 @@ function useBodyKnobs(isV2: boolean) {
   const v2 = () => isV2;
   const show = () => isV2 && labLists("bot-present");
   const G = LAB_GROUP["bot-present"];
+  // (a folder shows only while its way of drawing is chosen — the artist, 2026-11-23: "안 쓰는 노브는 다 지워가고 새로운 건
+  // 추가해가면서"; hidden values are kept)
+  const modeIs = (m: string) => (get: (path: string) => unknown) => show() && get(`${G}.사람.ppMode`) === m;
+  const moveRoot = `${G}.움직임`;
+  const mv = useControls(
+    moveRoot,
+    savable(moveRoot, {
+      mvStamp: { value: DEFAULT_MOVE.stamp, label: "보간 끄기 — 표본마다 슉 하고 남음 (끄면 보간하며 걸음)", render: v2 },
+      mvDash: { value: DEFAULT_MOVE.dashSec, min: 0.02, max: 0.5, step: 0.01, label: "슉 — 새 자리로 쓸려 가는 시간 (s)", render: v2 },
+      mvRunFrom: { value: DEFAULT_MOVE.runFrom, min: 0.8, max: 5, step: 0.1, label: "이보다 빠르면 뜀 (m/s)", render: v2 },
+      mvRun: { value: DEFAULT_MOVE.run, min: 0, max: 1, step: 0.05, label: "뛰는 정도", render: v2 },
+      mvGest: { value: DEFAULT_MOVE.gestures, label: "서 있으면 제스처", render: v2 },
+      mvGestSec: { value: DEFAULT_MOVE.gestureSec, min: 1, max: 20, step: 0.5, label: "제스처가 바뀌는 간격 (s)", render: v2 },
+    }),
+    { collapsed: false, render: show },
+  ) as unknown as Record<string, number | boolean>;
+  const fiberRoot = `${G}.점 몸 · 섬유`;
+  const fb = useControls(
+    fiberRoot,
+    savable(fiberRoot, {
+      fbCount: { value: DEFAULT_FIBER.count, min: 300, max: 6000, step: 100, label: "한 사람의 점 수", render: v2 },
+      fbSize: { value: DEFAULT_FIBER.sizeMm, min: 4, max: 80, step: 1, label: "점 크기 (mm)", render: v2 },
+      fbMinPx: { value: DEFAULT_FIBER.minPx, min: 0.5, max: 4, step: 0.1, label: "점 최소 (px)", render: v2 },
+      fbInk: { value: DEFAULT_FIBER.ink, min: 0.05, max: 1, step: 0.05, label: "점 진하기", render: v2 },
+      fbSec: { value: DEFAULT_FIBER.sec, min: 0.05, max: 3, step: 0.05, label: "섬유 — 지나온 길이 남는 시간 (s)", render: v2 },
+      fbTail: { value: DEFAULT_FIBER.tail, min: 0, max: 1, step: 0.05, label: "섬유 끝의 진하기", render: v2 },
+      fbScatter: { value: DEFAULT_FIBER.scatterCm, min: 0, max: 60, step: 1, label: "섬유 끝이 흩어짐 (cm)", render: v2 },
+      fbFly: { value: DEFAULT_FIBER.flyShare, min: 0, max: 0.5, step: 0.01, label: "흩날리는 점의 몫", render: v2 },
+      fbFlyM: { value: DEFAULT_FIBER.flyM, min: 0, max: 4, step: 0.05, label: "흩날려 가는 거리 (m)", render: v2 },
+      fbFlySpeed: { value: DEFAULT_FIBER.flySpeed, min: 0.05, max: 2, step: 0.05, label: "흩날림 빠르기", render: v2 },
+      fbSat: { value: DEFAULT_FIBER.sat, min: 0, max: 2.5, step: 0.05, label: "옷 색 채도 ×", render: v2 },
+    }),
+    { collapsed: false, render: modeIs("fibers") },
+  ) as unknown as Record<string, number | boolean>;
+  bodyTuning.move = { stamp: !!mv.mvStamp, dashSec: Number(mv.mvDash), runFrom: Number(mv.mvRunFrom), run: Number(mv.mvRun), gestures: !!mv.mvGest, gestureSec: Number(mv.mvGestSec) };
+  bodyTuning.fiber = { count: Number(fb.fbCount), sizeMm: Number(fb.fbSize), minPx: Number(fb.fbMinPx), sec: Number(fb.fbSec), tail: Number(fb.fbTail), ink: Number(fb.fbInk), scatterCm: Number(fb.fbScatter), flyShare: Number(fb.fbFly), flyM: Number(fb.fbFlyM), flySpeed: Number(fb.fbFlySpeed), sat: Number(fb.fbSat) };
   const trailRoot = `${G}.잔흔 — 동세의 시공간 덩어리`;
   const t = useControls(
     trailRoot,
@@ -106,7 +143,7 @@ function useBodyKnobs(isV2: boolean) {
       trSoftOld: { value: DEFAULT_TRAIL.softOld, min: 0, max: 40, step: 0.5, label: "가장 오래된 잔흔 번짐 (cm)", render: v2 },
       trSat: { value: DEFAULT_TRAIL.sat, min: 0, max: 2.5, step: 0.05, label: "잔흔 색 채도 ×", render: v2 },
     }),
-    { collapsed: false, render: show },
+    { collapsed: false, render: modeIs("boxes") },
   ) as unknown as Record<string, number | boolean>;
   const archRoot = `${G}.체형 아키타입`;
   const archSchema: Record<string, unknown> = {
@@ -164,8 +201,9 @@ function useBodyKnobs(isV2: boolean) {
 
 // (the labels say what each draws on the white ground now — 2026-11-23; the stored values stay "boxes" / "points")
 const PEOPLE_MODES: Record<string, PeopleMode> = {
-  "3D 몸 + 잔흔 + 체형 아키타입 (흰 바탕)": "boxes",
-  "점 몸 — 점 N개 + 시간 번짐 복사본": "points",
+  "점 몸 — 뼈대 위의 점, 점마다 섬유 · 흩날림 (체형 아키타입)": "fibers",
+  "3D 몸 — 면, 잔흔 (체형 아키타입)": "boxes",
+  "옛 점 몸 — 점 N개 + 시간 번짐 복사본": "points",
 };
 
 export function useBotPresentKnobs(isV2: boolean) {
@@ -204,7 +242,7 @@ export function useBotPresentKnobs(isV2: boolean) {
         askRipple: { value: true, label: "창에서 사각 파문", render: v2 },
         paperBubble: { value: true, label: "옆에 멜로디 기호 버블", render: v2 },
       }),
-      "시험 (점 몸 · 옛 노브)": folder({
+      "옛 점 몸 · 옛 노브": folder({
         ppPoints: { value: DEFAULT_PEOPLE.points, min: 64, max: 800, step: 16, label: "점 몸: 점 수", render: v2 },
         ppPointsPhone: { value: DEFAULT_PEOPLE.pointsPhone, min: 32, max: 480, step: 16, label: "점 몸: 폰 점 수", render: v2 },
         ppDot: { value: DEFAULT_PEOPLE.dot, min: 0.01, max: 0.3, step: 0.005, label: "점 몸: 점 크기 (m)", render: v2 },
@@ -224,7 +262,7 @@ export function useBotPresentKnobs(isV2: boolean) {
         // (hidden 11/23: the white ground's bodies are 3D now — bodySheet.ts — and no sheet is blurred; the value is kept)
         paperBlur: { value: 3, min: 0, max: 8, step: 0.5, label: "옛: 시트 번짐 (px)", render: () => false },
         paperFade: { value: 12, min: 3, max: 30, step: 0.5, label: "옛: 필름 옅어지는 거리", render: v2 },
-      }, { collapsed: true }),
+      }, { collapsed: true, render: (get) => get(`${LAB_GROUP["bot-present"]}.사람.ppMode`) === "points" }),
     }),
     { collapsed: false, order: 0.6, render: () => isV2 && labLists("bot-present") },
   );
