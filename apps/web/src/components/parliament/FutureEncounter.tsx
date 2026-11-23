@@ -12,7 +12,7 @@
  * ground (they stayed there: their own cells), "looked at" when it is not.
  *
  * One draw call (the points) and a line; the reading only at an encounter (≈ 5 – 40 ms once). Its knobs: the
- * personal view's folder 미래 (개인뷰 · 시험), mode 마주침.
+ * personal view's folder 미래 (개인뷰), mode 마주침.
  */
 
 import { useEffect, useMemo, useRef } from "react";

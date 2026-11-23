@@ -149,13 +149,22 @@ const CONCRETE_STYLES: Record<string, ConcreteStyle> = {
 export function usePersonalVisuals(): PersonalVisuals {
   const isV2 = useParliamentVersion() === "v2";
   const v2 = () => isV2;
+  // THE FOLDER TIDIED (2026-11-23, the artist: "레바 정리해"): 길거리 — the look in use — first and open; the end screen's
+  // card in a folder of its own; the older folders folded; the squares' and glow's knobs hidden while the street's people
+  // stand in for them (nothing reads them then). Keys unchanged, so everything saved carries over.
+  const streetPeopleOn = (get: (path: string) => unknown) => get(`${ROOT}.길거리.streetOn`) === true && get(`${ROOT}.길거리.사람.streetPeople`) === true;
   const c = useControls(
     ROOT,
     savable(ROOT, {
-      look: { options: LOOK_OPTIONS, value: "brutal" as Look, label: "판", render: v2 },
-      cardTheme: { options: CARD_THEMES, value: "paper" as PlateTheme, label: "표본 카드 바탕 (처음; 관객이 바꿀 수 있음)", render: v2 },
-      cardOrient: { options: CARD_ORIENTS, value: "portrait" as PlateOrient, label: "표본 카드 방향 (처음; 관객이 바꿀 수 있음)", render: v2 },
-      footprint: { value: true, label: "퇴장 화면 발자국 지도", render: v2 },
+      look: { options: LOOK_OPTIONS, value: "brutal" as Look, label: "판 (브루털 · 부드러움)", render: v2 },
+      "끝 화면 — 카드 · 발자국": folder(
+        {
+          cardTheme: { options: CARD_THEMES, value: "paper" as PlateTheme, label: "표본 카드 바탕 (처음; 관객이 바꿀 수 있음)", render: v2 },
+          cardOrient: { options: CARD_ORIENTS, value: "portrait" as PlateOrient, label: "표본 카드 방향 (처음; 관객이 바꿀 수 있음)", render: v2 },
+          footprint: { value: true, label: "퇴장 화면 발자국 지도", render: v2 },
+        },
+        { collapsed: true },
+      ),
       "브루털": folder({
         grassStyle: { options: GRASS_STYLES, value: "field" as GrassStyle, label: "풀", render: v2 },
         grassColor: { value: "#2f8f3f", label: "풀 색", render: v2 },
@@ -165,15 +174,15 @@ export function usePersonalVisuals(): PersonalVisuals {
         squareSize: { value: 0.16, min: 0.04, max: 0.6, step: 0.01, label: "네모 점: 크기", render: v2 },
         concreteStyle: { options: CONCRETE_STYLES, value: "outline" as ConcreteStyle, label: "콘크리트", render: v2 },
         outlineScale: { value: 1, min: 0.25, max: 6, step: 0.25, label: "외곽선: 높이 × 슬래브", render: v2 },
-        otherSquare: { value: 0.8, min: 0.2, max: 2, step: 0.05, label: "타인 네모 크기", render: v2 },
-      }),
+        otherSquare: { value: 0.8, min: 0.2, max: 2, step: 0.05, label: "타인 네모 크기", render: (get: (path: string) => unknown) => isV2 && !streetPeopleOn(get) },
+      }, { collapsed: true }),
       "응답의 터짐": folder({
         burstOn: { value: true, label: "켜기", render: v2 },
         burstCount: { value: 70, min: 5, max: 400, step: 5, label: "점 수", render: v2 },
         burstReach: { value: 2.6, min: 0.3, max: 10, step: 0.1, label: "퍼지는 거리 (월드)", render: v2 },
         burstLife: { value: 1.2, min: 0.2, max: 5, step: 0.1, label: "지속 (s)", render: v2 },
         burstDot: { value: 0.07, min: 0.02, max: 0.4, step: 0.01, label: "점 크기 (월드)", render: v2 },
-      }),
+      }, { collapsed: true }),
       "풀 (식생)": folder({
         grassThick: { value: 2, min: 1, max: 6, step: 0.25, label: "두께 — 세로 분포 배율 (1 = 예전)", render: v2 },
         grassMode: { options: GRASS_OPTIONS, value: "press" as GrassMode, label: "걷는 사람에게 반응", render: v2 },
@@ -182,8 +191,8 @@ export function usePersonalVisuals(): PersonalVisuals {
         nearEvery: { value: 0.1, min: 0.05, max: 0.5, step: 0.05, label: "근접 갱신 (s)", render: v2 },
         nearRadius: { value: 3.5, min: 1.5, max: 8, step: 0.5, label: "근접 반경 (월드)", render: v2 },
         mineGain: { value: 2, min: 1, max: 6, step: 0.5, label: "A3: 내 스트레스 배율", render: v2 },
-      }),
-      "타인 — 땅 위의 빛점 (glow)": folder({
+      }, { collapsed: true }),
+      "타인 — 옛 네모 · 빛점": folder({
         othersOn: { value: true, label: "켜기", render: v2 },
         otherSize: { value: 0.5, min: 0.05, max: 3, step: 0.05, label: "심 크기 (월드, 거리로 줄어듦)", render: v2 },
         otherHalo: { value: 4, min: 0, max: 12, step: 0.5, label: "후광 크기 (심의 배수; 0 = 없음)", render: v2 },
@@ -194,18 +203,17 @@ export function usePersonalVisuals(): PersonalVisuals {
         otherPulse: { value: 0, min: 0, max: 3, step: 0.1, label: "맥동 (Hz; 0 = 고정)", render: v2 },
         otherHold: { value: 4, min: 0.5, max: 20, step: 0.5, label: "자리 옮기는 간격 (s; 타인마다 ±25 % 어긋남)", render: v2 },
         otherSnap: { value: true, label: "격자 칸 가운데에 맞춤", render: v2 },
-        otherRecent: { value: 10, min: 1, max: 60, step: 1, label: "흐려지는 시간 (s, 마지막 표본 뒤)", render: v2 },
-      }),
+      }, { collapsed: true, render: (get) => isV2 && !streetPeopleOn(get) }),
       "콘크리트 — 세로선": folder({
         concreteOn: { value: true, label: "켜기", render: v2 },
         concreteHeight: { value: 40, min: 1, max: 120, step: 1, label: "선 높이 (월드)", render: v2 },
         concreteBright: { value: 0.6, min: 0.1, max: 1, step: 0.05, label: "밝기", render: v2 },
         concreteRadius: { value: 36, min: 6, max: 80, step: 1, label: "보이는 반경 (월드)", render: v2 },
-      }),
-      // 길거리 (2026-11-22): a trial — everything here is off by default, so the look stays what it was. Grouped by what
-      // changes (the artist, 2026-11-22 night: "레바 좀 정리해가면서"); keys unchanged, so saved values carry over; the knobs
-      // the look under review no longer leans on sit in 시험, collapsed, their saves kept.
-      "길거리 (시험 · 11/22)": folder(
+      }, { collapsed: true }),
+      // 길거리 (2026-11-22; the default since 11/23): grouped by what changes (the artist, 2026-11-22 night: "레바 좀
+      // 정리해가면서"; 11/23: "레바 정리해"); keys unchanged, so saved values carry over; the knobs the look in use no longer
+      // leans on sit in 옛 노브, collapsed, their saves kept. Shown first (order) and open.
+      "길거리": folder(
         {
           streetOn: { value: true, label: "켜기 (끄면 아래 모두 꺼짐)", render: v2 },
           paperOn: { value: true, label: "흰 바탕 — 장노출 (끄면 검은 바탕의 상자)", render: v2 },
@@ -228,6 +236,8 @@ export function usePersonalVisuals(): PersonalVisuals {
             ppMaxCadence: { value: DEFAULT_PEOPLE.maxCadence, min: 0.8, max: 4, step: 0.1, label: "걸음 박자 상한 (걸음/s)", render: v2 },
             ppFaceEach: { value: DEFAULT_PEOPLE.faceEach, label: "서 있으면 가까운 이를 마주 봄", render: v2 },
             ppFaceRadius: { value: DEFAULT_PEOPLE.faceRadius, min: 1, max: 8, step: 0.5, label: "마주 보는 거리 (m)", render: v2 },
+            // (moved here 11/23 from the squares' folder: the street's people read it too)
+            otherRecent: { value: 10, min: 1, max: 60, step: 1, label: "흐려지는 시간 (s, 마지막 표본 뒤)", render: v2 },
           }),
           "지나간 자리": folder({
             paperExposure: { value: 0.5, min: 0.05, max: 2, step: 0.05, label: "노출 — 한 프레임이 남기는 양", render: v2 },
@@ -277,7 +287,7 @@ export function usePersonalVisuals(): PersonalVisuals {
             grassSway: { value: 0.5, min: 0, max: 2, step: 0.1, label: "네모 점 풀의 흔들림", render: v2 },
             groundOnPaper: { value: false, label: "흰 바탕에서도 땅 면을 그림", render: v2 },
           }),
-          "시험 (점 몸 · 옛 노브)": folder({
+          "옛 노브 — 점 몸 · 검은 바탕 상자": folder({
             ppPoints: { value: DEFAULT_PEOPLE.points, min: 64, max: 800, step: 16, label: "점 몸: 점 수", render: v2 },
             ppPointsPhone: { value: DEFAULT_PEOPLE.pointsPhone, min: 32, max: 480, step: 16, label: "점 몸: 폰 점 수", render: v2 },
             ppDot: { value: DEFAULT_PEOPLE.dot, min: 0.01, max: 0.3, step: 0.005, label: "점 몸: 점 크기 (m)", render: v2 },
@@ -302,7 +312,7 @@ export function usePersonalVisuals(): PersonalVisuals {
             groundGrain: { value: 0.5, min: 0, max: 1, step: 0.05, label: "옛: 결", render: v2 },
           }, { collapsed: true }),
         },
-        { collapsed: false },
+        { collapsed: false, order: -1 },
       ),
     }),
     { collapsed: false, order: 1 },

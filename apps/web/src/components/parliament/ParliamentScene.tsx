@@ -485,7 +485,7 @@ export default function ParliamentScene() {
   // V2: what the player view adds so the visitor's effect on the ground lands (Leva 개인뷰 비주얼)
   const visuals = usePersonalVisuals();
   const brutal = isV2 && visuals.look === "brutal";
-  // THE FUTURE UNDER THE VISITOR'S FEET (FuturePresence.tsx, a trial of 2026-11-22; Leva 미래 (개인뷰 · 시험), ?future=)
+  // THE FUTURE UNDER THE VISITOR'S FEET (FuturePresence.tsx, a trial of 2026-11-22; Leva 미래 (개인뷰, was · 시험), ?future=)
   const future = useFuturePresenceControls(isV2);
   const getRhythm = useCallback(() => (witnessRef.current ? rhythmOf(witnessRef.current.me) : null), []);
 
