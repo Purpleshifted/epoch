@@ -101,4 +101,41 @@ birth/death/kind attributes for draw-on, drip and weight), fog-aware; knobs only
 animation in `labKnobsScanFuture.ts`; captures against 3 stills into `docs/img/mobile-view-lab/scan-future/`.
 ### scan (present)
 ### bot (present)
+
+**State: paused 2026-11-23 (machine load) before anything was built — the page is as the lab's first commit left it.**
+Work in progress (not in the repo, nothing live): `side-session-notes/local_90c2440b-…/bot-present-wip/` — a patch of
+`bodySheet.ts` + `PointPeople.tsx` and a new `bodyArchetypes.ts`, with a hand-over note.
+
+**The artist's direction (2026-11-23, in this asset's chat), which replaces the stage-by-stage notes in `street-feel.md` §12–15:**
+- "지금 플리커링 있어 보이는 거 끔찍하고" (future too) — no sample jumps, no per-sample shake or stretch pulses, no
+  melody blink on the window. Motion is continuous: the body walks at the record's pace between samples (dead reckoning
+  with a gentle correction), never surging every half second.
+- "'장노출'을 하라는 건 그 효과를 말하는 거였지 억지로 브라우저에서 장노출을 돌리라는 게 아니었음. 걸어가는 모습을 잔흔으로 남겨서
+  그게 마치 '동세의 시공간 덩어리'로 보이게" — the people do not go through InkPaper's feedback any more. A walk leaves
+  **afterimages**: the body at past moments, each left where it was (a chronophotograph's stamps), fading and softening
+  with age, overlapping into one mass of the movement; the body now crisper and denser (rear-curtain flash); standing,
+  they coincide into one solid figure.
+- "future bot 은 그 사이로 미래가 비쳐 보이는 대신 현재는 옷 색이나 여튼 다채로운 블러 효과" — present = the clothes'
+  colours, a colourful blur in the traces; the future bot shows the future through the same mass (bot-future's).
+- "배경이 계속 깔끔한 화이트가 아니라 누렇게 보임" — scan (present)'s paper (`paperLook.paper` is `#f4f2ec`); relayed.
+- "골격이나 움직이는 것들도 레바로 세세하게 조절해보고, 체형 아키타입도 present 에서 만들고 싶음 … 커스텀이나 다양화를 하려고
+  이 세션을 만든 것" — knobs for the skeleton and the motion, and body ARCHETYPES the artist makes herself.
+
+**The plan, ready in the WIP (to build on resume, her check after each):**
+1. Afterimages + no flicker: `makeBodyMaterial(poses, "paper")` draws each body and trace straight into the scene as a
+   coloured filter multiplied on the white (layer 0, depth-tested at the body's real surface via `gl_FragDepth`), a
+   `"depth"` pass writes the bodies' depth for the scene's near-sharp/far-soft rule; per-instance strength, saturation
+   and edge softness (`iBody2`). Trail knobs: length (s), count, the body now, the traces' ink, fall-off, softness now/old
+   (cm), the old traces' saturation. Windows follow the smooth body and stretch over the trace span; no shake, no blink.
+2. Archetypes (`bodyArchetypes.ts`, five slots in their own saved folder `bot (present) · 현재의 사람.체형 아키타입`):
+   share in the crowd, height, legs/torso/shoulders/hips/arms (the height kept), trunk/waist/limbs/head girth, lean, hunch,
+   head down, which CMU walk, stride, arm swing, bounce, sway, foot lift, pace, arms (swing · pockets · behind the back ·
+   phone · crossed), hem, hair, fixed top/trouser colours. First slots: 보통 · 키 큰 코트 · 다부진 · 구부정한 · 폰 보는.
+   A lab-only view knob shows one archetype alone.
+
+**Interface for bot-future (when it lands):** `bodySheet.ts` grows three texels a row (girth; own top colour; own
+trousers colour) — `POSE_TEXELS` 18 → 21, `BodyPoses.write(row, J, build, code, girth?, colours?)`; rows written the old
+way read as before (zeros = defaults). `BODY_GLSL` gains globals `bSoft` (0 unless set after `loadPose`), `bLimb`,
+`bGirth`, `bBelly`, `bHeadS`, `bTop`, `bPants`, `bOwnCol`; `marchBody`'s signature is unchanged. `standOf(cycle)` exported.
+
 ### bot (future)
