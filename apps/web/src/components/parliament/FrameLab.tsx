@@ -127,6 +127,15 @@ interface Look {
   speedMax: number;
   speedSkew: number;
   speedTol: number;
+  /** Clips by the state thresholds — a person keeps one clip of their state, its build and height (the artist,
+   *  2026-11-23: "봇 속도별로 조절하니까 … 어색하다. 체격이랑 이런 거 다 나눠놨어서") — or, as an option, by speed. */
+  pickBySpeed: boolean;
+  briskFrom: number;
+  runFrom: number;
+  /** Passing through me: nobody is drawn nearer than nearCut (m), fading in over nearBand — a body filling the whole
+   *  screen, its afterimages and blur over every pixel, dropped the frame rate ("나를 통과해서 지나갈 때 fps 가 … 확"). */
+  nearCut: number;
+  nearBand: number;
   /** The card turned from its walking direction (rad); what fills between two copies (0 none · 2 a count of frames · 3 one per frame time). */
   yaw: number;
   between: number;
@@ -674,7 +683,11 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
       // thresholds; the state a clip was given still sets its afterimages and colours
       const vOwn = L.speedMin + Math.max(0, L.speedMax - L.speedMin) * Math.pow(frac(w.hash * 11.3), Math.max(0.2, L.speedSkew));
       // (the artist, 2026-11-23: "'경보'랑 '뛰기' 나눠줘" — a brisk walk between walking and running, each its own clips)
-      const moving = L.speedMode === 1 && !w.standing ? bySpeed(CL, frontMoving.length ? frontMoving : first(walkRows, briskRows, runRows), vOwn, L.speedTol) : first(walkRows, briskRows, runRows);
+      // (by the state thresholds by default: a person keeps one clip, its build and height — the artist went back from
+      // clips by speed the same evening)
+      const pace = L.speedMode !== 1 || w.standing ? 0 : vOwn >= L.runFrom ? 2 : vOwn >= L.briskFrom ? 1 : 0;
+      const byState = pace === 2 ? first(runRows, briskRows, walkRows) : pace === 1 ? first(briskRows, walkRows, runRows) : first(walkRows, briskRows, runRows);
+      const moving = L.speedMode === 1 && L.pickBySpeed && !w.standing ? bySpeed(CL, frontMoving.length ? frontMoving : first(walkRows, briskRows, runRows), vOwn, L.speedTol) : byState;
       w.home = L.row > 0 ? Math.min(CL.length, L.row) - 1 : w.standing ? byHash(standRows.length ? standRows : usedRows, w.hash) : byHash(moving, w.hash);
       if (L.row === 0 && !usedRows.length) w.home = -1;
       const set = CL[w.home];
@@ -802,7 +815,7 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
       // 옆모습", near too by "가로지를 때는 가까이도 옆모습"); far off and still — its stand or talk clip, played or held on
       // one frame (the knob "프레임 재생은 가까이에서만"); near and talking — the talk clip plays.
       // (by speed: the profile clips whose matched speed is nearest the person's)
-      const sideRows = L.speedMode === 1 && sideAll.length ? bySpeed(CL, sideAll, w.speed, L.speedTol) : sideRowsOf(CL[w.home]?.state ?? "walk");
+      const sideRows = L.speedMode === 1 && L.pickBySpeed && sideAll.length ? bySpeed(CL, sideAll, w.speed, L.speedTol) : sideRowsOf(CL[w.home]?.state ?? "walk");
       const walksAcross = !w.standing && MOVING.includes(CL[w.home]?.state ?? "walk") && (L.tier.sideNear ? crossing(w, s, isNow) : far > 0.5 && Math.abs(acrossOf(s)) > 0.6);
       if (CL[w.home]?.profile && walksAcross) return { row: w.home, mirror: profileMirror(w.home), profile: true };
       if ((L.tier.sideNear || (L.tier.farSide && far > 0.5)) && sideRows.length && walksAcross) {
@@ -835,6 +848,11 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
     /** One card: a copy (or the body now) at its place, its age 0 … 1, the copy before it (for the stretch). */
     const put = (w: Walker, s: Stamp, alpha: number, prev: Stamp | null, u: number, T: Trail, Q: Tier) => {
       if (n >= MAX_CARDS || alpha < 0.004 || !I || w.home < 0) return;
+      // passing through me: gone within nearCut, fading in over nearBand (and never drawn — no fill over the screen)
+      const dEye = Math.hypot(s.x - cam.x, s.z - cam.z);
+      if (dEye < L.nearCut) return;
+      alpha *= smooth01((dEye - L.nearCut) / Math.max(0.01, L.nearBand));
+      if (alpha < 0.004) return;
       const pick = rowFor(w, s, Q.far, u === 0);
       const slot = I.slot[pick.row] ?? -1;
       if (slot < 0) return;
@@ -843,7 +861,9 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
       const seedA = frac(Math.sin(s.t * 12.9898 + w.hash * 78.233) * 43758.5453) * TAU;
       A[n * 4] = s.x + Math.sin(seedA) * T.scatter * u;
       A[n * 4 + 1] = s.z + Math.cos(seedA) * T.scatter * u;
-      A[n * 4 + 2] = ((set?.height ?? 1.72) / Math.max(0.2, set?.fill ?? 1)) * (0.97 + 0.06 * w.hash) * (1 + (T.scale - 1) * u);
+      // (a clip standing in — a profile one crossing my view — takes the person's own height: "크기는 옆모습 사이즈랑 연동")
+      const tall = CL[w.home]?.height ?? set?.height ?? 1.72;
+      A[n * 4 + 2] = (tall / Math.max(0.2, set?.fill ?? 1)) * (0.97 + 0.06 * w.hash) * (1 + (T.scale - 1) * u);
       A[n * 4 + 3] = alpha * (set?.ink ?? 1) * Q.ink;
       B[n * 4] = slot;
       // standing or talking past the near band: one still frame of their own (no frames run where nobody reads them)
@@ -1202,7 +1222,10 @@ export default function FrameLab() {
           flSpeedMin: { value: 0.5, min: 0.05, max: 3, step: 0.05, label: "가장 느린 사람 (m/s)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 },
           flSpeedMax: { value: 2.6, min: 0.3, max: 8, step: 0.05, label: "가장 빠른 사람 (m/s)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 },
           flSpeedSkew: { value: 1.8, min: 0.3, max: 4, step: 0.05, label: "느린 쪽으로 몰림 (1 = 고르게)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 },
-          flSpeedTol: { value: 0.25, min: 0.02, max: 1, step: 0.01, label: "클립 빠르기와 맞는 폭 (±, 0.25 = ±25%)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 },
+          flBriskFrom: { value: 1.55, min: 0.3, max: 8, step: 0.05, label: "경보 문턱 (m/s)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 && !get(`${G}.사람.flPickBySpeed`) },
+          flRunFrom: { value: 2.5, min: 0.3, max: 8, step: 0.05, label: "뛰기 문턱 (m/s)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 && !get(`${G}.사람.flPickBySpeed`) },
+          flPickBySpeed: { value: false, label: "클립을 빠르기에 맞춰 고르기 (끄면 한 사람 = 한 클립)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 },
+          flSpeedTol: { value: 0.25, min: 0.02, max: 1, step: 0.01, label: "클립 빠르기와 맞는 폭 (±, 0.25 = ±25%)", render: (get) => Number(get(`${G}.사람.flSpeedMode`)) === 1 && !!get(`${G}.사람.flPickBySpeed`) },
           flSpread: { value: 1.6, min: 0, max: 6, step: 0.1, label: "사람 사이 간격 (m)" },
           flDist: { value: 6, min: 1, max: 20, step: 0.5, label: "나와의 거리 (m)" },
         },
@@ -1335,6 +1358,9 @@ export default function FrameLab() {
           flFarSide: { value: true, label: "멀리: 가로지르면 옆모습" },
           // (the artist, 2026-11-23: "가만히 있는 건 가까이 있는 거 아니면 굳이 프레임 재생 안 해도")
           flStillNear: { value: true, label: "서 있기·소통: 프레임 재생은 가까이에서만" },
+          // (the artist, 2026-11-23: "사람이 나를 통과해서 지나갈 때 fps 가 순간적으로 확 떨어지는데")
+          flNearCut: { value: 0.8, min: 0, max: 4, step: 0.05, label: "나를 통과할 때: 사라지는 거리 (m)" },
+          flNearBand: { value: 0.8, min: 0.05, max: 4, step: 0.05, label: "나를 통과할 때: 옅어지는 폭 (m)" },
           // (the artist, 2026-11-23: "3번하자" — someone crossing right beside me walks in profile too)
           flSideNear: { value: true, label: "가로지를 때는 가까이도 옆모습" },
           flSideCross: { value: 0.8, min: 0.4, max: 0.98, step: 0.01, label: "옆모습으로 바뀌는 가로지름 (1 = 정확히 옆)" },
@@ -1402,6 +1428,11 @@ export default function FrameLab() {
     speedMax: Number(c.flSpeedMax ?? 2.6),
     speedSkew: Number(c.flSpeedSkew ?? 1.8),
     speedTol: Number(c.flSpeedTol ?? 0.25),
+    pickBySpeed: !!c.flPickBySpeed,
+    briskFrom: Number(c.flBriskFrom ?? 1.55),
+    runFrom: Number(c.flRunFrom ?? 2.5),
+    nearCut: Number(c.flNearCut ?? 0.8),
+    nearBand: Number(c.flNearBand ?? 0.8),
     yaw: (Number(c.flYaw) * Math.PI) / 180,
     between: Number(c.flBetween),
     trails: Object.fromEntries(
