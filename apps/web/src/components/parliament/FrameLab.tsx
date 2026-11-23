@@ -109,7 +109,7 @@ interface Look {
   /** THE DISTANCE HIERARCHY (the artist, 2026-11-23: "한 번 잘 위계화 해봐"): near / middle / far by the distance from the eye,
    *  blended over `band` m at r1 and r2 — each tier multiplies the afterimages, the ink, adds blur and scales the flowing
    *  colour; far off, cards may face the eye and profile clips walk across. */
-  tier: { r1: number; r2: number; band: number; farEye: boolean; farSide: boolean; stillNear: boolean; trail: [number, number, number]; betweenMax: [number, number, number]; ink: [number, number, number]; blur: [number, number, number]; grad: [number, number, number] };
+  tier: { r1: number; r2: number; band: number; farEye: boolean; farSide: boolean; stillNear: boolean; sideNear: boolean; sideCross: number; trail: [number, number, number]; betweenMax: [number, number, number]; ink: [number, number, number]; blur: [number, number, number]; grad: [number, number, number] };
   /** How fast people go: 0 by the clips' sets, 1 each their own speed (base ± variety); faster than runFrom they run. */
   speedMode: number;
   speedBase: number;
@@ -196,6 +196,8 @@ interface Walker {
   gap: number;
   // seconds a phase cycle takes (the clip's frames once — twice for a ping-pong loop)
   cycle: number;
+  // walking across my view now (in profile), kept a little past the threshold
+  sideNow?: boolean;
 }
 
 const VERT = /* glsl */ `
@@ -765,23 +767,30 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
       const tx = cam.x - s.x, tz = cam.z - s.z, tl = Math.hypot(tx, tz) || 1;
       return Math.sin(s.h) * (tz / tl) - Math.cos(s.h) * (tx / tl);
     };
-    const rowFor = (w: Walker, s: Stamp, far: number): { row: number; mirror: number; profile: boolean } => {
-      // THE CASES (the artist, 2026-11-23): far off and walking — a walking profile clip; far off and still — its stand or
-      // talk clip, played or held on one frame (the knob "프레임 재생은 가까이에서만"); near and talking — the talk clip
-      // plays.
-      // far off and walking across the view: a profile clip (the artist, 2026-11-23: "멀리 있을 때는 본인 진행방향이랑
-      // 영상 방향 정렬을 따로")
+    // CROSSING MY VIEW, NEAR TOO (the artist, 2026-11-23, "3번하자"): a front shot seen side-on has nothing to show — a knife
+    // edge, or, turned to me, a sideways shuffle — so someone walking across my view is a walking profile clip at any
+    // distance. (The body now keeps its choice a little past the threshold, so it does not flicker on the boundary.)
+    const crossing = (w: Walker, s: Stamp, isNow: boolean): boolean => {
+      const a = Math.abs(acrossOf(s));
+      const thr = L.tier.sideCross;
+      if (!isNow) return a > thr;
+      w.sideNow = w.sideNow ? a > thr - 0.08 : a > thr;
+      return w.sideNow;
+    };
+    const rowFor = (w: Walker, s: Stamp, far: number, isNow: boolean): { row: number; mirror: number; profile: boolean } => {
+      // THE CASES (the artist, 2026-11-23): walking across my view — a walking profile clip (far off by "멀리: 가로지르면
+      // 옆모습", near too by "가로지를 때는 가까이도 옆모습"); far off and still — its stand or talk clip, played or held on
+      // one frame (the knob "프레임 재생은 가까이에서만"); near and talking — the talk clip plays.
       const sideRows = sideRowsOf(CL[w.home]?.state ?? "walk");
-      if (L.tier.farSide && far > 0.5 && sideRows.length && !w.standing && Math.abs(acrossOf(s)) > 0.6) {
+      const walksAcross = !w.standing && MOVING.includes(CL[w.home]?.state ?? "walk") && (L.tier.sideNear ? crossing(w, s, isNow) : far > 0.5 && Math.abs(acrossOf(s)) > 0.6);
+      if (CL[w.home]?.profile && walksAcross) return { row: w.home, mirror: profileMirror(w.home), profile: true };
+      if ((L.tier.sideNear || (L.tier.farSide && far > 0.5)) && sideRows.length && walksAcross) {
         const row = byHash(sideRows, w.hash * 1.7);
         return { row, mirror: profileMirror(row), profile: true };
       }
-      // the walker's own clip, if a profile one: shown only far off and crossing my view (the artist, 2026-11-23: "멀리
-      // 있는 거 아니면 옆모습은 안 뜨게"), going its way; nearer, or head-on, a front clip of its state (any front clip
-      // when its state has none; the profile one only when there is no front clip at all)
+      // the walker's own clip, if a profile one, not crossing (head-on, or standing still): a front clip of its state
+      // (any front clip when its state has none; the profile one only when there is no front clip at all)
       if (CL[w.home]?.profile) {
-        // (a profile clip only for a body that walks: one standing still is never shown side-on)
-        if (far > 0.5 && Math.abs(acrossOf(s)) > 0.6 && !w.standing && MOVING.includes(CL[w.home].state)) return { row: w.home, mirror: profileMirror(w.home), profile: true };
         let fr = frontRows(CL[w.home].state);
         if (!fr.length) fr = CL.map((c, i) => (!c.profile && c.state !== "none" ? i : -1)).filter((i) => i >= 0);
         if (fr.length) {
@@ -805,7 +814,7 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
     /** One card: a copy (or the body now) at its place, its age 0 … 1, the copy before it (for the stretch). */
     const put = (w: Walker, s: Stamp, alpha: number, prev: Stamp | null, u: number, T: Trail, Q: Tier) => {
       if (n >= MAX_CARDS || alpha < 0.004 || !I || w.home < 0) return;
-      const pick = rowFor(w, s, Q.far);
+      const pick = rowFor(w, s, Q.far, u === 0);
       const slot = I.slot[pick.row] ?? -1;
       if (slot < 0) return;
       const set = CL[pick.row];
@@ -1280,6 +1289,9 @@ export default function FrameLab() {
           flFarSide: { value: true, label: "멀리: 가로지르면 옆모습" },
           // (the artist, 2026-11-23: "가만히 있는 건 가까이 있는 거 아니면 굳이 프레임 재생 안 해도")
           flStillNear: { value: true, label: "서 있기·소통: 프레임 재생은 가까이에서만" },
+          // (the artist, 2026-11-23: "3번하자" — someone crossing right beside me walks in profile too)
+          flSideNear: { value: true, label: "가로지를 때는 가까이도 옆모습" },
+          flSideCross: { value: 0.8, min: 0.4, max: 0.98, step: 0.01, label: "옆모습으로 바뀌는 가로지름 (1 = 정확히 옆)" },
           "가까이": folder(
             {
               flNTrail: { value: 1, min: 0, max: 2, step: 0.05, label: "잔상 ×" },
@@ -1330,6 +1342,8 @@ export default function FrameLab() {
       band: Number(c.flBand),
       farEye: !!c.flFarEye,
       stillNear: c.flStillNear !== false,
+      sideNear: c.flSideNear !== false,
+      sideCross: Number(c.flSideCross ?? 0.8),
       farSide: !!c.flFarSide,
       trail: [Number(c.flNTrail), Number(c.flMTrail), Number(c.flFTrail)],
       betweenMax: [Number(c.flNBetMax ?? 12), Number(c.flMBetMax ?? 6), Number(c.flFBetMax ?? 2)],
