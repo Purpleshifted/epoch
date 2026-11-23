@@ -118,6 +118,11 @@ export interface Look {
   /** The legs' tempo from a walking person's stride — longer the faster they go — not from each clip's distance a frame
    *  ("잔걸음 너무 어색해서 미쳐버릴것 같아": a short distance a frame at walking speed made quick little steps). */
   gait: boolean;
+  /** People as the poster's pixel pictogram drawn live (no clips), its cell, and its stride's share of a person's — short
+   *  quick steps read as the pictogram's own ("빨리 토도도도 걸어가도 안 징그럽잖아"). */
+  pix: boolean;
+  pixCell: number;
+  pixStride: number;
   /** The card turned from its walking direction (rad); what fills between two copies (0 none · 2 a count of frames · 3 one per frame time). */
   yaw: number;
   between: number;
@@ -363,9 +368,40 @@ uniform float uEdgeTh;    // the alpha below which nothing is drawn (a faint box
 uniform float uEdgeW;     // how soft the cut is (the width of the ramp above the threshold; small = a hard edge — 2026-11-23)
 uniform float uCon;       // the colour's contrast about mid-grey, and its brightness
 uniform float uBright;
+uniform float uPix;        // 1: the poster's pixel pictogram, drawn here (no picture); vRow = the state, vFrame the step
+uniform float uPixCell;    // its cell, in the figure's 30 units (head to foot)
+uniform float uAspect;
+float pxRect(vec2 p, float x0, float y0, float w, float h) {
+  return step(x0, p.x) * step(p.x, x0 + w) * step(y0, p.y) * step(p.y, y0 + h);
+}
+// THE FUTURE OBSERVER'S BODY (the motion poster's archaeologists; the artist, 2026-11-24: "모션포스터에 미래관찰자로 넣었던
+// 조그만 픽토그램 느낌" → "현장에서 바로 돌려도"): legs, body, head as blocks of cells; a step lifts one leg off the ground,
+// two steps a loop; hurrying lifts higher, running bobs and spreads; talking waves an arm; standing stands
+vec4 pixFig(float u, float v) {
+  vec2 p = vec2((u - 0.5) * 30.0 * uAspect, v * 30.0);
+  p = (floor(p / uPixCell) + 0.5) * uPixCell;
+  float st = vRow;            // 0 walk · 1 brisk · 2 run · 3 stand · 4 talk
+  float f = vFrame;
+  float side = mod(floor(f / 8.0), 2.0);
+  float k = sin(3.14159265 * mod(f, 8.0) / 8.0);
+  float lift = st < 0.5 ? 3.0 : st < 1.5 ? 4.0 : st < 2.5 ? 6.0 : 0.0;
+  float rise = floor(k * lift + 0.5);
+  float run = st > 1.5 && st < 2.5 ? 1.0 : 0.0;
+  float bob = run * floor(k * 1.5 + 0.5);
+  float lL = side < 0.5 ? rise : 0.0, lR = side < 0.5 ? 0.0 : rise;
+  float a = pxRect(p, -5.0 - run, lL, 4.0, 8.0 + bob - lL);
+  a = max(a, pxRect(p, 1.0 + run, lR, 4.0, 8.0 + bob - lR));
+  a = max(a, pxRect(p, -5.0, 8.0 + bob, 10.0, 12.0));
+  a = max(a, pxRect(p, -4.0, 22.0 + bob, 8.0, 8.0));
+  if (st > 3.5) {
+    float up = mod(floor(f / 4.0), 2.0);
+    a = max(a, pxRect(p, 5.0, 12.0 + up * 6.0, 3.0, 6.0 + up * 2.0));
+  }
+  return vec4(vec3(0.06), a);
+}
 vec4 cell(float u, float v) {
   float uu = vMirror < 0.0 ? 1.0 - u : u;
-  vec4 t = texture2D(uSheet, atlasUv(vRow, vFrame, vec2(clamp(uu, 0.001, 0.999), clamp(v, 0.001, 0.999))));
+  vec4 t = uPix > 0.5 ? pixFig(uu, v) : texture2D(uSheet, atlasUv(vRow, vFrame, vec2(clamp(uu, 0.001, 0.999), clamp(v, 0.001, 0.999))));
   // the frame's own border is always empty (shrunk far off, the sheet's neighbouring frames bleed into it), and what is
   // fainter than the threshold is not there (a faint box round a frame)
   float edge = smoothstep(0.0, 0.035, uu) * smoothstep(0.0, 0.035, 1.0 - uu) * smoothstep(0.0, 0.006, v) * smoothstep(0.0, 0.02, 1.0 - v);
@@ -498,6 +534,8 @@ export function makeMaterial(): THREE.ShaderMaterial {
       uThickInk: { value: 0.6 },
       uMinAng: { value: 0 },
       uSideFade: { value: 0 },
+      uPix: { value: 0 },
+      uPixCell: { value: 2 },
       uDragKind: { value: 2 },
       uDragLen: { value: 1.5 },
       uSheet: { value: null },
@@ -612,6 +650,9 @@ export const TRAIL_DEFAULTS: Record<StateKey, Omit<Trail, "turn"> & { turn: numb
 };
 
 
+/** The pictogram's pose a state (the row it is drawn with). */
+const STATE_INDEX: Record<StateKey, number> = { walk: 0, brisk: 1, run: 2, stand: 3, talk: 4 };
+
 /** A person's height (m): one height for every clip and their own factor, or their clip's height (and a touch of their
  *  own). */
 export function personHeight(L: Look, w: Walker, set: ClipSet | undefined): number {
@@ -639,7 +680,7 @@ function stepPhases(L: Look, w: Walker, unit: number): void {
     else {
       const d = Math.hypot(st.x - prev.x, st.z - prev.z) / unit;
       const span = Math.max(0.05, st.t - prev.t);
-      const step = strideOf(d / span, personHeight(L, w, set)) / 2;
+      const step = (strideOf(d / span, personHeight(L, w, set)) * (L.pix ? L.pixStride : 1)) / 2;
       const n = w.standing || d < 0.05 ? 0 : Math.max(1, Math.round(d / step));
       st.ph = prev.ph + n / 2;
     }
@@ -696,7 +737,7 @@ export function prepareWalkers(W: Walker[], L: Look, cols: number, own: (w: Walk
     const still = w.standing || !set || set.state === "stand" || set.state === "talk";
     w.speed = still ? 0 : L.speedMode === 1 ? vOwn : set.dist / Math.max(1e-3, set.gap);
     // (the frames follow the speed: a frame for each of the clip's own steps, so the feet keep to the ground)
-    w.gap = !set ? 0.04 : w.speed > 0 && L.speedMode === 1 ? (L.gait ? strideOf(w.speed, personHeight(L, w, set)) / 16 : set.dist) / w.speed : set.gap;
+    w.gap = !set ? 0.04 : w.speed > 0 && L.speedMode === 1 ? (L.gait ? (strideOf(w.speed, personHeight(L, w, set)) * (L.pix ? L.pixStride : 1)) / 16 : set.dist) / w.speed : set.gap;
     // the clip's playback speed: its frames faster or slower (moving by the clip's set, the pace with them — the feet
     // stay matched); a ping-pong loop takes twice the frames a cycle
     const play = Math.max(0.05, set?.play ?? 1);
@@ -799,14 +840,15 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
   type Tier = ReturnType<typeof tierOf>;
   /** One card: a copy (or the body now) at its place, its age 0 … 1, the copy before it (for the stretch). */
   const put = (w: Walker, s: Stamp, alpha: number, prev: Stamp | null, u: number, T: Trail, Q: Tier) => {
-    if (n >= MAX_CARDS || alpha < 0.004 || !I || w.home < 0) return;
+    if (n >= MAX_CARDS || alpha < 0.004 || (!I && !L.pix) || w.home < 0) return;
     // passing through me: gone within nearCut, fading in over nearBand (and never drawn — no fill over the screen)
     const dEye = Math.hypot(s.x - cam.x, s.z - cam.z) / unit;
     if (dEye < L.nearCut) return;
     alpha *= smooth01((dEye - L.nearCut) / Math.max(0.01, L.nearBand));
     if (alpha < 0.004) return;
     const pick = rowFor(w, s, Q.far, u === 0);
-    const slot = I.slot[pick.row] ?? -1;
+    // (the pictogram: the row says the state, no picture to find)
+    const slot = L.pix ? STATE_INDEX[stateOf(w)] : (I?.slot[pick.row] ?? -1);
     if (slot < 0) return;
     const set = CL[pick.row];
     // with age: scattered sideways (each copy its own way), grown or shrunk, risen or sunk, turned, faded in colour
@@ -852,7 +894,7 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
     Gg[n * 4 + 3] = G2.warp;
     // (2: along its own way — a profile clip, always; 1: facing me — far off, by the knob)
     Ff[n * 4 + 2] = pick.profile ? 2 : L.tier.farEye && Q.far > 0.5 ? 1 : 0;
-    Dd[n * 4 + 1] = set?.tintAmt ?? 0;
+    Dd[n * 4 + 1] = L.pix ? 0 : (set?.tintAmt ?? 0);
     Dd[n * 4 + 2] = u;
     // the colour combination: one for all, or each walker their own
     Dd[n * 4 + 3] = G2.pick > 0 ? G2.pick - 1 : Math.floor(frac(w.hash * 7.91) * 5);
@@ -1011,6 +1053,8 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
   u.uThickInk.value = L.thickInk;
   u.uMinAng.value = (L.minAng * Math.PI) / 180;
   u.uSideFade.value = L.sideFade;
+  u.uPix.value = L.pix ? 1 : 0;
+  u.uPixCell.value = L.pixCell;
   u.uDragKind.value = L.dragKind;
   u.uDragLen.value = L.dragLen;
   return n;
@@ -1074,6 +1118,9 @@ export function lookFromValues(c: Record<string, unknown>, sets: ClipSet[], pick
     heightBase: num("flHeightBase", 1.72),
     heightVar: num("flHeightVar", 0.08),
     gait: true,
+    pix: c.flPix !== false,
+    pixCell: num("flPixCell", 2),
+    pixStride: num("flPixStride", 0.6),
     yaw: (num("flYaw", 0) * Math.PI) / 180,
     between: num("flBetween", 2),
     trails: Object.fromEntries(

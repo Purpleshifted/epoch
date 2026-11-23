@@ -336,6 +336,10 @@ export default function FrameLab() {
           flStand: { value: 0, min: 0, max: 1, step: 0.05, label: "서 있는 사람의 몫" },
           // (one height for all, each person their own factor; a person's speed picks walk / brisk / run by the thresholds,
           // the legs' tempo from a walking person's stride — the clips are uniform, 2026-11-24)
+          // (the artist, 2026-11-24: the motion poster's future observers — "현장에서 바로 돌려도" — drawn live, no clips)
+          flPix: { value: true, label: "사람 모양: 픽셀 픽토그램 (미래관찰자처럼 · 끄면 영상 클립)" },
+          flPixCell: { value: 2, min: 0.5, max: 6, step: 0.5, label: "픽토그램 칸 크기 (몸 30칸 기준)", render: (get) => get(`${G}.사람.flPix`) !== false },
+          flPixStride: { value: 0.6, min: 0.2, max: 1.5, step: 0.05, label: "픽토그램 보폭 × (작을수록 토도도)", render: (get) => get(`${G}.사람.flPix`) !== false },
           flHeightBase: { value: 1.72, min: 1.2, max: 2.1, step: 0.01, label: "키 (m)" },
           flHeightVar: { value: 0.08, min: 0, max: 0.3, step: 0.01, label: "사람마다 키 차이 (±)" },
           flSpeedMin: { value: 0.5, min: 0.05, max: 3, step: 0.05, label: "가장 느린 사람 (m/s)" },
