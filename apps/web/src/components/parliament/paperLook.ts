@@ -11,7 +11,8 @@
 
 export const paperLook = {
   on: false,
-  paper: "#f4f2ec",
+  /** Neutral white since 2026-11-23 (streetLook.ts PAPER, which sets it). */
+  paper: "#ffffff",
   ink: "#141414",
   /** Within this radius (world) a person is drawn by the street look; beyond it the present's scan carries them. */
   near: 8,
@@ -25,8 +26,16 @@ export const EXPOSURE_LAYER = 2;
  *   exposeOnWhite(base, density, maxDark)  the ground darkened by an accumulated density (0 … 1): base × (1 − density × maxDark)
  *                                          (density a float, or a vec3 — a coloured body's absorption per channel)
  *   exposeOnBlack(base, density, light)    the same on the black ground: base + density × light
- *   exposeTone(col, rolloff)               an overexposed photograph: the highlights roll off softly above a knee of 0.8
+ *   exposeTone(col, rolloff)               an overexposed photograph: above a knee of 0.8 (linear) the highlights are LIFTED
+ *                                          and blow out softly into the paper's white (white stays exactly white; rolloff
+ *                                          0 … 1 = how much of that lift)
  *   filmGrain(frag, t, amount)             a fine living grain (~0.01) plus a dither against banding — add to the colour
+ *   blownGrain(col)                        1 … 0: how much grain a pixel takes — none on the blown white (a clipped
+ *                                          highlight is clean), full below it
+ *
+ * 2026-11-23 (the artist: "깔끔한 화이트가 아니라 누렇게 보임"): the old shoulder 1 − e^(−x·1.6) COMPRESSED the highlights,
+ * so the paper itself (l = 1) came out at 0.96 linear — never above ~250 on screen, a dull cap. The shoulder is now
+ * g(x) = x + x² − x³: it leaves the knee at slope 1, never darkens, and reaches white at the top with slope 0 (blown).
  */
 export const EXPOSE_GLSL = /* glsl */ `
 vec3 exposeOnWhite(vec3 base, float density, float maxDark) { return base * (1.0 - clamp(density, 0.0, 1.0) * maxDark); }
@@ -35,7 +44,8 @@ vec3 exposeOnBlack(vec3 base, float density, float light) { return base + vec3(c
 vec3 exposeTone(vec3 col, float rolloff) {
   float l = dot(col, vec3(0.299, 0.587, 0.114));
   float knee = 0.8;
-  float soft = l > knee ? knee + (1.0 - knee) * (1.0 - exp(-(l - knee) / (1.0 - knee) * 1.6)) : l;
+  float x = clamp((l - knee) / (1.0 - knee), 0.0, 1.0);
+  float soft = l > knee && l < 1.0 ? knee + (1.0 - knee) * (x + x * x - x * x * x) : l;
   return col * mix(1.0, soft / max(l, 1e-4), rolloff);
 }
 float filmGrain(vec2 frag, float t, float amount) {
@@ -43,4 +53,5 @@ float filmGrain(vec2 frag, float t, float amount) {
   float d = fract(sin(dot(frag * 1.7 + fract(t * 7.0), vec2(127.1, 311.7))) * 43758.5453) - 0.5;
   return g * amount + d / 255.0;
 }
+float blownGrain(vec3 col) { return 1.0 - smoothstep(0.97, 0.995, dot(col, vec3(0.299, 0.587, 0.114))); }
 `;

@@ -8,8 +8,9 @@
  *      feedback buffer that keeps the last frame × decay — a standing body grows dense and sharp by itself, a walking one
  *      smears and thins by itself, two overlapping grow darker by themselves;
  *   3. the frame is composed: the scene, softened a little by depth (near sharp, far soft — the one rule), darkened by
- *      the accumulated density; the whites roll off softly like an overexposed photograph; a photographic grain of ~1 %
- *      and a dither against banding. Nothing else is drawn in.
+ *      the accumulated density; the highlights blow out softly into the paper's neutral white like an overexposed
+ *      photograph (the white itself stays 255 — 2026-11-23); a photographic grain of ~1 % and a dither against banding,
+ *      none on the blown white. Nothing else is drawn in.
  *
  * The pass takes over the frame (useFrame priority 1); the HUD is DOM and unaffected.
  */
@@ -103,9 +104,10 @@ void main() {
   vec3 feed = mix(texture2D(uFeed, vUv).rgb, texture2D(uFeedSoft, vUv).rgb, uHalo);
   feed = pow(clamp(feed, 0.0, 1.0), vec3(uBurn));
   col = exposeOnWhite(col, feed, uDensity);
-  // an overexposed photograph: the highlights roll off softly; a fine living grain and a dither
+  // an overexposed photograph: the highlights blow out softly into the white; a fine living grain and a dither — none on
+  // the blown white itself (a clipped highlight is clean: the paper stays 255)
   col = exposeTone(col, uRolloff);
-  col += filmGrain(vUv * uRes, uTime, uGrain);
+  col += filmGrain(vUv * uRes, uTime, uGrain) * blownGrain(col);
   gl_FragColor = vec4(col, 1.0);
   #include <colorspace_fragment>
 }`;

@@ -100,6 +100,34 @@ Build plan once picked: own instanced screen-space segment shader (LineSegments2
 birth/death/kind attributes for draw-on, drip and weight), fog-aware; knobs only colour, weight, fade, effect,
 animation in `labKnobsScanFuture.ts`; captures against 3 stills into `docs/img/mobile-view-lab/scan-future/`.
 ### scan (present)
+
+**ANNOUNCEMENT to every asset (2026-11-23): the paper is now NEUTRAL WHITE and the white reaches 255.** The artist:
+"배경이 계속 깔끔한 화이트가 아니라 누렇게 보임" ("누르죽죽").
+
+- Measured (headless, her saved `바탕` values, demo world): the paper came out at (248,247,243), a cream with a yellow
+  cast (R−B +5), never above ~250; the references' ground (IMG_1580/1575/1576/1582) is neutral 255, 67–79 % of
+  the frame ≥ 250.
+- Causes, in order: ① `PAPER` `#f4f2ec` (the yellow cast); ② `exposeTone`'s shoulder `1 − e^(−x·1.6)` compressed
+  the highlights, so even the paper (l = 1) ended at 0.96 linear, a dull cap. The long-exposure feedback adds nothing
+  on scan-present (nothing on `EXPOSURE_LAYER` there). The building smudges are local grey patches, not the cast.
+  Not measured (the machine was overloaded): the observer's near-fill film `paper × 0.84` (futureWindows, bot-future),
+  which now follows the neutral paper.
+- Fix: `streetLook.ts PAPER = #ffffff` (`paperLook.paper` too); `exposeTone` shoulder is now `g(x) = x + x² − x³`
+  above the knee 0.8. It leaves the knee at slope 1, never darkens, and reaches white with slope 0, so highlights
+  BLOW OUT into the white (the `밝은 쪽이 부드럽게 날아감` knob = how much of that lift). The grain is off on the blown
+  white (`blownGrain`), so the paper stays a clean 255. After: (255,255,255), R−B 0, 97 % of the frame ≥ 250.
+  Code constants, not Leva values: they show without a re-save.
+- Capture: `docs/img/mobile-view-lab/scan-present/paper-before-after.png` (before · after · IMG_1580).
+- Left, for the asset sessions: `MobileLabStage.tsx` loading placeholder still `bg-[#f4f2ec]` (a brief cream before
+  the canvas). The artist also said the long exposure meant the LOOK, not a feedback run in the browser (bot-present
+  is moving the people off `EXPOSURE_LAYER`); once nothing uses the layer, InkPaper's feedback pass and its knobs
+  (잔상, 쌓인 것의 최대 어두움, 빛 번짐, 노출 과다, 손떨림, 노출) can go. bot-future's windows still use it.
+- Paused (artist, 11/23: only the paper and the exposure for now): the place's reference study, then the lidar rings.
+  Her scan reference (pasted in this chat, not on disk): lidar rings round the sensor coloured by distance, each
+  object in a coloured 3D box (edges + translucent fill), a label, black ground. Open questions for when she turns to
+  it: black or white ground, the reference's colours vs "colour only for vegetation", which objects get boxes and
+  what the label says.
+
 ### bot (present)
 
 **State: paused 2026-11-23 (machine load) before anything was built — the page is as the lab's first commit left it.**

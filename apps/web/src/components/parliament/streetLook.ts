@@ -41,8 +41,12 @@ export interface StreetGroundLook {
   blotDist: number;
 }
 
-/** The paper's white, and the vegetation's light green on it. */
-export const PAPER = "#f4f2ec";
+/**
+ * The paper's white, and the vegetation's light green on it. NEUTRAL WHITE (the artist, 2026-11-23: "배경이 계속 깔끔한
+ * 화이트가 아니라 누렇게 보임" — the old #f4f2ec was a cream, R−B +5 on screen, never above ~250): the references' ground is
+ * an overexposed photograph's blown white, 255 and neutral (mobile view lab, scan-present).
+ */
+export const PAPER = "#ffffff";
 
 /** Whoever asked me something last, and until when the eye may turn towards them (frame s): set by PointPeople, read by the controller. */
 export const streetGaze: { x: number; z: number; until: number; on: boolean } = { x: 0, z: 0, until: 0, on: false };
