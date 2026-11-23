@@ -145,6 +145,41 @@
 - **웹 빌드의 현실**: Unity 6의 Web 빌드는 데스크톱 브라우저는 좋고, **모바일 브라우저는 2025-04에 "지원"으로 바뀌었지만 고급 기기 기준**(iOS Safari 15+); **WebGPU 백엔드는 아직 실험 단계**(제작 비권장), 모바일 WebGPU 없음; 빈 빌드도 RAM 200 MB(커뮤니티 보고), 다운로드 수십 MB(Brotli·LTO로 줄임). [Web runtime updates](https://unity.com/blog/engine-platform/web-runtime-updates-enhance-browser-experience), [browser compatibility](https://docs.unity3d.com/Manual/webgl-browsercompatibility), [mobile optimization](https://docs.unity.com/en-us/engine/6000.6/manual/platform-specific/webgl/building-distribution/web-optimization-mobile), [memory thread](https://discussions.unity.com/t/web-build-memory-consumption-on-unity-6/1613334)
 - **우리에게**: 원격 관객이 폰으로 삶을 사는 구조(B안)에는 Unity Web이 **약점**(폰 메모리·로딩·배터리). 쓴다면 **벽(전시장 기계)만 네이티브 Unity**로 만들고 폰은 웹으로 두는 분리인데, 그러면 세계 규칙을 두 번 구현하게 된다. three.js에서 못 하는 것이 생겼을 때(대규모 컴퓨트, VFX Graph급 입자, 정교한 후처리 스택)만 "최후"로. 지금 필요한 장노출 피드백·점 스캔·스냅샷 판은 전부 WebGL 안에서 된다.
 
+## 9. 무료 TD와 웹(React·three.js)을 같이 쓰는 법, 우리에게 맞는지 (작가, 2026-11-23: "무료버전 td 랑 웹, react, threejs 같이 쓰는 사람들은 어떻게 썼는지, 우리 사례에 적용 가능한지")
+
+**한 줄 답:** 무료 TD는 **룩을 만들어 보는 스케치북**으로 쓰고, 그 셰이더·피드백 로직을 three.js로 옮기는 것이 맞다. 벽을 TD로 렌더하는 것(해상도 상한, 세계 전체를 TD로 다시 짜야 함)과 폰 15대에 TD 영상을 보내는 것(Mac에서 영상 출력 경로가 없음)은 맞지 않는다.
+
+**라이선스** (Derivative 문서 기준)
+- 가격: Non-Commercial 무료, Educational US$300(학생 등록 후 Derivative 승인), Commercial US$600, Pro US$2,200. https://derivative.ca/UserGuide/Licensing
+- 무료판 **해상도 상한 1280×1280**(확인됨; 1–2 px 높이의 램프만 예외). https://derivative.ca/UserGuide/TouchDesigner_Non-Commercial
+- 무료판에 없는 것(Commercial·Educational에서 풀림): 해상도 제한 없음, 실시간 H.264/H.265 내보내기, Video Stream Out TOP, 공유 메모리·DirectX 입출력, 다른 앱 속 TouchEngine, **시작 화면(스플래시) 숨기기**, Ouster·Leuze 라이다 오퍼레이터, 옮길 수 있는 키. https://derivative.ca/UserGuide/TouchDesigner_Commercial
+- 무료판에 있는 것: 기본 오퍼레이터 전부, **NDI**(Derivative가 명시). Web Server DAT·WebSocket DAT·WebRTC DAT·Web Render TOP·Syphon은 문서에 제한이 적혀 있지 않다(쓸 수 있어 보이나 미확인).
+- macOS: 2022년부터 Apple Silicon 네이티브. **Video Stream Out TOP은 Mac 미지원**("Nvidia GPU와 Windows 필요"). Kinect·DirectX·Notch·RealSense·ZED도 Mac 미지원. POP은 Mac에서 원자적 float·배정밀도·하드웨어 레이트레이싱이 빠진다. Syphon은 Mac에서 된다. https://docs.derivative.ca/MacOS
+- **비상업의 기준은 "TD 작업으로 돈이나 대가를 받지 않는다"**이다(Derivative 정의와 포럼 직원 답). 전시에 대한 언급은 없다. 그래서 우리 경우는 이렇게 읽힌다(추론): 무보수 졸업전은 해당한다. 12월 외부전은 **작가비·제작비·커미션·판매가 없을 때만** 해당한다. 입장료가 무료인지는 기준이 아니다. 보수가 생기면 Commercial($600)이 필요하고, Educational도 유료 작업에는 쓸 수 없다.
+
+**사람들이 TD와 웹을 엮는 다섯 가지 방법**
+1. **TD가 그리고 폰은 조종기.** Web Server DAT가 TD 안에서 HTTP·WebSocket을 연다. 예: Torin Blankensmith의 WebSocket 튜토리얼 연재, WebWelder(양방향 WebSocket .tox), MultiplayerServer_TD(폰 브라우저 UI → Node/Socket.io → TD 렌더, 2026-06). React Three Fiber + TD 템플릿은 공개된 것이 없고, 다들 WebSocket 훅을 직접 짠다.
+2. **TD 영상을 브라우저로.** WebRTC DAT + Video Stream Out TOP인데, 소프트웨어 인코딩이고 폰 한 대마다 연결 하나(많으면 SFU 중계 서버 필요). TD-WebRTC-LAN(로컬망, 클라이언트마다 포트 하나). 여러 명에게는 NDI → OBS → WHIP → Cloudflare Stream(1초 미만 지연, 한 장면을 모두에게). **Mac에서는 영상 출력이 막힌다**(Video Stream Out 미지원; OBS 32에서 Syphon 깨짐 보고).
+3. **웹 페이지를 TD 안에서**(Web Render TOP, 내장 Chromium). 대표 예: mediapipe-touchdesigner(MediaPipe를 TD 속 Chromium에서 돌려 JSON을 WebSocket으로 돌려줌, Mac·PC, MIT). 반대 방향 예: three.js/WebGPU 장면을 TD로 보내 후처리한 작업(80.lv, 2025-05).
+4. **TD에서 룩을 만들고 three.js로 옮기기.** 자동 변환 도구는 없고 손으로 옮긴다. GLSL TOP → ShaderMaterial(TD는 `#version`을 넣지 못하게 하고 GLSL 4.60을 씀). Feedback TOP → 핑퐁 렌더 타깃이나 three.js `AfterimagePass`. **AfterimagePass는 감쇠가 프레임마다 걸려 fps에 따라 꼬리가 달라지고, 어두운 바탕에서만 꼬리가 보인다. 우리 흰 바탕에는 혼합을 직접 짜야 한다.** 입자: Codrops "Dreamy Particle Effect with Three.js and GPGPU"(2024-12), Maxime Heckel의 R3F 입자 글, Interactive & Immersive HQ의 "TD → three.js 텍스처·지오메트리·인스턴싱 내보내기"(2021). Josef Pelz의 점구름 도구는 Patreon 에셋이다.
+   - **옮겨지지 않는 것**: 노드 그래프·CHOP·Python(TypeScript로 다시 짬). POP식 컴퓨트·원자적 점 누적은 WebGL2에 컴퓨트 셰이더가 없어서 WebGPU가 필요하다. iPhone의 WebGPU는 Safari 26 / iOS 26(2025-09)부터다. WebGL2에서는 float 타깃에 더하기 혼합으로 누적한다(표준 기법).
+5. **TD를 데이터·계산 서버로**(예: 카메라 포즈를 웹으로), 또는 웹 상태를 TD로. mediapipe-touchdesigner, I&I HQ "TD → cables.gl WebSocket 구조"(2024-07).
+- **"웹의 TD"**: cables.gl(2024년부터 MIT 오픈소스, 오프라인 앱, HTML/WebGL 내보내기), Polygonjs(three.js 기반 노드), Nodysseus, Impulse(TD에서 영감 받은 three.js TSL/WebGPU 엔진, 2026-03, 개발 중). TD → 웹 내보내기 도구는 없다.
+
+**우리에게**
+
+| 방법 | 판단 | 이유 |
+|---|---|---|
+| 무료 TD로 벽을 Mac mini에서 렌더, 폰은 웹 | **아니오** | 세로 9:16이면 최대 720×1280으로 TV 4K(2160×3840)의 약 1/9. 세계 전체(화석·봇·식생·봇 서버 읽기)를 TD로 다시 짜야 하고, 스플래시를 못 숨기며, TD와 Chrome이 GPU를 나눈다. 낮은 내부 해상도는 Chrome에서도 가능하니 얻는 게 없다 |
+| 폰이 three.js 대신 TD 영상을 받음(WebRTC) | **아니오** | Mac에서 Video Stream Out 미지원, 소프트웨어 인코딩, 관객마다 1인칭 카메라가 달라 렌더 15개, 갤러리 와이파이·걷기 지연, Mac mini 하나가 멈추면 전부 멈춤 |
+| **무료 TD = 룩 스케치북 → three.js로 이식** | **예** | 무료, Apple Silicon 네이티브, 무보수 스케치는 명백히 비상업. 피드백·꼬리·GLSL·입자 모두 손으로 옮겨진다. 단 흰 바탕 혼합은 직접, POP식 누적은 WebGPU(폰은 WebGL2 대체 필요). 실제 비용은 옮기는 시간 |
+| 폰을 TD 조종기로 | 아니오 | 폰이 제 뷰를 그리는 지금 구조를 뒤집음 |
+| 웹 페이지를 TD 안에서 | 아니오 | 우리에게 필요한 방향의 반대 |
+| TD를 센서·계산 서버로(벽 앞 카메라 포즈 등) | 필요 없음 | 그 플러그인도 MediaPipe를 Chromium에서 돌리므로 Chrome이 바로 할 수 있다 |
+| cables.gl 같은 웹 노드 도구를 스케치북으로 | 아마 | 처음부터 웹의 룩이지만 Next.js/R3F 옆에 런타임이 하나 더 생김 |
+
+**쓰는 법(제안):** 작가가 TD에서 룩을 만들면, 그 .toe에서 GLSL TOP의 코드와 피드백 체인(감쇠값, 블러, 혼합 방식)과 점 크기·수·흐름 값을 적어 넘긴다. 세션이 같은 값으로 three.js에 옮기고 같은 프레임을 나란히 놓고 맞춘다. TD 화면 녹화(작가의 Mac에서)가 "정답 스틸" 역할을 한다.
+
 ## 5. 조심할 것
 - 투명 판 정렬(§2.1) — 첫날부터 거리순 renderOrder를 넣을 것.
 - 피드백 타깃은 float(half-float)로, 아니면 꼬리가 띠처럼 끊긴다; Firefox는 RGB 포맷 속도 버퍼가 깨진 사례(RGBA로).
