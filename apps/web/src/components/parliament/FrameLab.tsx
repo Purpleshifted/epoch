@@ -128,6 +128,9 @@ interface Look {
    *  threshold. */
   pals: string[];
   gradPick: number;
+  /** The colour flowing inside people standing or talking, set apart (2026-11-23: "이동중이 아닌 클립들은 색 출렁임 따로"):
+   *  how much, which combination (−1 = as the moving ones), speed × and wave size × of the moving ones'. */
+  gradStill: { amt: number; pick: number; speed: number; scale: number };
   edgeTh: number;
   /** The cut's softness above the threshold; the colour's contrast and brightness. */
   edgeW: number;
@@ -211,6 +214,7 @@ flat varying float vAge;
 flat varying float vPal;
 flat varying float vBlur;
 flat varying float vGradK;
+flat varying float vGradSS;
 void main() {
   vec3 feet = vec3(iA.x, 0.0, iA.y);
   vec3 right;
@@ -253,6 +257,7 @@ void main() {
   vPal = iD.w;
   vBlur = iF.x;
   vGradK = iF.y;
+  vGradSS = iF.w;
 }`;
 
 const FRAG = /* glsl */ `
@@ -267,6 +272,7 @@ uniform float uStreakSoft;
 uniform float uMultiply;
 flat varying float vBlur; // this card's blur (its state's, at its age)
 flat varying float vGradK;
+flat varying float vGradSS; // the flowing colour's wave size × and speed ×, packed (size × 100 × 1000 + speed × 100)
 varying vec2 vUv;
 varying float vAlpha;
 varying float vSide;
@@ -330,7 +336,7 @@ void main() {
   a *= vAlpha;
   if (a < 0.004) discard;
   t.rgb = mix(t.rgb, vTint.rgb, vTint.a);
-  t.rgb = mix(t.rgb, gradAt(vWorld, vUv.y, vAge, vPal), uGradAmt * vGradK);
+  t.rgb = mix(t.rgb, gradAt(vWorld, vUv.y, vAge, vPal, floor(vGradSS / 1000.0 + 0.001) / 100.0, mod(vGradSS + 0.5, 1000.0) / 100.0), uGradAmt * vGradK);
   t.rgb = mix(t.rgb, vec3(dot(t.rgb, vec3(0.299, 0.587, 0.114))), vDesat);
   t.rgb = clamp((t.rgb - 0.5) * uCon + 0.5 + uBright, 0.0, 1.0);
   if (uMultiply > 0.5) gl_FragColor = vec4(mix(vec3(1.0), t.rgb, a), 1.0);
@@ -348,10 +354,10 @@ uniform float uGradSpeed;
 uniform float uGradDir;
 uniform float uGradWarp;
 uniform float uTime;
-vec3 gradAt(vec3 world, float v, float age, float pal) {
+vec3 gradAt(vec3 world, float v, float age, float pal, float sc, float sp) {
   int p = int(clamp(pal, 0.0, 4.0) + 0.5) * 3;
   float x = uGradDir < 0.5 ? v * 1.7 : (uGradDir < 1.5 ? (world.x + world.z) * 0.35 : age * 2.0);
-  x = x * uGradScale + uTime * uGradSpeed * 0.25;
+  x = x * uGradScale * sc + uTime * uGradSpeed * sp * 0.25;
   x += uGradWarp * 0.25 * sin(world.y * 3.1 + uTime * 0.9 + world.x * 1.3) + uGradWarp * 0.15 * sin(v * 9.0 - uTime * 1.7);
   float t = 0.5 + 0.5 * sin(x * 6.2831853);
   float t2 = 0.5 + 0.5 * sin(x * 6.2831853 * 0.5 + 1.7);
@@ -653,13 +659,18 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
         const row = byHash(sideRows, w.hash * 1.7);
         return { row, mirror: profileMirror(row), profile: true };
       }
-      // the walker's own clip: a profile one moving goes its way (or, seen head-on, a front clip of its state if there is
-      // one); a front one (or standing) mirrored for variety
-      if (CL[w.home]?.profile && !w.standing) {
-        const fr = Math.abs(acrossOf(s)) < 0.5 ? frontRows(CL[w.home].state) : [];
-        if (!fr.length) return { row: w.home, mirror: profileMirror(w.home), profile: true };
-        const row = byHash(fr, w.hash * 2.3);
-        return { row, mirror: (CL[row]?.flip ? -1 : 1) * (frac(w.hash * 3.3) > 0.5 ? -1 : 1), profile: false };
+      // the walker's own clip, if a profile one: shown only far off and crossing my view (the artist, 2026-11-23: "멀리
+      // 있는 거 아니면 옆모습은 안 뜨게"), going its way; nearer, or head-on, a front clip of its state (any front clip
+      // when its state has none; the profile one only when there is no front clip at all)
+      if (CL[w.home]?.profile) {
+        if (far > 0.5 && Math.abs(acrossOf(s)) > 0.6) return { row: w.home, mirror: profileMirror(w.home), profile: !w.standing };
+        let fr = frontRows(CL[w.home].state);
+        if (!fr.length) fr = CL.map((c, i) => (!c.profile && c.state !== "none" ? i : -1)).filter((i) => i >= 0);
+        if (fr.length) {
+          const row = byHash(fr, w.hash * 2.3);
+          return { row, mirror: (CL[row]?.flip ? -1 : 1) * (frac(w.hash * 3.3) > 0.5 ? -1 : 1), profile: false };
+        }
+        if (!w.standing) return { row: w.home, mirror: profileMirror(w.home), profile: true };
       }
       return { row: w.home, mirror: (CL[w.home]?.flip ? -1 : 1) * (frac(w.hash * 3.3) > 0.5 ? -1 : 1), profile: false };
     };
@@ -704,13 +715,18 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
       C[n * 4 + 3] = T.rise * u + (set?.lift ?? 0);
       Dd[n * 4] = T.desat * u;
       Ff[n * 4] = T.blur * u + Q.blur;
-      Ff[n * 4 + 1] = Q.grad;
+      // the flowing colour: the moving ones' knobs, or the still ones' own (standing, talking)
+      const G2 = L.gradStill;
+      const stillG = w.standing;
+      Ff[n * 4 + 1] = Q.grad * (stillG ? G2.amt : L.gradAmt);
+      Ff[n * 4 + 3] = Math.round((stillG ? G2.scale : 1) * 100) * 1000 + Math.round((stillG ? G2.speed : 1) * 100);
       // (2: along its own way — a profile clip, always; 1: facing me — far off, by the knob)
       Ff[n * 4 + 2] = pick.profile ? 2 : L.tier.farEye && Q.far > 0.5 ? 1 : 0;
       Dd[n * 4 + 1] = set?.tintAmt ?? 0;
       Dd[n * 4 + 2] = u;
       // the colour combination: one for all, or each walker their own
-      Dd[n * 4 + 3] = L.gradPick > 0 ? L.gradPick - 1 : Math.floor(frac(w.hash * 7.91) * 5);
+      const gp = stillG && G2.pick >= 0 ? G2.pick : L.gradPick;
+      Dd[n * 4 + 3] = gp > 0 ? gp - 1 : Math.floor(frac(w.hash * 7.91) * 5);
       Ee[n * 4] = set?.tint[0] ?? 0;
       Ee[n * 4 + 1] = set?.tint[1] ?? 0;
       Ee[n * 4 + 2] = set?.tint[2] ?? 0;
@@ -796,7 +812,8 @@ function Scene({ L, viewRef }: { L: Look; viewRef: React.MutableRefObject<string
     }
     for (const m of [mat]) {
       const g = m.uniforms;
-      g.uGradAmt.value = L.gradAmt;
+      // (the amount is each card's own — moving or still — in iF.y)
+      g.uGradAmt.value = 1;
       const pal = g.uPal.value as THREE.Color[];
       L.pals.forEach((hex, i) => pal[i]?.set(hex).convertSRGBToLinear());
       g.uGradScale.value = L.gradScale;
@@ -1081,12 +1098,19 @@ export default function FrameLab() {
       ),
       [COLOUR_F]: folder(
         {
-          flGradAmt: { value: 0.8, min: 0, max: 1, step: 0.05, label: "세기 (0 = 원래 색)" },
+          flGradAmt: { value: 0.8, min: 0, max: 1, step: 0.05, label: "이동 중: 세기 (0 = 원래 색)" },
           flGradPick: { options: { "사람마다 다르게": 0, "조합 1": 1, "조합 2": 2, "조합 3": 3, "조합 4": 4, "조합 5": 5 }, value: 1, label: "쓰는 색 조합" },
           flGradDir: { options: { "높이를 따라": 0, "공간을 따라 (걸으며 바뀜)": 1, "잔상의 나이를 따라": 2 }, value: 0, label: "흐르는 방향" },
           flGradScale: { value: 1, min: 0.1, max: 6, step: 0.05, label: "물결 크기" },
           flGradSpeed: { value: 1, min: 0, max: 6, step: 0.05, label: "속도" },
           flGradWarp: { value: 0.6, min: 0, max: 3, step: 0.05, label: "일렁임" },
+          // (the artist, 2026-11-23: "이동중이 아닌 클립들은 색 출렁임 따로 조절하고 싶음") — the knobs above are the moving ones'
+          "가만히 있는 사람 (서 있기 · 소통)": folder({
+            flGsAmt: { value: 0.8, min: 0, max: 1, step: 0.05, label: "세기 (0 = 원래 색)" },
+            flGsPick: { options: { "이동 중과 같게": -1, "사람마다 다르게": 0, "조합 1": 1, "조합 2": 2, "조합 3": 3, "조합 4": 4, "조합 5": 5 }, value: -1, label: "쓰는 색 조합" },
+            flGsSpeed: { value: 1, min: 0, max: 4, step: 0.05, label: "속도 × (이동 중의)" },
+            flGsScale: { value: 1, min: 0.1, max: 4, step: 0.05, label: "물결 크기 × (이동 중의)" },
+          }),
           palEdit: { options: { "조합 1": 1, "조합 2": 2, "조합 3": 3, "조합 4": 4, "조합 5": 5 }, value: 1, label: "▶ 편집할 조합" },
           ...Object.fromEntries(
             PALETTE_DEFAULTS.map((d, i) => [
@@ -1176,6 +1200,7 @@ export default function FrameLab() {
     gradAmt: Number(c.flGradAmt),
     pals: PALETTE_DEFAULTS.flatMap((d, i) => d.map((hex, j) => String(c[`flP${i + 1}${"abc"[j]}`] ?? hex))),
     gradPick: Number(c.flGradPick),
+    gradStill: { amt: Number(c.flGsAmt ?? 0.8), pick: Number(c.flGsPick ?? -1), speed: Number(c.flGsSpeed ?? 1), scale: Number(c.flGsScale ?? 1) },
     edgeTh: Number(c.flEdge),
     edgeW: Number(c.flEdgeW),
     con: Number(c.flCon),
