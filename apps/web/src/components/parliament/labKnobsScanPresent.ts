@@ -12,6 +12,13 @@ import { LAB_GROUP, labLists } from "./mobileLab";
 import { DEFAULT_PEOPLE } from "./PointPeople";
 import type { GrassMode } from "./NatureCloud";
 import type { LogPlace } from "./StreetHud";
+import { DEFAULT_LIDAR, setLidarLook, type LidarColour } from "./LidarScan";
+
+const LIDAR_COLOURS: Record<string, LidarColour> = {
+  "거리 색 (사진처럼 — 가까이 민트, 멀리 분홍)": "distance",
+  "흰색": "white",
+  "회색": "grey",
+};
 
 const LOG_PLACES: Record<string, LogPlace | "auto"> = {
   "자동 — 눈높이면 랩탑은 왼쪽 패널 · 폰은 위쪽 띠, 아니면 아래": "auto",
@@ -29,9 +36,24 @@ const GRASS_OPTIONS: Record<string, GrassMode> = {
 
 export function useScanPresentKnobs(isV2: boolean) {
   const v2 = () => isV2;
-  return useControls(
+  const c = useControls(
     LAB_GROUP["scan-present"],
     savable(LAB_GROUP["scan-present"], {
+      // the present read as a lidar scan round me (LidarScan.tsx; the artist 2026-11-23, after her photo: "포인트클라우드로
+      // 시작") — for now drawn on this page only
+      "라이다 스캔": folder({
+        lidarOn: { value: DEFAULT_LIDAR.on, label: "라이다 스캔 (이 페이지에서만)", render: v2 },
+        lidarBlack: { value: DEFAULT_LIDAR.black, label: "검은 바탕 (사진처럼)", render: v2 },
+        lidarColour: { options: LIDAR_COLOURS, value: DEFAULT_LIDAR.colour, label: "점의 색", render: v2 },
+        lidarBeams: { value: DEFAULT_LIDAR.beams, min: 4, max: 64, step: 1, label: "빔 수 = 고리 수", render: v2 },
+        lidarLow: { value: DEFAULT_LIDAR.lowDeg, min: -60, max: -2, step: 1, label: "가장 아래 빔 (°) — 발밑 빈 원의 크기", render: v2 },
+        lidarHigh: { value: DEFAULT_LIDAR.highDeg, min: -10, max: 30, step: 1, label: "가장 위 빔 (°) — 벽에만 맞음", render: v2 },
+        lidarAz: { value: DEFAULT_LIDAR.azimuths, min: 128, max: 2048, step: 64, label: "한 바퀴 점 수", render: v2 },
+        lidarHz: { value: DEFAULT_LIDAR.hz, min: 0.5, max: 20, step: 0.5, label: "회전 (바퀴/초)", render: v2 },
+        lidarDecay: { value: DEFAULT_LIDAR.decaySec, min: 0.1, max: 10, step: 0.1, label: "점이 남는 시간 (s)", render: v2 },
+        lidarRange: { value: DEFAULT_LIDAR.range, min: 4, max: 48, step: 1, label: "닿는 거리 (월드)", render: v2 },
+        lidarDot: { value: DEFAULT_LIDAR.dot, min: 0.5, max: 6, step: 0.25, label: "점 크기 (px)", render: v2 },
+      }),
       "눈": folder({
         eyeOn: { value: true, label: "눈높이 카메라", render: v2 },
         eyeHeight: { value: 1.6, min: 0.6, max: 4, step: 0.05, label: "눈높이 (m)", render: v2 },
@@ -76,4 +98,22 @@ export function useScanPresentKnobs(isV2: boolean) {
     }),
     { collapsed: false, order: 0.7, render: () => isV2 && labLists("scan-present") },
   );
+  // (a plain module value, read per frame by LidarScan and at render by ParliamentScene — set before they read it)
+  setLidarLook({
+    on: isV2 && c.lidarOn,
+    black: c.lidarBlack,
+    colour: c.lidarColour,
+    beams: c.lidarBeams,
+    lowDeg: c.lidarLow,
+    highDeg: c.lidarHigh,
+    azimuths: c.lidarAz,
+    hz: c.lidarHz,
+    decaySec: c.lidarDecay,
+    range: c.lidarRange,
+    dot: c.lidarDot,
+    // the sensor at the walker's eye (the same lengths the eye camera uses: metres ÷ scale)
+    eyeH: c.eyeHeight / c.ppScale,
+    eyeBack: c.eyeOn ? c.eyeBack / c.ppScale : 0,
+  });
+  return c;
 }

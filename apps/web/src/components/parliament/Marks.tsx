@@ -18,6 +18,7 @@ import * as THREE from "three";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { hash2, outlineSegments, rhythmOf, scatterPoints, stepAt, type ConcreteLine, type OtherMark } from "@/lib/parliament";
 import { streetGround } from "./streetLook";
+import { LidarScan, lidarActive } from "./LidarScan";
 
 export interface MarksData {
   others: OtherMark[];
@@ -279,7 +280,8 @@ export function ConcreteOutline({ getMarks, scale = 1 }: { getMarks: () => Marks
   useFrame((_, dt) => {
     const paper = streetGround.on && streetGround.paper;
     if (lines.current) lines.current.visible = !paper;
-    if (smudge.current) smudge.current.visible = paper;
+    // (while the lidar scan reads the place, LidarScan.tsx, the buildings are only what its beams meet)
+    if (smudge.current) smudge.current.visible = paper && !lidarActive();
     // 길거리 › 시야 반경 (streetLook.ts): beyond it nothing shows, the outlines included — the fog is switched on the
     // material (a recompile, once per change); off = fog-less, as it was
     const m = mat.current;
@@ -332,6 +334,8 @@ export function ConcreteOutline({ getMarks, scale = 1 }: { getMarks: () => Marks
       <points ref={smudge} geometry={smudgeGeom} frustumCulled={false} visible={false} renderOrder={3}>
         <pointsMaterial size={CELL_SIZE * 2.2} sizeAttenuation vertexColors map={smudgeTex} transparent opacity={0.4} depthWrite={false} />
       </points>
+      {/* the present read as a lidar scan round me (shown only where lidarActive says) — its walls are these cells */}
+      <LidarScan getCells={() => getMarks()?.concrete ?? null} scale={scale} />
     </>
   );
 }

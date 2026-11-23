@@ -24,6 +24,7 @@ import { RoleField, type ParliamentDebug, type Visitor } from "./RoleField";
 import { PointPeople } from "./PointPeople";
 import { StreetHud, type LogPlace } from "./StreetHud";
 import { PAPER, streetGaze } from "./streetLook";
+import { lidarBlack } from "./LidarScan";
 import { InkPaper } from "./InkPaper";
 import { LEVA_THEME, useFoldControls, useNatureControls } from "./useWorld";
 import { savable } from "./levaSave";
@@ -523,7 +524,9 @@ export default function ParliamentScene({ lab }: { lab?: LabPage } = {}) {
   const viewOn = isV2 && street.view.on;
   // 흰 바탕 (오가닉): the brutal look on paper — a white ground, a white fog (things pale to nothing)
   const paper = isV2 && brutal && street.paper;
-  const ground = brutal ? (paper ? PAPER : "#000000") : FOG_COLOR;
+  // (the lidar scan on the photo's black ground — LidarScan.tsx, scan (present) only for now: no paper, the log not inverted)
+  const scanBlack = paper && lidarBlack();
+  const ground = brutal ? (paper && !scanBlack ? PAPER : "#000000") : FOG_COLOR;
   const paperFog = isV2 && brutal && street.paper && !viewOn;
   const fogN = viewOn ? street.view.radius * 0.45 : paperFog ? 12 : fogNear;
   const fogF = viewOn ? street.view.radius : paperFog ? 44 : fogFar;
@@ -612,7 +615,7 @@ export default function ParliamentScene({ lab }: { lab?: LabPage } = {}) {
 
       {/* 흰 바탕: the log keeps its shape and place, its colours turned for paper while the life runs (the dark screens
           before and after stay as they are) */}
-      <div className="pointer-events-none absolute inset-0" style={paper && session.phase === "live" ? { filter: "invert(1)" } : undefined}>
+      <div className="pointer-events-none absolute inset-0" style={paper && !scanBlack && session.phase === "live" ? { filter: "invert(1)" } : undefined}>
       {withSession && !demo && (
         <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} visitorRef={visitorRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} card={visuals.card} venue={venueParam} recordingUrl={recordingQr} uploadRecording={uploadLifeRecording} onAnswer={onAnswer} onFound={onFound} logPlace={logPlace} />
       )}

@@ -137,11 +137,27 @@ animation in `labKnobsScanFuture.ts`; captures against 3 stills into `docs/img/m
   the canvas). The artist also said the long exposure meant the LOOK, not a feedback run in the browser (bot-present
   is moving the people off `EXPOSURE_LAYER`); once nothing uses the layer, InkPaper's feedback pass and its knobs
   (잔상, 쌓인 것의 최대 어두움, 빛 번짐, 노출 과다, 손떨림, 노출) can go. bot-future's windows still use it.
-- Paused (artist, 11/23: only the paper and the exposure for now): the place's reference study, then the lidar rings.
-  Her scan reference (pasted in this chat, not on disk): lidar rings round the sensor coloured by distance, each
-  object in a coloured 3D box (edges + translucent fill), a label, black ground. Open questions for when she turns to
-  it: black or white ground, the reference's colours vs "colour only for vegetation", which objects get boxes and
-  what the label says.
+- Her scan reference (pasted in this chat, not on disk): lidar rings round the sensor coloured by distance, each
+  object in a coloured 3D box (edges + translucent fill), a label, black ground.
+
+**Lidar scan v1 (2026-11-23, the artist: "스캔비주얼 아까 준 사진에 맞춰서 포인트클라우드로 시작").** `LidarScan.tsx` (new),
+mounted from `ConcreteOutline` (Marks.tsx), knobs `scan (present) › 라이다 스캔`. **Shown on the scan (present) page only**
+(`lidarActive()`); no other page's picture changes.
+- A rotating sensor at the walker's eye: 32 beams from −24° to +6°, 720 readings a turn, 5 turns/s. Each beam stops at the
+  first building cell it meets (wall, or the top of a low one) or at the ground. Nothing behind a wall is reached
+  (empty shadow), the cell I stand in is ignored, and my feet are an empty circle (the lowest beam). Rings come from the
+  beam angles, not drawn. Points stay in the world and fade over 1.5 s (walking leaves the last turns' rings), in a
+  ring buffer with only the new readings uploaded. Colour by distance as in the photo (mint → pale yellow-green →
+  pink), or white / grey.
+- On: the photo's black ground (`ParliamentScene`: background + fog black, the log not inverted); the grass cloud
+  and the grey building smudges are hidden (the scan is the place).
+- The sensor sits `뒤로` ahead of the camera at `눈높이`, so raising and setting back the eye (shared eye knobs, not
+  changed) gives the photo's view from above-behind with the rings still round me.
+- Cost: `lidar` ≤ 6 ms in the slowest frame of a minute on the loaded M2 (perf line).
+- Captures: `docs/img/mobile-view-lab/scan-present/lidar-v1-eye.png` (eye height, standing inside a concrete block of the
+  demo world), `lidar-v1-above.png` (eye set back 8 m, up 5 m — headless only).
+- Next, one at a time with her check: the coloured 3D boxes + label on objects; people as obstacles; fibre + scatter
+  when points leave (§6 decision); whether the scan replaces the paper elsewhere.
 
 ### bot (present)
 

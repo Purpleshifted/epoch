@@ -26,6 +26,7 @@ import { CELL_SIZE } from "@/lib/stratum/field";
 import { WORLD_SIZE, grassDensity, hash2, wrapCell, type NatureConfig, type Snapshot } from "@/lib/parliament";
 import { markSpan } from "./usePerfMeter";
 import { PAPER_GREEN, streetGround } from "./streetLook";
+import { lidarActive } from "./LidarScan";
 
 const PAPER_GREEN_C = new THREE.Color(PAPER_GREEN);
 const PAPER_PALE = new THREE.Color(0.92, 0.94, 0.9);
@@ -113,6 +114,8 @@ export function NatureCloud({
 }) {
   const flatColor = useMemo(() => (flat ? new THREE.Color(flat) : null), [flat]);
   const timer = useRef(10);
+  // (while the lidar scan reads the place, LidarScan.tsx, the cloud is not drawn nor laid)
+  const cloud = useRef<THREE.Group>(null);
   const nearTimer = useRef(10);
   /** Where the cloud was last laid out: a jump of more than a quarter world = the player wrapped round the edge. */
   const laidAt = useRef({ x: NaN, z: NaN });
@@ -248,6 +251,12 @@ export function NatureCloud({
   };
 
   useFrame((state, dt) => {
+    const scan = lidarActive();
+    if (cloud.current) cloud.current.visible = !scan;
+    if (scan) {
+      timer.current = 10;
+      return;
+    }
     timer.current += dt;
     nearTimer.current += dt;
     // (the near fade in world units: 1 world ≈ 2.5 m — pale within ~2.5 m, full beyond ~8 m)
@@ -276,7 +285,7 @@ export function NatureCloud({
   });
 
   return (
-    <>
+    <group ref={cloud}>
       {[geom, nearGeom].map((g, i) => (
         <points key={`${i}-${flat ? "flat" : "soft"}`} geometry={g} frustumCulled={false}>
           {flat ? (
@@ -286,6 +295,6 @@ export function NatureCloud({
           )}
         </points>
       ))}
-    </>
+    </group>
   );
 }
