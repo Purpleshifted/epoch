@@ -119,6 +119,14 @@ function standOf(cycle: WalkCycle): Joints {
     for (const v of fr) for (let i = 0; i < 3; i++) m[i] += v[i] / fr.length;
     s[k] = m;
   }
+  // the mean of a walk puts the feet near the midline (where walking feet land): a person standing has them under the
+  // hips, so the legs stand apart and the gap between them shows from behind (IMG_1575)
+  for (const [hip, knee, ankle, toe] of [["hipL", "kneeL", "ankleL", "toeL"], ["hipR", "kneeR", "ankleR", "toeR"]] as const) {
+    const hx = s[hip][0], out = Math.sign(hx) * 0.02;
+    s[knee][0] = hx * 0.94;
+    s[toe][0] += hx * 0.92 - s[ankle][0] + out;
+    s[ankle][0] = hx * 0.92;
+  }
   standCache.set(cycle, s);
   return s;
 }
@@ -251,14 +259,21 @@ const vec3 HEAD_C = vec3(0.0, 0.05, 0.03);
 // the groups, unmelted (for the part), each its own function (a dispatch by index kept the compiler from inlining)
 float gTrunk(vec3 p) {
   vec3 pel = J[0], sho = J[1];
-  float d = sdTrunk(p, pel + vec3(0.0, 0.04, 0.0), sho - vec3(0.0, 0.07, 0.0), 0.15, 0.165, 1.45);
-  d = smin(d, sdCapsule(p, J[11], J[12], 0.065), 0.08);
-  d = smin(d, sdCapsule(p, J[3], J[4], 0.11), 0.08);
+  // the chest wider than the waist (seen from behind a back narrows before the hips)
+  float d = sdTrunk(p, pel + vec3(0.0, 0.1, 0.0), sho - vec3(0.0, 0.1, 0.0), 0.128, 0.165, 1.45);
+  // the shoulders slope from the neck's base down to each shoulder (a flat bar across read as a coat hanger)
+  vec3 nb = 0.5 * (J[11] + J[12]) + vec3(0.0, 0.03, 0.0);
+  d = smin(d, min(sdRoundCone(p, nb, J[11] - vec3(0.0, 0.02, 0.0), 0.06, 0.06), sdRoundCone(p, nb, J[12] - vec3(0.0, 0.02, 0.0), 0.06, 0.06)), 0.08);
+  // the hips: a little inside the hip joints and above them, so the crotch is at ~0.8 m and the legs part below it
+  vec3 hc = 0.5 * (J[3] + J[4]) + vec3(0.0, 0.045, 0.0), hh = 0.425 * (J[3] - J[4]);
+  d = smin(d, sdCapsule(p, hc + hh, hc - hh, 0.095), 0.08);
   if (bHemY < 0.9) {
-    // a jacket or a coat: from the chest to the hem, flaring a little
+    // a jacket or a coat: from the chest to the hem, flaring a little, CUT at the hem (its round end would have filled
+    // the space between the legs below it in the trousers' colour)
     vec3 hemC = vec3(pel.x, bHemY, pel.z);
-    float flare = bHemY < 0.6 ? 0.225 : 0.195;
-    d = smin(d, sdTrunk(p, hemC, sho - vec3(0.0, 0.14, 0.0), flare, 0.175, 1.35), 0.06);
+    float flare = bHemY < 0.6 ? 0.205 : 0.19;
+    float jk = max(sdTrunk(p, hemC, sho - vec3(0.0, 0.14, 0.0), flare, 0.175, 1.35), bHemY - p.y);
+    d = smin(d, jk, 0.06);
   }
   return d;
 }
@@ -270,8 +285,8 @@ float gHands(vec3 p) {
   return min(sdEllipsoid(p - hl, vec3(0.032, 0.05, 0.04)), sdEllipsoid(p - hr, vec3(0.032, 0.05, 0.04)));
 }
 float gLegs(vec3 p) {
-  float l = smin(sdRoundCone(p, J[3], J[5], 0.088, 0.062), sdRoundCone(p, J[5], J[7], 0.06, 0.043), 0.03);
-  float r = smin(sdRoundCone(p, J[4], J[6], 0.088, 0.062), sdRoundCone(p, J[6], J[8], 0.06, 0.043), 0.03);
+  float l = smin(sdRoundCone(p, J[3], J[5], 0.08, 0.056), sdRoundCone(p, J[5], J[7], 0.055, 0.04), 0.03);
+  float r = smin(sdRoundCone(p, J[4], J[6], 0.08, 0.056), sdRoundCone(p, J[6], J[8], 0.055, 0.04), 0.03);
   return min(l, r);
 }
 float gShoes(vec3 p) {
@@ -300,10 +315,10 @@ float bodyDist(vec3 p) {
   // the build: wider or narrower across (x), the distance kept conservative
   p.x = J[0].x + (p.x - J[0].x) / bBuild;
   float d = gTrunk(p);
-  d = smin(d, gUpperArms(p), 0.05);
-  d = smin(d, gForearms(p), 0.03);
+  d = smin(d, gUpperArms(p), 0.03);
+  d = smin(d, gForearms(p), 0.02);
   d = smin(d, gHands(p), 0.02);
-  d = smin(d, gLegs(p), 0.07);
+  d = smin(d, gLegs(p), 0.04);
   d = smin(d, gShoes(p), 0.03);
   d = smin(d, gNeck(p), 0.04);
   d = smin(d, gHead(p), 0.04);
