@@ -205,6 +205,12 @@ Sessions test only with `?botserver=0`.
   and ledger 179 ms — the personal view folding and reading a 25k-event world — against lidar 11 ms. The world, not the
   points. The heading axis also wastes less: the vertical spin throws about ¾ of its points behind and beside me, off
   screen; the heading one puts all of them in the half in front.
+- **A third: 시야 (same day, now the default).** The artist: "원이 보이는 게 아쉽거든... 레퍼런스보면 '내가 보는 표면'
+  레이트레이싱처럼 … 시야각 정해서 그렇게 점으로 보여주면 안 되나 … 내 시야 밖으로는 버퍼 구간만 조금 더". No
+  spinning sensor: rays leave the camera, scattered evenly over the screen (an R2 sequence: even, never a grid) and a
+  margin round it (시야 밖 여유, 0.15 of the half-width), `시야: 초당 점 수` a second (120k); each kept where it meets a
+  wall, a roof or the ground, fading as before. No rings, no scan lines — a depth camera's reading. Shares the height
+  map and the ray march with the heading axis. All three stay on 스캔 축 to compare.
 
 ### bot (present)
 

@@ -15,6 +15,7 @@ import type { LogPlace } from "./StreetHud";
 import { DEFAULT_LIDAR, setLidarLook, type LidarAxis, type LidarColour } from "./LidarScan";
 
 const LIDAR_AXES: Record<string, LidarAxis> = {
+  "시야 — 내가 보는 표면 (원 없이, 시야 + 여유)": "view",
   "진행방향 축 — 앞쪽 반구 (원들이 앞으로 날아가 표면을 읽음)": "heading",
   "세로축 — 나를 둘러싼 고리 (처음 것)": "vertical",
 };
@@ -51,6 +52,8 @@ export function useScanPresentKnobs(isV2: boolean) {
         lidarBlack: { value: DEFAULT_LIDAR.black, label: "검은 바탕 (사진처럼)", render: v2 },
         lidarColour: { options: LIDAR_COLOURS, value: DEFAULT_LIDAR.colour, label: "점의 색", render: v2 },
         lidarAxis: { options: LIDAR_AXES, value: DEFAULT_LIDAR.axis, label: "스캔 축 (비교)", render: v2 },
+        lidarRate: { value: DEFAULT_LIDAR.rate, min: 10_000, max: 600_000, step: 10_000, label: "시야: 초당 점 수", render: v2 },
+        lidarMargin: { value: DEFAULT_LIDAR.margin, min: 0, max: 1, step: 0.05, label: "시야: 시야 밖 여유 (화면 반폭의 몫)", render: v2 },
         lidarCone: { value: DEFAULT_LIDAR.coneDeg, min: 1, max: 80, step: 1, label: "진행방향 축: 가장 앞 원 (° — 작을수록 멀리 앞)", render: v2 },
         lidarBeams: { value: DEFAULT_LIDAR.beams, min: 4, max: 128, step: 1, label: "빔 수 = 고리 수", render: v2 },
         lidarLow: { value: DEFAULT_LIDAR.lowDeg, min: -89, max: -2, step: 1, label: "세로축: 가장 아래 빔 (°) — 발밑 빈 원의 크기", render: v2 },
@@ -114,6 +117,8 @@ export function useScanPresentKnobs(isV2: boolean) {
     colour: c.lidarColour,
     axis: c.lidarAxis,
     coneDeg: c.lidarCone,
+    rate: c.lidarRate,
+    margin: c.lidarMargin,
     beams: c.lidarBeams,
     lowDeg: c.lidarLow,
     highDeg: c.lidarHigh,

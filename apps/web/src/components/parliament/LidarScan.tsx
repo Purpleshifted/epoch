@@ -36,7 +36,11 @@ export type LidarColour = "distance" | "white" | "grey";
  *  about my HEADING (the artist, 2026-11-24: "나를 중심으로 진행방향에 수직한 원들이 날아가서 표면을 읽어야" — circles
  *  at right angles to where I walk, flown out ahead, read whatever surface they meet: the ground, the walls on both
  *  sides, what is above — together the hemisphere in front of me). She keeps both to compare ("비교를 해볼 수 있었으면"). */
-export type LidarAxis = "heading" | "vertical";
+export type LidarAxis = "view" | "heading" | "vertical";
+/* THE VIEW (the artist, 2026-11-24: "원이 보이는 게 아쉽거든... 레퍼런스보면 '내가 보는 표면' 레이트레이싱처럼 … 시야각
+ * 정해서 그렇게 점으로 보여주면 안 되나 … 내 시야 밖으로는 버퍼 구간만 조금 더"): no spinning sensor at all — rays from
+ * the eye scattered evenly over what I see (an R2 sequence over the screen, a fresh share every frame) plus a margin
+ * outside it, each kept as a point where it meets a surface. No rings, no scan lines: a depth camera's reading. */
 
 export interface LidarLook {
   on: boolean;
@@ -57,13 +61,16 @@ export interface LidarLook {
   /** Heading axis: the narrowest circle's angle from the heading (°): the smaller, the further ahead it reads. The
    *  circles open from it to 90° (at right angles to the heading: the cross-section where I stand). */
   coneDeg: number;
+  /** View: readings a second, and the margin read outside the view (a share of the screen's half-width/height). */
+  rate: number;
+  margin: number;
   /** Where the sensor is: at the walker, at eye height (world), `eyeBack` (world) ahead of the camera — so a camera
    *  set back and up (눈 › 뒤로, 눈높이) looks down on the rings round me, as the photo does. */
   eyeH: number;
   eyeBack: number;
 }
 
-export const DEFAULT_LIDAR: LidarLook = { on: true, black: true, beams: 64, lowDeg: -60, highDeg: 85, azimuths: 720, hz: 5, decaySec: 1.5, range: 22, dot: 2, colour: "distance", axis: "heading", coneDeg: 8, eyeH: 0.64, eyeBack: 0 };
+export const DEFAULT_LIDAR: LidarLook = { on: true, black: true, beams: 64, lowDeg: -60, highDeg: 85, azimuths: 720, hz: 5, decaySec: 1.5, range: 22, dot: 2, colour: "distance", axis: "view", coneDeg: 8, rate: 120_000, margin: 0.15, eyeH: 0.64, eyeBack: 0 };
 const fwd = new THREE.Vector3();
 
 /** Set by the scan (present) knobs (labKnobsScanPresent.ts), read per frame here and at render by ParliamentScene. */
@@ -183,7 +190,7 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
     [geom, mat],
   );
   const points = useRef<THREE.Points>(null);
-  const st = useRef({ head: 0, filled: 0, sweep: 0, az: 0, cellsOf: null as readonly Cell[] | null, grid: new Map<number, Cell[]>(), hf: null as Float32Array | null });
+  const st = useRef({ head: 0, filled: 0, sweep: 0, az: 0, cellsOf: null as readonly Cell[] | null, grid: new Map<number, Cell[]>(), hf: null as Float32Array | null, r2: 0 });
 
   useFrame((state, dt) => {
     const P = points.current;
@@ -221,11 +228,14 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
     const A = Math.max(64, Math.round(L.azimuths)), B = Math.max(2, Math.round(L.beams));
     s.sweep += Math.min(0.25, dt) * L.hz * A;
     const n = Math.min(Math.floor(s.sweep), Math.ceil(A / 4));
-    if (n <= 0) return;
+    if (n <= 0 && L.axis !== "view") return;
     cam.getWorldDirection(fwd);
     fwd.y = 0;
     if (fwd.lengthSq() > 1e-6) fwd.normalize();
-    const ex = cam.position.x + fwd.x * L.eyeBack, ez = cam.position.z + fwd.z * L.eyeBack, H = Math.max(0.05, L.eyeH);
+    // (the view's rays leave the camera itself: what I see; the spinning sensors sit at the walker's eye)
+    const view = L.axis === "view";
+    const ex = view ? cam.position.x : cam.position.x + fwd.x * L.eyeBack, ez = view ? cam.position.z : cam.position.z + fwd.z * L.eyeBack;
+    const H = view ? Math.max(0.05, cam.position.y) : Math.max(0.05, L.eyeH);
     const R = L.range, step = CELL_SIZE / 2, half = CELL_SIZE / 2, now = state.clock.elapsedTime;
     const tans = new Float32Array(B);
     for (let b = 0; b < B; b++) tans[b] = Math.tan(((L.lowDeg + ((L.highDeg - L.lowDeg) * b) / (B - 1)) * Math.PI) / 180);
@@ -245,9 +255,9 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
       s.head = (s.head + 1) % MAX_POINTS;
       written++;
     };
-    if (L.axis === "heading") {
-      // THE HEADING AXIS: a height map of the cells round the sensor (one number a cell, the sensor's own cell empty),
-      // then each beam marched through it in any direction — up, sideways, down
+    if (L.axis !== "vertical") {
+      // A HEIGHT MAP of the cells round the sensor (one number a cell, the sensor's own cell empty), then each ray
+      // marched through it in any direction — up, sideways, down
       const G = Math.ceil(R / CELL_SIZE) + 1, N = 2 * G + 1;
       if (!s.hf || s.hf.length !== N * N) s.hf = new Float32Array(N * N);
       const hf = s.hf;
@@ -266,49 +276,71 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
         if (ci < 0 || cj < 0 || ci >= N || cj >= N) return false;
         return y <= hf[ci * N + cj];
       };
-      // the circles' frame: F where I walk (level), U up, S to the side
-      const Fx = fwd.lengthSq() > 1e-6 ? fwd.x : 0, Fz = fwd.lengthSq() > 1e-6 ? fwd.z : -1;
-      const Sx = -Fz, Sz = Fx;
-      const a0 = (Math.max(0.5, Math.min(89, L.coneDeg)) * Math.PI) / 180;
       const st2 = CELL_SIZE / 3;
-      for (let i = 0; i < n; i++) {
-        const a = ((s.az + i) % A) / A;
-        const ph = a * Math.PI * 2;
-        const cu = Math.cos(ph), cs = Math.sin(ph);
-        for (let b = 0; b < B; b++) {
-          const al = a0 + ((Math.PI / 2 - a0) * b) / (B - 1);
-          const ca = Math.cos(al), sa = Math.sin(al);
-          const dx = ca * Fx + sa * cs * Sx, dy = sa * cu, dz = ca * Fz + sa * cs * Sz;
-          // the ground, if the beam comes down to it within reach
-          const tg = dy < -1e-6 ? H / -dy : Infinity;
-          const tEnd = Math.min(R, tg);
-          let hit = -1;
-          let prev = 0;
-          for (let t = st2; t <= tEnd + st2; t += st2) {
-            const tt = Math.min(t, tEnd);
-            const y = H + dy * tt;
-            if (y > maxH && dy >= 0) break; // above every roof and rising: the sky
-            if (solid(ex + dx * tt, y, ez + dz * tt)) {
-              // the surface between the last free step and this one (a few halvings)
-              let lo = prev, hi = tt;
-              for (let k = 0; k < 5; k++) {
-                const m = (lo + hi) / 2;
-                if (solid(ex + dx * m, H + dy * m, ez + dz * m)) hi = m;
-                else lo = m;
-              }
-              hit = hi;
-              break;
+      /** Where a ray from the sensor meets a wall, a roof or the ground within reach (its length), or −1. */
+      const cast = (dx: number, dy: number, dz: number): number => {
+        const tg = dy < -1e-6 ? H / -dy : Infinity;
+        const tEnd = Math.min(R, tg);
+        let prev = 0;
+        for (let t = st2; t <= tEnd + st2; t += st2) {
+          const tt = Math.min(t, tEnd);
+          const y = H + dy * tt;
+          if (y > maxH && dy >= 0) break; // above every roof and rising: the sky
+          if (solid(ex + dx * tt, y, ez + dz * tt)) {
+            // the surface between the last free step and this one (a few halvings)
+            let lo = prev, hi = tt;
+            for (let k = 0; k < 5; k++) {
+              const m = (lo + hi) / 2;
+              if (solid(ex + dx * m, H + dy * m, ez + dz * m)) hi = m;
+              else lo = m;
             }
-            prev = tt;
-            if (tt >= tEnd) break;
+            return hi;
           }
-          if (hit < 0) {
-            if (tg > R) continue;
-            hit = tg;
+          prev = tt;
+          if (tt >= tEnd) break;
+        }
+        return tg <= R ? tg : -1;
+      };
+      if (view) {
+        // THE VIEW: this frame's share of the readings, scattered over the screen and a margin round it (R2: even,
+        // never a grid), each turned into a ray through the camera's lens
+        const pc = cam as THREE.PerspectiveCamera;
+        const th = Math.tan(((pc.fov ?? 60) * Math.PI) / 360), asp = pc.aspect ?? 1;
+        const e = cam.matrixWorld.elements;
+        const m = 1 + Math.max(0, L.margin);
+        const k = Math.min(30_000, Math.round(L.rate * Math.min(0.1, dt)));
+        for (let i = 0; i < k; i++) {
+          s.r2 = (s.r2 + 1) % 1_000_003;
+          const sx = ((0.5 + s.r2 * 0.7548776662) % 1) * 2 - 1, sy = ((0.5 + s.r2 * 0.569840291) % 1) * 2 - 1;
+          const px = sx * m * th * asp, py = sy * m * th;
+          let dx = -e[8] + e[0] * px + e[4] * py, dy = -e[9] + e[1] * px + e[5] * py, dz = -e[10] + e[2] * px + e[6] * py;
+          const l = Math.hypot(dx, dy, dz);
+          dx /= l;
+          dy /= l;
+          dz /= l;
+          const t = cast(dx, dy, dz);
+          if (t < 0) continue;
+          put(ex + dx * t, Math.max(0.01, H + dy * t), ez + dz * t, t);
+        }
+      } else {
+        // THE HEADING AXIS: circles at right angles to where I walk — F ahead (level), U up, S to the side
+        const Fx = fwd.lengthSq() > 1e-6 ? fwd.x : 0, Fz = fwd.lengthSq() > 1e-6 ? fwd.z : -1;
+        const Sx = -Fz, Sz = Fx;
+        const a0 = (Math.max(0.5, Math.min(89, L.coneDeg)) * Math.PI) / 180;
+        for (let i = 0; i < n; i++) {
+          const a = ((s.az + i) % A) / A;
+          const ph = a * Math.PI * 2;
+          const cu = Math.cos(ph), cs = Math.sin(ph);
+          for (let b = 0; b < B; b++) {
+            const al = a0 + ((Math.PI / 2 - a0) * b) / (B - 1);
+            const ca = Math.cos(al), sa = Math.sin(al);
+            const dx = ca * Fx + sa * cs * Sx, dy = sa * cu, dz = ca * Fz + sa * cs * Sz;
+            const hit = cast(dx, dy, dz);
+            if (hit < 0) continue;
+            const jit = 1 + Math.sin((a * 9137 + b * 71) * 12.9898) * 0.003;
+            const d = hit * jit;
+            put(ex + dx * d, Math.max(0.01, H + dy * d), ez + dz * d, hit);
           }
-          const jit = 1 + Math.sin((a * 9137 + b * 71) * 12.9898) * 0.003;
-          const d = hit * jit;
-          put(ex + dx * d, Math.max(0.01, H + dy * d), ez + dz * d, hit);
         }
       }
     } else {
