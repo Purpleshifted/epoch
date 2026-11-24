@@ -32,6 +32,11 @@ function bucket(bx: number, bz: number): number {
 }
 
 export type LidarColour = "distance" | "white" | "grey";
+/** Which way the sensor spins: about the VERTICAL (rings laid round me on the ground and walls — the first version), or
+ *  about my HEADING (the artist, 2026-11-24: "나를 중심으로 진행방향에 수직한 원들이 날아가서 표면을 읽어야" — circles
+ *  at right angles to where I walk, flown out ahead, read whatever surface they meet: the ground, the walls on both
+ *  sides, what is above — together the hemisphere in front of me). She keeps both to compare ("비교를 해볼 수 있었으면"). */
+export type LidarAxis = "heading" | "vertical";
 
 export interface LidarLook {
   on: boolean;
@@ -48,13 +53,17 @@ export interface LidarLook {
   /** A point's size on screen (CSS px). */
   dot: number;
   colour: LidarColour;
+  axis: LidarAxis;
+  /** Heading axis: the narrowest circle's angle from the heading (°): the smaller, the further ahead it reads. The
+   *  circles open from it to 90° (at right angles to the heading: the cross-section where I stand). */
+  coneDeg: number;
   /** Where the sensor is: at the walker, at eye height (world), `eyeBack` (world) ahead of the camera — so a camera
    *  set back and up (눈 › 뒤로, 눈높이) looks down on the rings round me, as the photo does. */
   eyeH: number;
   eyeBack: number;
 }
 
-export const DEFAULT_LIDAR: LidarLook = { on: true, black: true, beams: 64, lowDeg: -60, highDeg: 85, azimuths: 720, hz: 5, decaySec: 1.5, range: 22, dot: 2, colour: "distance", eyeH: 0.64, eyeBack: 0 };
+export const DEFAULT_LIDAR: LidarLook = { on: true, black: true, beams: 64, lowDeg: -60, highDeg: 85, azimuths: 720, hz: 5, decaySec: 1.5, range: 22, dot: 2, colour: "distance", axis: "heading", coneDeg: 8, eyeH: 0.64, eyeBack: 0 };
 const fwd = new THREE.Vector3();
 
 /** Set by the scan (present) knobs (labKnobsScanPresent.ts), read per frame here and at render by ParliamentScene. */
@@ -174,7 +183,7 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
     [geom, mat],
   );
   const points = useRef<THREE.Points>(null);
-  const st = useRef({ head: 0, filled: 0, sweep: 0, az: 0, cellsOf: null as readonly Cell[] | null, grid: new Map<number, Cell[]>() });
+  const st = useRef({ head: 0, filled: 0, sweep: 0, az: 0, cellsOf: null as readonly Cell[] | null, grid: new Map<number, Cell[]>(), hf: null as Float32Array | null });
 
   useFrame((state, dt) => {
     const P = points.current;
@@ -226,6 +235,83 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
     const Pa = pos.array as Float32Array, Ba = birth.array as Float32Array, Da = dist.array as Float32Array;
     const start = s.head;
     let written = 0;
+    const put = (x: number, y: number, z: number, d: number) => {
+      const j = s.head;
+      Pa[j * 3] = x;
+      Pa[j * 3 + 1] = y;
+      Pa[j * 3 + 2] = z;
+      Ba[j] = now;
+      Da[j] = d;
+      s.head = (s.head + 1) % MAX_POINTS;
+      written++;
+    };
+    if (L.axis === "heading") {
+      // THE HEADING AXIS: a height map of the cells round the sensor (one number a cell, the sensor's own cell empty),
+      // then each beam marched through it in any direction — up, sideways, down
+      const G = Math.ceil(R / CELL_SIZE) + 1, N = 2 * G + 1;
+      if (!s.hf || s.hf.length !== N * N) s.hf = new Float32Array(N * N);
+      const hf = s.hf;
+      hf.fill(0);
+      const i0 = Math.floor(ex / CELL_SIZE) - G, j0 = Math.floor(ez / CELL_SIZE) - G;
+      let maxH = 0;
+      for (const c of cells ?? []) {
+        const ci = Math.floor(c.x / CELL_SIZE) - i0, cj = Math.floor(c.z / CELL_SIZE) - j0;
+        if (ci < 0 || cj < 0 || ci >= N || cj >= N || (ci === G && cj === G)) continue;
+        const h = Math.max(0.2, c.h * scale);
+        if (h > hf[ci * N + cj]) hf[ci * N + cj] = h;
+        if (h > maxH) maxH = h;
+      }
+      const solid = (x: number, y: number, z: number) => {
+        const ci = Math.floor(x / CELL_SIZE) - i0, cj = Math.floor(z / CELL_SIZE) - j0;
+        if (ci < 0 || cj < 0 || ci >= N || cj >= N) return false;
+        return y <= hf[ci * N + cj];
+      };
+      // the circles' frame: F where I walk (level), U up, S to the side
+      const Fx = fwd.lengthSq() > 1e-6 ? fwd.x : 0, Fz = fwd.lengthSq() > 1e-6 ? fwd.z : -1;
+      const Sx = -Fz, Sz = Fx;
+      const a0 = (Math.max(0.5, Math.min(89, L.coneDeg)) * Math.PI) / 180;
+      const st2 = CELL_SIZE / 3;
+      for (let i = 0; i < n; i++) {
+        const a = ((s.az + i) % A) / A;
+        const ph = a * Math.PI * 2;
+        const cu = Math.cos(ph), cs = Math.sin(ph);
+        for (let b = 0; b < B; b++) {
+          const al = a0 + ((Math.PI / 2 - a0) * b) / (B - 1);
+          const ca = Math.cos(al), sa = Math.sin(al);
+          const dx = ca * Fx + sa * cs * Sx, dy = sa * cu, dz = ca * Fz + sa * cs * Sz;
+          // the ground, if the beam comes down to it within reach
+          const tg = dy < -1e-6 ? H / -dy : Infinity;
+          const tEnd = Math.min(R, tg);
+          let hit = -1;
+          let prev = 0;
+          for (let t = st2; t <= tEnd + st2; t += st2) {
+            const tt = Math.min(t, tEnd);
+            const y = H + dy * tt;
+            if (y > maxH && dy >= 0) break; // above every roof and rising: the sky
+            if (solid(ex + dx * tt, y, ez + dz * tt)) {
+              // the surface between the last free step and this one (a few halvings)
+              let lo = prev, hi = tt;
+              for (let k = 0; k < 5; k++) {
+                const m = (lo + hi) / 2;
+                if (solid(ex + dx * m, H + dy * m, ez + dz * m)) hi = m;
+                else lo = m;
+              }
+              hit = hi;
+              break;
+            }
+            prev = tt;
+            if (tt >= tEnd) break;
+          }
+          if (hit < 0) {
+            if (tg > R) continue;
+            hit = tg;
+          }
+          const jit = 1 + Math.sin((a * 9137 + b * 71) * 12.9898) * 0.003;
+          const d = hit * jit;
+          put(ex + dx * d, Math.max(0.01, H + dy * d), ez + dz * d, hit);
+        }
+      }
+    } else {
     const hitD: number[] = [], hitOut: number[] = [], hitH: number[] = [];
     for (let i = 0; i < n; i++) {
       const a = ((s.az + i) % A) / A;
@@ -296,6 +382,7 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
         s.head = (s.head + 1) % MAX_POINTS;
         written++;
       }
+    }
     }
     s.sweep = Math.min(s.sweep - n, A / 4);
     s.az = (s.az + n) % A;

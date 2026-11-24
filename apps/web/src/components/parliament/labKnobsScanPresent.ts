@@ -12,7 +12,12 @@ import { LAB_GROUP, labLists } from "./mobileLab";
 import { DEFAULT_PEOPLE } from "./PointPeople";
 import type { GrassMode } from "./NatureCloud";
 import type { LogPlace } from "./StreetHud";
-import { DEFAULT_LIDAR, setLidarLook, type LidarColour } from "./LidarScan";
+import { DEFAULT_LIDAR, setLidarLook, type LidarAxis, type LidarColour } from "./LidarScan";
+
+const LIDAR_AXES: Record<string, LidarAxis> = {
+  "진행방향 축 — 앞쪽 반구 (원들이 앞으로 날아가 표면을 읽음)": "heading",
+  "세로축 — 나를 둘러싼 고리 (처음 것)": "vertical",
+};
 
 const LIDAR_COLOURS: Record<string, LidarColour> = {
   "거리 색 (사진처럼 — 가까이 민트, 멀리 분홍)": "distance",
@@ -45,9 +50,11 @@ export function useScanPresentKnobs(isV2: boolean) {
         lidarOn: { value: DEFAULT_LIDAR.on, label: "라이다 스캔 (이 페이지에서만)", render: v2 },
         lidarBlack: { value: DEFAULT_LIDAR.black, label: "검은 바탕 (사진처럼)", render: v2 },
         lidarColour: { options: LIDAR_COLOURS, value: DEFAULT_LIDAR.colour, label: "점의 색", render: v2 },
+        lidarAxis: { options: LIDAR_AXES, value: DEFAULT_LIDAR.axis, label: "스캔 축 (비교)", render: v2 },
+        lidarCone: { value: DEFAULT_LIDAR.coneDeg, min: 1, max: 80, step: 1, label: "진행방향 축: 가장 앞 원 (° — 작을수록 멀리 앞)", render: v2 },
         lidarBeams: { value: DEFAULT_LIDAR.beams, min: 4, max: 128, step: 1, label: "빔 수 = 고리 수", render: v2 },
-        lidarLow: { value: DEFAULT_LIDAR.lowDeg, min: -89, max: -2, step: 1, label: "가장 아래 빔 (°) — 발밑 빈 원의 크기", render: v2 },
-        lidarHigh: { value: DEFAULT_LIDAR.highDeg, min: -10, max: 89, step: 1, label: "가장 위 빔 (°) — 벽에만 맞음 (85 = 거의 머리 위)", render: v2 },
+        lidarLow: { value: DEFAULT_LIDAR.lowDeg, min: -89, max: -2, step: 1, label: "세로축: 가장 아래 빔 (°) — 발밑 빈 원의 크기", render: v2 },
+        lidarHigh: { value: DEFAULT_LIDAR.highDeg, min: -10, max: 89, step: 1, label: "세로축: 가장 위 빔 (°) — 벽에만 맞음 (85 = 거의 머리 위)", render: v2 },
         lidarAz: { value: DEFAULT_LIDAR.azimuths, min: 128, max: 2048, step: 64, label: "한 바퀴 점 수", render: v2 },
         lidarHz: { value: DEFAULT_LIDAR.hz, min: 0.5, max: 20, step: 0.5, label: "회전 (바퀴/초)", render: v2 },
         lidarDecay: { value: DEFAULT_LIDAR.decaySec, min: 0.1, max: 10, step: 0.1, label: "점이 남는 시간 (s)", render: v2 },
@@ -105,6 +112,8 @@ export function useScanPresentKnobs(isV2: boolean) {
     on: isV2 && c.lidarOn,
     black: c.lidarBlack,
     colour: c.lidarColour,
+    axis: c.lidarAxis,
+    coneDeg: c.lidarCone,
     beams: c.lidarBeams,
     lowDeg: c.lidarLow,
     highDeg: c.lidarHigh,

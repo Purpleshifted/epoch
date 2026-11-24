@@ -194,6 +194,17 @@ Sessions test only with `?botserver=0`.
 - **Background (same day, "배경 색은 또 왜이래 이거").** With 흰 바탕 off, the old black mode's ground showed under the
   scan: the green grass face and the grey worn paths (DitherGround) and the path lines. While the scan is on: the
   background is pure black whatever the paper switch says, and DitherGround and PathLines draw nothing.
+- **Two scan axes to compare (same day).** It works on the exhibition's world (her screen: events 23 166, slabs 22).
+  She then said what she meant by 반구: "나를 중심으로 진행방향에 수직한 원들이 날아가서 표면을 읽어야" — and, liking
+  the first look too, "비교를 해볼 수 있었으면". Knob 스캔 축: 진행방향 축 (default) — the sensor spins about my
+  heading; circles at right angles to it, from 가장 앞 원 (8°, far ahead) to 90° (the cross-section where I stand), read
+  the ground, the walls on both sides and what is above: the hemisphere in front. Rays go any way, so they march
+  through a height map of the cells round me (one number a cell, rebuilt each frame; a few halvings find the surface).
+  세로축 is the first version, unchanged.
+- **Where the lag is (her perf line, 29 fps on the exhibition's world):** the slowest frame of a minute had fold 412 ms
+  and ledger 179 ms — the personal view folding and reading a 25k-event world — against lidar 11 ms. The world, not the
+  points. The heading axis also wastes less: the vertical spin throws about ¾ of its points behind and beside me, off
+  screen; the heading one puts all of them in the half in front.
 
 ### bot (present)
 
