@@ -19,6 +19,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { LongExposure, setExposureWeight } from "./longExposure";
 import { EXPOSE_GLSL, EXPOSURE_LAYER } from "./paperLook";
+import { lidarActive } from "./LidarScan";
 export { EXPOSURE_LAYER };
 
 export interface InkPaperLook {
@@ -85,6 +86,7 @@ uniform float uDensity;
 uniform float uFade;
 uniform float uGrain;
 uniform float uRolloff;
+uniform float uSharp;
 varying vec2 vUv;
 ${EXPOSE_GLSL}
 float linDepth(float z) {
@@ -96,9 +98,11 @@ void main() {
   vec3 bn = texture2D(uNear, vUv).rgb;
   vec3 bw = texture2D(uWide, vUv).rgb;
   float d = clamp(linDepth(texture2D(uDepth, vUv).r) / uFogFar, 0.0, 1.0);
-  // the one depth rule: near sharp, far soft and pale
+  // the one depth rule: near sharp, far soft and pale — none of it while the lidar scan is the place (its points write no
+  // depth, so they would all read as far and go to mush; a scan's reading is sharp wherever it lies)
   vec3 col = mix(mix(sc, bn, 0.35), bw, smoothstep(0.1, 0.85, d));
   col = mix(col, vec3(1.0), uFade * d * 0.5);
+  col = mix(col, sc, uSharp);
   // the exposure: what accumulated darkens the frame (a standing body dense, a walking one thin — by time, not by drawing)
   // overexposed: the white bleeds into the edges (a soft copy mixed in) and the mid-tones lift (a power), blacks stay
   vec3 feed = mix(texture2D(uFeed, vUv).rgb, texture2D(uFeedSoft, vUv).rgb, uHalo);
@@ -183,6 +187,7 @@ export function InkPaper({ look = DEFAULT_INK, fogFar }: { look?: InkPaperLook; 
         uFade: { value: 0.4 },
         uGrain: { value: 0.01 },
         uRolloff: { value: 0.6 },
+        uSharp: { value: 0 },
       },
       vertexShader: QUAD_VERT,
       fragmentShader: COMPOSE_FRAG,
@@ -264,7 +269,7 @@ export function InkPaper({ look = DEFAULT_INK, fogFar }: { look?: InkPaperLook; 
     const u = quad.compose.uniforms;
     (u.uRes.value as THREE.Vector2).set(w, h);
     const pc = camera as THREE.PerspectiveCamera;
-    setUniforms(u, { uScene: sceneRT.texture, uNear: nB.texture, uWide: wB.texture, uFeed: exposure.texture, uFeedSoft: look.halo > 0 ? fB.texture : exposure.texture, uHalo: look.halo, uBurn: look.burn, uDepth: sceneRT.depthTexture, uCamNear: pc.near, uCamFar: pc.far, uFogFar: fogFar, uTime: state.clock.elapsedTime, uDensity: look.density, uFade: look.fade, uGrain: look.grain, uRolloff: look.rolloff });
+    setUniforms(u, { uScene: sceneRT.texture, uNear: nB.texture, uWide: wB.texture, uFeed: exposure.texture, uFeedSoft: look.halo > 0 ? fB.texture : exposure.texture, uHalo: look.halo, uBurn: look.burn, uDepth: sceneRT.depthTexture, uCamNear: pc.near, uCamFar: pc.far, uFogFar: fogFar, uTime: state.clock.elapsedTime, uDensity: look.density, uFade: look.fade, uGrain: look.grain, uRolloff: look.rolloff, uSharp: lidarActive() ? 1 : 0 });
     gl.setRenderTarget(null);
     gl.render(quad.sCompose, quad.cam);
   }, 1);

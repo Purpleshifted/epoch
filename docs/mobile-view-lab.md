@@ -159,6 +159,32 @@ mounted from `ConcreteOutline` (Marks.tsx), knobs `scan (present) › 라이다 
 - Next, one at a time with her check: the coloured 3D boxes + label on objects; people as obstacles; fibre + scatter
   when points leave (§6 decision); whether the scan replaces the paper elsewhere.
 
+**Points refined (2026-11-24, the artist: "점부터 다듬어").**
+- The smear was the paper's compose: the points write no depth, so it read them as far and gave them the wide
+  softening and the fade. While the scan is on (`lidarActive()`) the compose takes the scene as it is (`InkPaper.tsx`
+  `uSharp`); other pages unchanged.
+- A dot is round with a one-pixel edge at any size (no soft blob); one size on screen, a little larger right by the eye.
+- A reading holds full strength for 55 % of its life and fades only at the end, so the last turns stand as crisp
+  rings rather than a haze of half-faded ones.
+- The distance ramp has four stops, brighter: mint `#5ff0c8` → green-yellow `#c6f06a` → peach `#ffb86b` → pink
+  `#ff7eb0` at the reach.
+- The sensor follows the shared eye height, now 1.1 m (bot (present), 2f97f8b).
+
+**A dome, not a band (2026-11-24, the artist: "위아래도 좀 현재 덩어리 읽을 수 있으려면 나한테서 반구가 날아가야 하지 않나 /
+그럼 연산량 너무 크나?").** Defaults 64 beams from −60° to +85° (was 32 from −24° to +6°), so the buildings read up to
+their tops and the ground closes in round my feet. Knob ranges widened (beams ≤ 128, −89° … +89°). Colour now by the range
+the beam travelled (a high wall reads as far as it is). Cost: the expensive part, walking the ray through the grid, runs
+once per direction, not per beam; each beam only checks the few cells already found — so doubling the beams costs little
+CPU. The real cost is the number of live points (64 × 720 × 5/s × 1.5 s ≈ 346k, buffer 420k, ~8 MB) and drawing them;
+"한 바퀴 점 수" or "점이 남는 시간" bring it down if a phone struggles. (She HAS saved her own: 64 beams, −2° … 29°, 848 a
+turn, 8.5 turns/s, 4.2 s — those win over these defaults on her page.)
+
+**Which world the scan reads (2026-11-24, the artist: "이거 global 에서 읽어오는 게 아닌 거지...?" → "그렇게 붙여봐").** An
+asset page always has `?botserver=0`, so the scan read this browser's own stored world on localhost:3029, not the wall's.
+The scan (present) page's bar now has 「리허설 세계」 (`?botserver=1`: the bot server's world — the wall's buildings now;
+this window joins as a visitor, so the wall sees it and bots may come to it) and 「시험 장면」 (`?botserver=0`, as before).
+Sessions test only with `?botserver=0`.
+
 ### bot (present)
 
 **New slot `/lab/mobile/frames` — `frames · 사람 프레임 배치` (`FrameLab.tsx`, 2026-11-23).** The artist: "나와의 상대 각도

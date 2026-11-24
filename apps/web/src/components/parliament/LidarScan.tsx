@@ -5,6 +5,8 @@
  * distance, broken where something stands; docs/reference-study-2026-11-23-pointclouds.md §6.1).
  *
  * A rotating sensor at the eye: `beams` beams fanned from `lowDeg` (down) to `highDeg`, swept round `hz` times a second,
+ * by default a DOME (−60° … +85°: the artist, 2026-11-24, "위아래도 좀 현재 덩어리 읽을 수 있으려면 나한테서 반구가 날아가야"),
+ * so the buildings read up to their tops and the ground right round my feet;
  * `azimuths` readings a turn. Each beam goes out until it meets something: a building cell's wall (the sealed slabs the
  * view already reads, Marks.tsx's list) or the ground (y = 0). Whatever stands behind a wall is never reached — it is
  * EMPTY (what is hidden stays unrecorded); the beams never reach the ground right under me — my spot is an empty circle.
@@ -52,7 +54,7 @@ export interface LidarLook {
   eyeBack: number;
 }
 
-export const DEFAULT_LIDAR: LidarLook = { on: true, black: true, beams: 32, lowDeg: -24, highDeg: 6, azimuths: 720, hz: 5, decaySec: 1.5, range: 22, dot: 2, colour: "distance", eyeH: 0.64, eyeBack: 0 };
+export const DEFAULT_LIDAR: LidarLook = { on: true, black: true, beams: 64, lowDeg: -60, highDeg: 85, azimuths: 720, hz: 5, decaySec: 1.5, range: 22, dot: 2, colour: "distance", eyeH: 0.64, eyeBack: 0 };
 const fwd = new THREE.Vector3();
 
 /** Set by the scan (present) knobs (labKnobsScanPresent.ts), read per frame here and at render by ParliamentScene. */
@@ -77,7 +79,8 @@ interface Cell {
   h: number;
 }
 
-const MAX_POINTS = 240_000;
+// 64 beams × 720 a turn × 5 turns/s × 1.5 s ≈ 346k live readings (the dome; the old band of 32 beams held ~173k)
+const MAX_POINTS = 420_000;
 
 const VERT = /* glsl */ `
 attribute float aBirth;
@@ -87,31 +90,40 @@ uniform float uDecay;
 uniform float uSize;
 uniform float uRange;
 uniform float uMode;
-uniform vec3 uNear;
-uniform vec3 uMid;
-uniform vec3 uFar;
+uniform vec3 uC0;
+uniform vec3 uC1;
+uniform vec3 uC2;
+uniform vec3 uC3;
 varying vec3 vCol;
 varying float vA;
+varying float vPx;
 void main() {
   float age = uTime - aBirth;
-  vA = age < 0.0 ? 0.0 : 1.0 - smoothstep(0.0, uDecay, age);
-  float t = clamp(aDist / uRange, 0.0, 1.0);
-  vec3 dc = t < 0.5 ? mix(uNear, uMid, t * 2.0) : mix(uMid, uFar, t * 2.0 - 1.0);
+  // a reading stays at full strength for most of its life and goes only at the end (a viewer's decay: the last turns
+  // stand as crisp rings, not a fog of half-faded ones)
+  vA = age < 0.0 ? 0.0 : 1.0 - smoothstep(uDecay * 0.55, uDecay, age);
+  // the photo's ramp by distance from the sensor: mint, green-yellow, peach, pink
+  float t = clamp(aDist / uRange, 0.0, 1.0) * 3.0;
+  vec3 dc = t < 1.0 ? mix(uC0, uC1, t) : t < 2.0 ? mix(uC1, uC2, t - 1.0) : mix(uC2, uC3, t - 2.0);
   vCol = uMode < 0.5 ? dc : uMode < 1.5 ? vec3(1.0) : vec3(0.55);
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   gl_Position = projectionMatrix * mv;
-  // a lidar viewer's points: a fixed size on screen, a little larger close by
-  gl_PointSize = uSize * clamp(4.0 / max(0.1, -mv.z), 1.0, 1.8);
+  // a lidar viewer's points: one size on screen wherever they lie, a little larger right by the eye
+  vPx = uSize * clamp(3.0 / max(0.1, -mv.z), 1.0, 1.6);
+  gl_PointSize = vPx;
 }`;
 
 const FRAG = /* glsl */ `
 varying vec3 vCol;
 varying float vA;
+varying float vPx;
 void main() {
-  vec2 q = gl_PointCoord * 2.0 - 1.0;
-  float r = dot(q, q);
-  if (r > 1.0 || vA <= 0.003) discard;
-  gl_FragColor = vec4(vCol, vA * (1.0 - smoothstep(0.55, 1.0, r)));
+  // a round dot with a one-pixel edge: sharp at any size, never a square, never a blur
+  float r = length(gl_PointCoord * 2.0 - 1.0);
+  float edge = clamp((1.0 - r) * vPx * 0.5 + 0.5, 0.0, 1.0);
+  float a = vA * edge;
+  if (a <= 0.003) discard;
+  gl_FragColor = vec4(vCol, a);
 }`;
 
 /** A colour picked as seen on screen (sRGB), handed to the shader in the working (linear) space. */
@@ -141,10 +153,11 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
           uSize: { value: 2 },
           uRange: { value: 22 },
           uMode: { value: 0 },
-          // the photo's rings: mint close by, a pale yellow-green between, pink and peach far off
-          uNear: { value: lin("#7ff5c8") },
-          uMid: { value: lin("#d8f0a0") },
-          uFar: { value: lin("#f5a0b4") },
+          // the photo's rings: mint close by, then green-yellow, peach, and pink at the edge of the reach
+          uC0: { value: lin("#5ff0c8") },
+          uC1: { value: lin("#c6f06a") },
+          uC2: { value: lin("#ffb86b") },
+          uC3: { value: lin("#ff7eb0") },
         },
         vertexShader: VERT,
         fragmentShader: FRAG,
@@ -278,7 +291,8 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
         Pa[j * 3 + 1] = y;
         Pa[j * 3 + 2] = ez + cz * d * jit;
         Ba[j] = now;
-        Da[j] = d;
+        // colour by the range the beam travelled (a wall high above reads as far as it is, not as its foot)
+        Da[j] = Math.hypot(d, y - H);
         s.head = (s.head + 1) % MAX_POINTS;
         written++;
       }

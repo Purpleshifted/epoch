@@ -50,6 +50,8 @@ export default function MobileLabStage({ page }: { page: LabPage }) {
     else setReady(true);
   }, [page]);
   const info = LAB_INFO[page];
+  // (read after the address is settled: `ready` is only set once no redirect is pending)
+  const scanLive = ready && new URLSearchParams(window.location.search).get("botserver") !== "0";
   const [refsOn, setRefsOn] = useState(true);
   const [big, setBig] = useState<string | null>(null);
   const [missing, setMissing] = useState<Set<string>>(() => new Set());
@@ -75,6 +77,20 @@ export default function MobileLabStage({ page }: { page: LabPage }) {
               리허설 세계
             </a>
             <a href={`/lab/mobile/preview${PREVIEW_TEST}`} className="text-white/50 hover:text-white" title="no bot server · 24 test walkers · one observer in view">
+              시험 장면
+            </a>
+          </>
+        )}
+        {/* the scan reads the world it is given: the rehearsal's (the bot server — the wall's buildings now; this window
+            joins as a visitor, so the wall sees it) or this browser's own stored one (the artist, 2026-11-24: "이거 global
+            에서 읽어오는 게 아닌 거지...?" → "그렇게 붙여봐"). botserver=1 on the address keeps the page from adding =0. */}
+        {page === "scan-present" && (
+          <>
+            <span className="text-white/30">|</span>
+            <a href="/lab/mobile/scan-present?botserver=1" className={scanLive ? "text-white underline" : "text-white/50 hover:text-white"} title="the rehearsal's world as it runs (bot server): the wall's buildings now">
+              리허설 세계
+            </a>
+            <a href="/lab/mobile/scan-present?botserver=0" className={scanLive ? "text-white/50 hover:text-white" : "text-white underline"} title="no bot server: this browser's own stored world">
               시험 장면
             </a>
           </>
