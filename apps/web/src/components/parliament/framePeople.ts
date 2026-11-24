@@ -411,16 +411,17 @@ vec4 pixFig(float u, float v) {
   float side = mod(floor(f / 8.0), 2.0);
   float k = sin(3.14159265 * mod(f, 8.0) / 8.0);
   // (a brisk walk lifts the feet least — quick, short, low steps: "경보는 걷듯이 좀더 발발발발")
-  float lift = st < 0.5 ? 3.0 : st < 1.5 ? 2.0 : st < 2.5 ? 6.0 : 0.0;
+  float lift = st < 0.5 ? 3.0 : st < 1.5 ? 2.0 : st < 2.5 ? 4.0 : 0.0;
   float rise = floor(k * lift + 0.5);
   float run = st > 1.5 && st < 2.5 ? 1.0 : 0.0;
-  // (running has a flight in every step — both feet off the ground at its height, the body up — where walking keeps
-  // one foot down: "뛸 때도 박자 좀 어색해서")
-  float plant = run * floor(max(0.0, k - 0.5) * 4.0 + 0.5);
-  float bob = run * floor(k * 2.0 + 0.5);
+  // (running has a flight in every step — both feet off the ground at its height, the body up a cell — where walking
+  // keeps one foot down: "뛸 때도 박자 좀 어색해서"; the legs stay under the body, as thick as walking's: "뛸 때 다리 굵기
+  // 어색해;; 밖으로 막 튐")
+  float plant = run * step(0.75, k);
+  float bob = run * step(0.5, k);
   float lL = side < 0.5 ? rise : plant, lR = side < 0.5 ? plant : rise;
-  float a = pxRect(p, -5.0 - run, lL, 4.0, 8.0 + bob - lL);
-  a = max(a, pxRect(p, 1.0 + run, lR, 4.0, 8.0 + bob - lR));
+  float a = pxRect(p, -5.0, lL, 4.0, 8.0 + bob - lL);
+  a = max(a, pxRect(p, 1.0, lR, 4.0, 8.0 + bob - lR));
   a = max(a, pxRect(p, -5.0, 8.0 + bob, 10.0, 12.0));
   // TALKING TO ME: no arms ("팔 징그러!") — the head hops on the notes of their melody, the name's rhythm ("머리에 모션
   // 넣어서 멜로디 박자랑 연동해서 토도동 튀게")
@@ -429,7 +430,10 @@ vec4 pixFig(float u, float v) {
 }
 vec4 cell(float u, float v) {
   float uu = vMirror < 0.0 ? 1.0 - u : u;
-  vec4 t = uPix > 0.5 ? pixFig(uu, v) : texture2D(uSheet, atlasUv(vRow, vFrame, vec2(clamp(uu, 0.001, 0.999), clamp(v, 0.001, 0.999))));
+  // (the pictogram as drawn: the clips' edge clean-up — the alpha threshold, the frame's border — ate its corners:
+  // "모서리 깨짐")
+  if (uPix > 0.5) return pixFig(uu, v);
+  vec4 t = texture2D(uSheet, atlasUv(vRow, vFrame, vec2(clamp(uu, 0.001, 0.999), clamp(v, 0.001, 0.999))));
   // the frame's own border is always empty (shrunk far off, the sheet's neighbouring frames bleed into it), and what is
   // fainter than the threshold is not there (a faint box round a frame)
   float edge = smoothstep(0.0, 0.035, uu) * smoothstep(0.0, 0.035, 1.0 - uu) * smoothstep(0.0, 0.006, v) * smoothstep(0.0, 0.02, 1.0 - v);
