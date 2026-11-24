@@ -28,6 +28,7 @@ import {
   makeFrameGeometry,
   makeMaterial,
   makeSideMaterial,
+  multiplies,
   prepareWalkers,
   setBlend,
   setsFromValues,
@@ -113,8 +114,9 @@ export function FramePeopleLayer({ getList, playerPosRef, unit }: { getList: () 
   }, [gl, mat]);
   useEffect(() => {
     if (!look) return;
-    setBlend(mat, look.multiply);
-    setBlend(sideMat, look.multiply);
+    // (white pictograms lay over the ground; the street's ground itself is the scan's — black for them)
+    setBlend(mat, multiplies(look));
+    setBlend(sideMat, multiplies(look));
   }, [look, mat, sideMat]);
 
   const bots = useRef(new Map<string, BotWalker>());

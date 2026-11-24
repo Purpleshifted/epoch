@@ -54,6 +54,7 @@ import {
   keepSecOf,
   makeMaterial,
   makeSideMaterial,
+  multiplies,
   prepareWalkers,
   setBlend,
   stateOfWalker,
@@ -124,9 +125,12 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
     };
   }, [mat]);
   useEffect(() => {
-    setBlend(mat, L.multiply);
-    setBlend(sideMat, L.multiply);
-  }, [mat, L.multiply]);
+    setBlend(mat, multiplies(L));
+    setBlend(sideMat, multiplies(L));
+    // (white pictograms: the black ground of the poster)
+    gl.setClearColor(L.pix && L.pixWhite ? "#000000" : "#ffffff", 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mat, sideMat, gl, L.multiply, L.pix, L.pixWhite]);
   const walkers = useRef<Walker[]>([]);
 
   useFrame((state, delta) => {
@@ -338,6 +342,7 @@ export default function FrameLab() {
           // the legs' tempo from a walking person's stride — the clips are uniform, 2026-11-24)
           // (the artist, 2026-11-24: the motion poster's future observers — "현장에서 바로 돌려도" — drawn live, no clips)
           flPix: { value: true, label: "사람 모양: 픽셀 픽토그램 (미래관찰자처럼 · 끄면 영상 클립)" },
+          flPixInk: { options: { "흰 픽셀 · 검정 바탕 (포스터)": "white", "검정 픽셀 · 흰 바탕": "black" }, value: "white", label: "픽토그램 색", render: (get) => get(`${G}.사람.flPix`) !== false },
           flPixCell: { value: 2, min: 0.5, max: 6, step: 0.5, label: "픽토그램 칸 크기 (몸 30칸 기준)", render: (get) => get(`${G}.사람.flPix`) !== false },
           flPixStride: { value: 0.6, min: 0.2, max: 1.5, step: 0.05, label: "픽토그램 보폭 × (작을수록 토도도)", render: (get) => get(`${G}.사람.flPix`) !== false },
           flHeightBase: { value: 1.72, min: 1.2, max: 2.1, step: 0.01, label: "키 (m)" },
@@ -415,11 +420,12 @@ export default function FrameLab() {
           // (seen from the side, cards standing to their way are knife edges: this turns them towards me just enough)
           flSideFade: { value: 0.35, min: 0, max: 1, step: 0.01, label: "옆으로 설 때 옅어짐 (0 = 끔 · 클수록 일찍)" },
           flMinAng: { value: 0, min: 0, max: 90, step: 1, label: "옆에서 볼 때 판이 나를 향하는 최소 각도 (°, 0 = 없음 · 90 = 늘 나를 향함)" },
-          flEdge: { value: 0.15, min: 0, max: 0.95, step: 0.01, label: "테두리 지우기 — 알파 문턱" },
-          flEdgeW: { value: 0.15, min: 0.005, max: 0.8, step: 0.005, label: "테두리 단단함 (작을수록 칼같이)" },
-          flCon: { value: 1, min: 0.2, max: 4, step: 0.05, label: "색 대비 ×" },
-          flBright: { value: 0, min: -0.6, max: 0.6, step: 0.01, label: "밝기 ±" },
-          flMultiply: { value: true, label: "곱하기로 겹침" },
+          // (the clips' edges and colours: nothing to tune for the pictogram)
+          flEdge: { value: 0.15, min: 0, max: 0.95, step: 0.01, label: "테두리 지우기 — 알파 문턱", render: (get) => get(`${G}.사람.flPix`) === false },
+          flEdgeW: { value: 0.15, min: 0.005, max: 0.8, step: 0.005, label: "테두리 단단함 (작을수록 칼같이)", render: (get) => get(`${G}.사람.flPix`) === false },
+          flCon: { value: 1, min: 0.2, max: 4, step: 0.05, label: "색 대비 ×", render: (get) => get(`${G}.사람.flPix`) === false },
+          flBright: { value: 0, min: -0.6, max: 0.6, step: 0.01, label: "밝기 ±", render: (get) => get(`${G}.사람.flPix`) === false },
+          flMultiply: { value: true, label: "곱하기로 겹침", render: (get) => get(`${G}.사람.flPix`) === false },
           // (the artist, 2026-11-23: "프레임 자체에 두께를 좀 둘 수 있나? 아니면 블러가 앞뒤 공간으로도")
           // (+ "공간에서 드래그해서 부피 생기도록 … 띠랑 합친다거나": the band is back as this face's drag)
           "두께 · 끌기 (옆에서 본 빈 공간 메우기)": folder({
@@ -474,7 +480,7 @@ export default function FrameLab() {
             ]),
           ),
         },
-        { order: 6, collapsed: true },
+        { order: 6, collapsed: true, render: (get) => get(`${G}.사람.flPix`) === false },
       ),
       "거리 위계 — 가까이 · 중간 · 멀리": folder(
         {
@@ -533,7 +539,7 @@ export default function FrameLab() {
   const L: Look = lookFromValues(c, sets, pick, gradStart);
 
   return (
-    <div className="absolute inset-0 bg-white">
+    <div className="absolute inset-0" style={{ background: L.pix && L.pixWhite ? "#000" : "#fff" }}>
       {/* (how many cards are drawn and how fast — the phone's budget is ~300–500 cards, 2026-11-23) */}
       <div ref={readoutRef} className="pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded bg-black/70 px-2 py-1 font-mono text-[10px] text-white" />
       <Canvas camera={{ position: [10, 1.5, -6], fov: 45, near: 0.05, far: 400 }} dpr={[1, 2]} gl={{ antialias: true }} onCreated={({ gl }) => gl.setClearColor("#ffffff", 1)}>

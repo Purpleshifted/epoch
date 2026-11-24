@@ -123,6 +123,8 @@ export interface Look {
   pix: boolean;
   pixCell: number;
   pixStride: number;
+  /** White pictograms on a black ground (the artist, 2026-11-24: "예전 검정배경에 흰 픽셀로"), or black on white. */
+  pixWhite: boolean;
   /** The card turned from its walking direction (rad); what fills between two copies (0 none · 2 a count of frames · 3 one per frame time). */
   yaw: number;
   between: number;
@@ -370,6 +372,7 @@ uniform float uCon;       // the colour's contrast about mid-grey, and its brigh
 uniform float uBright;
 uniform float uPix;        // 1: the poster's pixel pictogram, drawn here (no picture); vRow = the state, vFrame the step
 uniform float uPixCell;    // its cell, in the figure's 30 units (head to foot)
+uniform vec3 uPixInk;      // its colour: white on the black ground (the poster's), or black on the paper
 uniform float uAspect;
 float pxRect(vec2 p, float x0, float y0, float w, float h) {
   return step(x0, p.x) * step(p.x, x0 + w) * step(y0, p.y) * step(p.y, y0 + h);
@@ -394,10 +397,11 @@ vec4 pixFig(float u, float v) {
   a = max(a, pxRect(p, -5.0, 8.0 + bob, 10.0, 12.0));
   a = max(a, pxRect(p, -4.0, 22.0 + bob, 8.0, 8.0));
   if (st > 3.5) {
+    // (the arm up and down every four frames: a wave)
     float up = mod(floor(f / 4.0), 2.0);
     a = max(a, pxRect(p, 5.0, 12.0 + up * 6.0, 3.0, 6.0 + up * 2.0));
   }
-  return vec4(vec3(0.06), a);
+  return vec4(uPixInk, a);
 }
 vec4 cell(float u, float v) {
   float uu = vMirror < 0.0 ? 1.0 - u : u;
@@ -536,6 +540,7 @@ export function makeMaterial(): THREE.ShaderMaterial {
       uSideFade: { value: 0 },
       uPix: { value: 0 },
       uPixCell: { value: 2 },
+      uPixInk: { value: new THREE.Color(1, 1, 1) },
       uDragKind: { value: 2 },
       uDragLen: { value: 1.5 },
       uSheet: { value: null },
@@ -649,6 +654,11 @@ export const TRAIL_DEFAULTS: Record<StateKey, Omit<Trail, "turn"> & { turn: numb
   talk: { life: 2.5, ink: 0.4, copies: 8, gap: 0.3, betweenN: 4, betweenInk: 0.4, scale: 1.05, rise: 0.25, scatter: 0.25, turn: 0, desat: 0.2, blur: 0.15 },
 };
 
+
+/** Whether the frames multiply onto the ground (white pictograms on black lay over it instead). */
+export function multiplies(L: Look): boolean {
+  return L.multiply && !(L.pix && L.pixWhite);
+}
 
 /** The pictogram's pose a state (the row it is drawn with). */
 const STATE_INDEX: Record<StateKey, number> = { walk: 0, brisk: 1, run: 2, stand: 3, talk: 4 };
@@ -886,7 +896,8 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
     Ff[n * 4] = T.blur * u + Q.blur;
     // the flowing colour: the walker's state's own
     const G2 = L.grads[stateOf(w)];
-    Ff[n * 4 + 1] = Q.grad * G2.amt;
+    // (the pictogram has no colour flowing: "이럴거면 색 효과 넣을 필요 없음")
+    Ff[n * 4 + 1] = L.pix ? 0 : Q.grad * G2.amt;
     Ff[n * 4 + 3] = 0;
     Gg[n * 4] = G2.dir;
     Gg[n * 4 + 1] = G2.scale;
@@ -1047,7 +1058,7 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
   u.uSlit.value = L.slit;
   u.uStretchKind.value = L.stretchKind;
   u.uStreakSoft.value = L.streakSoft;
-  u.uMultiply.value = L.multiply ? 1 : 0;
+  u.uMultiply.value = multiplies(L) ? 1 : 0;
   u.uThick.value = L.thick * unit;
   u.uThickFill.value = L.thickFill ? 1 : 0;
   u.uThickInk.value = L.thickInk;
@@ -1055,6 +1066,7 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
   u.uSideFade.value = L.sideFade;
   u.uPix.value = L.pix ? 1 : 0;
   u.uPixCell.value = L.pixCell;
+  (u.uPixInk.value as THREE.Color).setScalar(L.pixWhite ? 1 : 0.06);
   u.uDragKind.value = L.dragKind;
   u.uDragLen.value = L.dragLen;
   return n;
@@ -1121,6 +1133,7 @@ export function lookFromValues(c: Record<string, unknown>, sets: ClipSet[], pick
     pix: c.flPix !== false,
     pixCell: num("flPixCell", 2),
     pixStride: num("flPixStride", 0.6),
+    pixWhite: c.flPixInk !== "black",
     yaw: (num("flYaw", 0) * Math.PI) / 180,
     between: num("flBetween", 2),
     trails: Object.fromEntries(
