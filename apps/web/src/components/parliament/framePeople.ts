@@ -893,7 +893,7 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
     C[n * 4 + 2] = prev ? 1 : 0;
     C[n * 4 + 3] = (T.rise * u + (set?.lift ?? 0)) * unit;
     Dd[n * 4] = T.desat * u;
-    Ff[n * 4] = T.blur * u + Q.blur;
+    Ff[n * 4] = L.pix ? 0 : T.blur * u + Q.blur;
     // the flowing colour: the walker's state's own
     const G2 = L.grads[stateOf(w)];
     // (the pictogram has no colour flowing: "이럴거면 색 효과 넣을 필요 없음")
@@ -904,7 +904,8 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
     Gg[n * 4 + 2] = G2.speed;
     Gg[n * 4 + 3] = G2.warp;
     // (2: along its own way — a profile clip, always; 1: facing me — far off, by the knob)
-    Ff[n * 4 + 2] = pick.profile ? 2 : L.tier.farEye && Q.far > 0.5 ? 1 : 0;
+    // (the pictogram always faces me, as the poster's figures do — one card alone, edge-on, would vanish)
+    Ff[n * 4 + 2] = L.pix ? 1 : pick.profile ? 2 : L.tier.farEye && Q.far > 0.5 ? 1 : 0;
     Dd[n * 4 + 1] = L.pix ? 0 : (set?.tintAmt ?? 0);
     Dd[n * 4 + 2] = u;
     // the colour combination: one for all, or each walker their own
@@ -1004,12 +1005,15 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
     const life = Math.max(0.05, T.life);
     for (const { s, age, newest } of list) {
       const isNow = age === 0 || !!newest;
+      // (the pictogram leaves no afterimage — a pixel person, the poster's: "이러면 잔상도 안 남겨도 됨"; the arrivals still
+      // set where it walks and its steps)
+      if (L.pix && !isNow) continue;
       const fade = isNow && !newest ? 1 : Math.pow(Math.max(0, 1 - age / life), L.fall);
       const alpha = (isNow ? L.ink : T.ink * Q.trail) * fade;
       // between this copy and the one before: frames of its own in between (place, step, way and age carried over)
       let last = prev;
       // (standing, copies stand on one spot: in-betweens there only when their age effects move them apart)
-      if (!L.standMode && prev && (L.between === 2 || L.between === 3) && (Math.hypot(s.x - prev.x, s.z - prev.z) > 1e-3 || T.rise !== 0 || T.scatter > 0)) {
+      if (!L.pix && !L.standMode && prev && (L.between === 2 || L.between === 3) && (Math.hypot(s.x - prev.x, s.z - prev.z) > 1e-3 || T.rise !== 0 || T.scatter > 0)) {
         // 3 — BY THE CLIP'S OWN BEAT (the artist, 2026-11-23: "사이를 메우는 게, 걷는 속도랑 프레임 머무는 시간이랑 매치가
         // 되어야"): one card for each time a frame of the clip is held between the two copies — at the place the body
         // was then, the clip's next frame each (the phase counted on by time, never the short way round); 2 — a count

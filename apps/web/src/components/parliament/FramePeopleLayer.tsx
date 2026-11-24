@@ -183,7 +183,8 @@ export function FramePeopleLayer({ getList, playerPosRef, unit }: { getList: () 
     (window as unknown as { __framesBots?: unknown }).__framesBots = { cards: n, bots: W.length };
   });
 
-  const thickOn = !!look && (look.thick > 0 || look.thickFill) && look.thickInk > 0;
+  // (pictograms: one card a bot, no thickness)
+  const thickOn = !!look && !look.pix && (look.thick > 0 || look.thickFill) && look.thickInk > 0;
   return (
     <>
       <mesh geometry={geom} material={mat} frustumCulled={false} renderOrder={10} />

@@ -234,7 +234,8 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
       M.at = now;
       M.frames = 0;
       const el = readoutRef.current;
-      const thickOn = (L.thick > 0 || L.thickFill) && L.thickInk > 0;
+      // (pictograms: no thickness, no afterimages — one card a person)
+      const thickOn = !L.pix && (L.thick > 0 || L.thickFill) && L.thickInk > 0;
       if (el) el.textContent = `카드 ${n}${thickOn ? ` (+두께 ${n})` : ""} · 사람 ${W.length} · 한 사람당 ${W.length ? Math.round(n / W.length) : 0} · ${M.fps.toFixed(0)} fps${n > 500 ? " · 폰에선 무거움 (500장 넘음)" : ""}`;
     }
   });
@@ -243,7 +244,7 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
     <>
       <OrbitControls ref={controls} makeDefault target={[0, 0.9, -L.dist]} enableDamping dampingFactor={0.12} />
       <mesh geometry={geom} material={mat} frustumCulled={false} />
-      {(L.thick > 0 || L.thickFill) && L.thickInk > 0 && <mesh geometry={geom} material={sideMat} frustumCulled={false} />}
+      {!L.pix && (L.thick > 0 || L.thickFill) && L.thickInk > 0 && <mesh geometry={geom} material={sideMat} frustumCulled={false} />}
       {L.floor && <gridHelper args={[40, 40, "#e4e4e4", "#efefef"]} position={[0, 0, -L.dist]} />}
     </>
   );
@@ -368,10 +369,10 @@ export default function FrameLab() {
           flStamp: { value: true, label: "표본마다 슉 (끄면 이어 걷고 일정 시간마다)", render: (get) => !get(`${G}.잔상 남기기.flStandMode`) },
           flSample: { value: 0.5, min: 0.1, max: 2, step: 0.05, label: "위치가 도착하는 간격 (s · 실제 봇은 1초)", render: (get) => !!get(`${G}.잔상 남기기.flStamp`) || !!get(`${G}.잔상 남기기.flStandMode`) },
           flDash: { value: 0.12, min: 0.02, max: 0.5, step: 0.01, label: "쓸려 가는 시간 (s)", render: (get) => !!get(`${G}.잔상 남기기.flStamp`) && !get(`${G}.잔상 남기기.flStandMode`) },
-          flFall: { value: 1.3, min: 0.3, max: 4, step: 0.05, label: "옅어지는 곡선" },
+          flFall: { value: 1.3, min: 0.3, max: 4, step: 0.05, label: "옅어지는 곡선", render: (get) => get(`${G}.사람.flPix`) === false },
           flInk: { value: 1, min: 0.1, max: 1, step: 0.05, label: "지금 몸의 진하기" },
           // (the artist, 2026-11-23: "사이 프레임은 박자보단 개수가 낫다")
-          flBetween: { options: { "개수로": 2, "클립 박자대로 (영상 한 장마다 한 판)": 3, "없음": 0 }, value: 2, label: "잔상 사이 프레임" },
+          flBetween: { options: { "개수로": 2, "클립 박자대로 (영상 한 장마다 한 판)": 3, "없음": 0 }, value: 2, label: "잔상 사이 프레임", render: (get) => get(`${G}.사람.flPix`) === false },
         },
         { order: 3, collapsed: true },
       ),
@@ -411,7 +412,7 @@ export default function FrameLab() {
             }),
           ),
         },
-        { order: 4 },
+        { order: 4, render: (get) => get(`${G}.사람.flPix`) === false },
       ),
       "늘어놓기 · 테두리": folder(
         {
@@ -445,7 +446,7 @@ export default function FrameLab() {
             { collapsed: true },
           ),
         },
-        { order: 5, collapsed: true },
+        { order: 5, collapsed: true, render: (get) => get(`${G}.사람.flPix`) === false },
       ),
       [COLOUR_F]: folder(
         {
@@ -487,10 +488,10 @@ export default function FrameLab() {
           flR1: { value: 6, min: 1, max: 30, step: 0.5, label: "가까이 → 중간 (m)" },
           flR2: { value: 15, min: 2, max: 60, step: 0.5, label: "중간 → 멀리 (m)" },
           flBand: { value: 3, min: 0.2, max: 10, step: 0.1, label: "섞이는 폭 (m)" },
-          flFarEye: { value: true, label: "멀리: 판이 나를 향함" },
+          flFarEye: { value: true, label: "멀리: 판이 나를 향함", render: (get) => get(`${G}.사람.flPix`) === false },
           // (the artist, 2026-11-23: "그냥 옆모습으로 바뀌는 걸 없애는 게 나을지도?" — off by default: front shots only, fading
           // as they turn edge-on — "늘어놓기 · 테두리 › 옆으로 설 때 옅어짐")
-          flUseSide: { value: false, label: "옆모습 클립 쓰기 (끄면 정면만)" },
+          flUseSide: { value: false, label: "옆모습 클립 쓰기 (끄면 정면만)", render: (get) => get(`${G}.사람.flPix`) === false },
           flFarSide: { value: true, label: "멀리: 가로지르면 옆모습", render: (get) => !!get(`${G}.거리 위계 — 가까이 · 중간 · 멀리.flUseSide`) },
           // (the artist, 2026-11-23: "가만히 있는 건 가까이 있는 거 아니면 굳이 프레임 재생 안 해도")
           flStillNear: { value: true, label: "서 있기·소통: 프레임 재생은 가까이에서만" },
@@ -508,7 +509,7 @@ export default function FrameLab() {
               flNBlur: { value: 0, min: 0, max: 0.4, step: 0.005, label: "흐림 +" },
               flNGrad: { value: 1, min: 0, max: 1, step: 0.05, label: "색 출렁임 ×" },
             },
-            { collapsed: true },
+            { collapsed: true, render: (get) => get(`${G}.사람.flPix`) === false },
           ),
           "중간": folder(
             {
@@ -518,7 +519,7 @@ export default function FrameLab() {
               flMBlur: { value: 0.04, min: 0, max: 0.4, step: 0.005, label: "흐림 +" },
               flMGrad: { value: 0.7, min: 0, max: 1, step: 0.05, label: "색 출렁임 ×" },
             },
-            { collapsed: true },
+            { collapsed: true, render: (get) => get(`${G}.사람.flPix`) === false },
           ),
           "멀리": folder(
             {
@@ -528,7 +529,7 @@ export default function FrameLab() {
               flFBlur: { value: 0.12, min: 0, max: 0.4, step: 0.005, label: "흐림 +" },
               flFGrad: { value: 0.3, min: 0, max: 1, step: 0.05, label: "색 출렁임 ×" },
             },
-            { collapsed: true },
+            { collapsed: true, render: (get) => get(`${G}.사람.flPix`) === false },
           ),
         },
         { order: 7, collapsed: true },
