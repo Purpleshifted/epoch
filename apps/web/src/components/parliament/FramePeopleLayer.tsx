@@ -139,7 +139,7 @@ export function FramePeopleLayer({ getList, playerPosRef, unit }: { getList: () 
         let w = B.get(o.o);
         if (!w) {
           const hash = idHash(o.o);
-          w = { hash, x: tx, z: tz, h: hash * TAU, ph: hash, s: 0, dir: 1, gx: 0, gz: 0, hist: [], stamps: [{ t: now, x: tx, z: tz, h: hash * TAU, ph: 0 }], lastHist: -1, lastSample: now, home: 0, standing: !o.moving, speed: 0, gap: 0.08, cycle: 1.3, lastT: now, mps: 0, still: !o.moving, seen: now };
+          w = { id: o.o, hash, x: tx, z: tz, h: hash * TAU, ph: hash, s: 0, dir: 1, gx: 0, gz: 0, hist: [], stamps: [{ t: now, x: tx, z: tz, h: hash * TAU, ph: 0 }], lastHist: -1, lastSample: now, home: 0, standing: !o.moving, speed: 0, gap: 0.08, cycle: 1.3, lastT: now, mps: 0, still: !o.moving, seen: now };
           B.set(o.o, w);
           continue;
         }

@@ -154,7 +154,7 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
     while (W.length < L.count) {
       const i = W.length;
       const hash = frac(Math.sin(i * 91.7 + 3.1) * 43758.5);
-      W.push({ hash, x: (hash - 0.5) * 8, z: -L.dist + (frac(hash * 7.3) - 0.5) * 8, h: hash * TAU, ph: hash, s: hash * 16, dir: i % 2 ? -1 : 1, gx: 0, gz: 0, hist: [], stamps: [], lastHist: -1, lastSample: -1, home: 0, standing: false, speed: 1.3, gap: 0.04, cycle: 0.64 });
+      W.push({ id: `study-${i}`, hash, x: (hash - 0.5) * 8, z: -L.dist + (frac(hash * 7.3) - 0.5) * 8, h: hash * TAU, ph: hash, s: hash * 16, dir: i % 2 ? -1 : 1, gx: 0, gz: 0, hist: [], stamps: [], lastHist: -1, lastSample: -1, home: 0, standing: false, speed: 1.3, gap: 0.04, cycle: 0.64 });
     }
     W.length = Math.min(W.length, L.count);
     prepareWalkers(W, L, idx.current?.sheet.cols ?? 16, (w) => ({
@@ -294,7 +294,8 @@ export default function FrameLab() {
     return s;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clips]);
-  const cs = useControls(clipRoot, savable(clipRoot, clipSchema, [OLD_CLIP_ROOT]) as Parameters<typeof useControls>[1], { collapsed: false, order: 2 }, [clips.length]) as unknown as Record<string, number>;
+  // (the clips are not shown while the people are pictograms — "클립은 이제 frames 에서 안 뜨게", 2026-11-24)
+  const cs = useControls(clipRoot, savable(clipRoot, clipSchema, [OLD_CLIP_ROOT]) as Parameters<typeof useControls>[1], { collapsed: false, order: 2, render: (get) => get(`${G}.사람.flPix`) === false }, [clips.length]) as unknown as Record<string, number>;
   const pick = Number(cs.clipPick ?? 0);
   const sets: ClipSet[] = setsFromValues(cs as unknown as Record<string, unknown>, clips);
 

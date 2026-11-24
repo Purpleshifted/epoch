@@ -8,6 +8,7 @@
 
 import * as THREE from "three";
 import { ATLAS_GLSL, type SpriteIndex } from "./spritePeople";
+import { rhythmOf, stepAt } from "@/lib/parliament";
 
 export const MAX_CARDS = 4096;
 export const TAU = Math.PI * 2;
@@ -218,8 +219,12 @@ export interface Walker {
   gap: number;
   // seconds a phase cycle takes (the clip's frames once — twice for a ping-pong loop)
   cycle: number;
-  /** Standing and talking to me (the pictogram waves). */
+  /** Standing and talking to me (the pictogram's head hops on its melody). */
   talking?: boolean;
+  /** Its id (a bot's, or the study's own): its melody. */
+  id?: string;
+  /** Its pace from its speed: 0 walking, 1 brisk, 2 running (the pictogram's, which needs no clip). */
+  pace?: number;
   // walking across my view now (in profile), kept a little past the threshold
   sideNow?: boolean;
 }
@@ -259,6 +264,7 @@ flat varying float vPal;
 flat varying float vBlur;
 flat varying float vGradK;
 flat varying vec4 vGrad;
+flat varying float vHead;
 void main() {
   vec3 feet = vec3(iA.x, 0.0, iA.y);
   vec3 right;
@@ -348,6 +354,7 @@ void main() {
   vBlur = iF.x;
   vGradK = iF.y;
   vGrad = iG;
+  vHead = iF.w;
 }`;
 
 export const FRAG = /* glsl */ `
@@ -363,6 +370,7 @@ uniform float uMultiply;
 flat varying float vBlur; // this card's blur (its state's, at its age)
 flat varying float vGradK;
 flat varying vec4 vGrad;  // the flowing colour of the card's state (along what, wave size, speed, waver)
+flat varying float vHead;  // the pictogram's head hop (units): talking, on its melody's notes
 varying vec2 vUv;
 varying float vAlpha;
 varying float vSide;
@@ -399,26 +407,17 @@ vec4 pixFig(float u, float v) {
   float lift = st < 0.5 ? 3.0 : st < 1.5 ? 2.0 : st < 2.5 ? 6.0 : 0.0;
   float rise = floor(k * lift + 0.5);
   float run = st > 1.5 && st < 2.5 ? 1.0 : 0.0;
-  float bob = run * floor(k * 1.5 + 0.5);
-  float lL = side < 0.5 ? rise : 0.0, lR = side < 0.5 ? 0.0 : rise;
+  // (running has a flight in every step — both feet off the ground at its height, the body up — where walking keeps
+  // one foot down: "뛸 때도 박자 좀 어색해서")
+  float plant = run * floor(max(0.0, k - 0.5) * 4.0 + 0.5);
+  float bob = run * floor(k * 2.0 + 0.5);
+  float lL = side < 0.5 ? rise : plant, lR = side < 0.5 ? plant : rise;
   float a = pxRect(p, -5.0 - run, lL, 4.0, 8.0 + bob - lL);
   a = max(a, pxRect(p, 1.0 + run, lR, 4.0, 8.0 + bob - lR));
   a = max(a, pxRect(p, -5.0, 8.0 + bob, 10.0, 12.0));
-  // TALKING TO ME ("말 걸 때 모션도 보여줘"): the arm up and down every three frames (a wave), the other hand at the chest
-  // now and then, the head nodding a cell — a signal from where they stand
-  float talk = st > 3.5 ? 1.0 : 0.0;
-  float nod = talk * mod(floor(f / 6.0), 2.0);
-  a = max(a, pxRect(p, -4.0, 22.0 + bob - nod, 8.0, 8.0));
-  if (st > 0.5 && st < 1.5) {
-    // brisk: the arms pump at the sides, the one opposite the lifted foot up (a power walk)
-    a = max(a, pxRect(p, -8.0, 11.0 + (1.0 - side) * 3.0, 3.0, 5.0));
-    a = max(a, pxRect(p, 5.0, 11.0 + side * 3.0, 3.0, 5.0));
-  }
-  if (talk > 0.5) {
-    float up = mod(floor(f / 3.0), 2.0);
-    a = max(a, pxRect(p, 5.0, 14.0 + up * 6.0, 3.0, 6.0 + up * 3.0));
-    a = max(a, pxRect(p, -8.0, 12.0 + mod(floor(f / 8.0), 2.0) * 3.0, 3.0, 5.0));
-  }
+  // TALKING TO ME: no arms ("팔 징그러!") — the head hops on the notes of their melody, the name's rhythm ("머리에 모션
+  // 넣어서 멜로디 박자랑 연동해서 토도동 튀게")
+  a = max(a, pxRect(p, -4.0, 22.0 + bob + vHead, 8.0, 8.0));
   return vec4(uPixInk, a);
 }
 vec4 cell(float u, float v) {
@@ -678,9 +677,9 @@ export function multiplies(L: Look): boolean {
   return L.multiply && !(L.pix && L.pixWhite);
 }
 
-/** The pictogram's stride × of a person's (its own short steps; a brisk walk's shorter still). */
-function pixStrideOf(L: Look, set: ClipSet | undefined): number {
-  return L.pix ? L.pixStride * (set?.state === "brisk" ? L.pixBrisk : 1) : 1;
+/** The pictogram's stride × of a person's (its own short steps; a brisk walk's shorter still; a run its full stride). */
+function pixStrideFor(L: Look, pace: number): number {
+  return L.pix ? (pace === 2 ? 1 : L.pixStride * (pace === 1 ? L.pixBrisk : 1)) : 1;
 }
 
 /** The pictogram's pose a state (the row it is drawn with). */
@@ -713,7 +712,7 @@ function stepPhases(L: Look, w: Walker, unit: number): void {
     else {
       const d = Math.hypot(st.x - prev.x, st.z - prev.z) / unit;
       const span = Math.max(0.05, st.t - prev.t);
-      const step = (strideOf(d / span, personHeight(L, w, set)) * pixStrideOf(L, set)) / 2;
+      const step = (strideOf(d / span, personHeight(L, w, set)) * pixStrideFor(L, w.pace ?? 0)) / 2;
       const n = w.standing || d < 0.05 ? 0 : Math.max(1, Math.round(d / step));
       st.ph = prev.ph + n / 2;
     }
@@ -726,7 +725,7 @@ function stepPhases(L: Look, w: Walker, unit: number): void {
 export function stateOfWalker(L: Look, w: Walker): StateKey {
   const st = L.clips[w.home]?.state;
   // (the pictogram needs no talking clip: a person standing and talking to me waves — `talking`)
-  if (w.standing && L.pix) return w.talking ? "talk" : "stand";
+  if (L.pix) return w.standing ? (w.talking ? "talk" : "stand") : w.pace === 2 ? "run" : w.pace === 1 ? "brisk" : "walk";
   return w.standing ? (st === "talk" ? "talk" : "stand") : st === "run" ? "run" : st === "brisk" ? "brisk" : "walk";
 }
 
@@ -764,6 +763,15 @@ export function prepareWalkers(W: Walker[], L: Look, cols: number, own: (w: Walk
     // (by the state thresholds by default: a person keeps one clip, its build and height — the artist went back from
     // clips by speed the same evening)
     const pace = L.speedMode !== 1 || w.standing ? 0 : vOwn >= L.runFrom ? 2 : vOwn >= L.briskFrom ? 1 : 0;
+    w.pace = pace;
+    // THE PICTOGRAM NEEDS NO CLIP (2026-11-24): its pace from its speed, its steps from a person's stride
+    if (L.pix) {
+      w.home = 0;
+      w.speed = w.standing ? 0 : vOwn;
+      w.gap = w.speed > 0 ? (strideOf(w.speed, personHeight(L, w, undefined)) * pixStrideFor(L, pace)) / 16 / w.speed : 0.08;
+      w.cycle = w.gap * cols;
+      continue;
+    }
     const byState = pace === 2 ? first(runRows, briskRows, walkRows) : pace === 1 ? first(briskRows, walkRows, runRows) : first(walkRows, briskRows, runRows);
     const moving = L.speedMode === 1 && L.pickBySpeed && !w.standing ? bySpeed(CL, frontMoving.length ? frontMoving : first(walkRows, briskRows, runRows), vOwn, L.speedTol) : byState;
     w.home = L.row > 0 ? Math.min(CL.length, L.row) - 1 : w.standing ? byHash(standRows.length ? standRows : usedRows, w.hash) : byHash(moving, w.hash);
@@ -772,7 +780,7 @@ export function prepareWalkers(W: Walker[], L: Look, cols: number, own: (w: Walk
     const still = w.standing || !set || set.state === "stand" || set.state === "talk";
     w.speed = still ? 0 : L.speedMode === 1 ? vOwn : set.dist / Math.max(1e-3, set.gap);
     // (the frames follow the speed: a frame for each of the clip's own steps, so the feet keep to the ground)
-    w.gap = !set ? 0.04 : w.speed > 0 && L.speedMode === 1 ? (L.gait ? (strideOf(w.speed, personHeight(L, w, set)) * pixStrideOf(L, set)) / 16 : set.dist) / w.speed : set.gap;
+    w.gap = !set ? 0.04 : w.speed > 0 && L.speedMode === 1 ? (L.gait ? (strideOf(w.speed, personHeight(L, w, set)) * pixStrideFor(L, pace)) / 16 : set.dist) / w.speed : set.gap;
     // the clip's playback speed: its frames faster or slower (moving by the clip's set, the pace with them — the feet
     // stay matched); a ping-pong loop takes twice the frames a cycle
     const play = Math.max(0.05, set?.play ?? 1);
@@ -924,7 +932,16 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
     const G2 = L.grads[stateOf(w)];
     // (the pictogram has no colour flowing: "이럴거면 색 효과 넣을 필요 없음")
     Ff[n * 4 + 1] = L.pix ? 0 : Q.grad * G2.amt;
-    Ff[n * 4 + 3] = 0;
+    // (talking: the head hops on each note of their melody — up two cells, then one, then down, within the step)
+    let hop = 0;
+    if (L.pix && stateOf(w) === "talk") {
+      const ms = performance.now();
+      if (rhythmOf(w.id ?? String(Math.round(w.hash * 1e6)))[stepAt(ms)]) {
+        const q = (ms % 250) / 250;
+        hop = q < 0.35 ? 2 : q < 0.7 ? 1 : 0;
+      }
+    }
+    Ff[n * 4 + 3] = hop;
     Gg[n * 4] = G2.dir;
     Gg[n * 4 + 1] = G2.scale;
     Gg[n * 4 + 2] = G2.speed;
@@ -1085,8 +1102,9 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
   }
   const u = mat.uniforms;
   u.uFacing.value = L.facing === "eye" ? 0 : L.facing === "along" ? 1 : 2;
-  u.uStretch.value = L.stretch;
-  u.uSlit.value = L.slit;
+  u.uStretch.value = L.pix ? 0 : L.stretch;
+  // (the pictogram: whole, never stretched or slit — the slit's streaks were the white bands)
+  u.uSlit.value = L.pix ? 1 : L.slit;
   u.uStretchKind.value = L.stretchKind;
   u.uStreakSoft.value = L.streakSoft;
   u.uMultiply.value = multiplies(L) ? 1 : 0;
