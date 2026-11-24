@@ -117,9 +117,11 @@ export function setLidarLook(v: Partial<LidarLook>): void {
   Object.assign(lidarLook, v);
 }
 
-/** Whether the scan is drawn on this page (for now: the scan (present) lab page only). */
+/** Whether the scan is drawn on this page: the scan (present) lab page, and the action preview that runs every asset
+ *  as saved (the artist, 2026-11-24: "액션 프리뷰에 각 세션 변경사항 연결"). */
 export function lidarActive(): boolean {
-  return lidarLook.on && mobileLab() === "scan-present";
+  const page = mobileLab();
+  return lidarLook.on && (page === "scan-present" || page === "preview");
 }
 /** …and whether the frame is on the photo's black ground. */
 export function lidarBlack(): boolean {

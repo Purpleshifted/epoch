@@ -80,7 +80,8 @@ export const LAB_INFO: Record<LabPage, LabAssetInfo> = {
   preview: {
     name: "action preview",
     sub: "위 네 값으로 개인뷰 전체를 리허설처럼",
-    query: {},
+    // (the lab's test scene, as on the asset pages — the rehearsal's own bot world is empty; 전시 세계 = ?botserver=1&watch=1)
+    query: { botserver: "0", crowd: "24", futurefix: "1" },
     refs: [],
   },
 };

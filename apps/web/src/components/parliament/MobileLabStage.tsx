@@ -23,6 +23,8 @@ const FrameLab = dynamic(() => import("./FrameLab"), { ssr: false, loading: () =
 /** The address with what the page's test scene needs added; null when nothing is missing. */
 function withScene(page: LabPage): string | null {
   const url = new URL(window.location.href);
+  // (watching the exhibition's world: nothing of the test scene is added — no test walkers in her world)
+  if (url.searchParams.get("watch") === "1") return null;
   let changed = false;
   for (const [k, v] of Object.entries(LAB_INFO[page].query)) {
     if (url.searchParams.has(k)) continue;
@@ -31,9 +33,6 @@ function withScene(page: LabPage): string | null {
   }
   return changed ? url.toString() : null;
 }
-
-/** The preview's two scenes: the rehearsal's world as it runs (the bot server, read only), or the lab's fixed test scene. */
-const PREVIEW_TEST = "?botserver=0&crowd=24&futurefix=1";
 
 export default function MobileLabStage({ page }: { page: LabPage }) {
   // (set while rendering, before the scene's Leva reads which groups to list — and only while this page is open)
@@ -70,28 +69,19 @@ export default function MobileLabStage({ page }: { page: LabPage }) {
             {LAB_INFO[p].name}
           </a>
         ))}
-        {page === "preview" && (
-          <>
-            <span className="text-white/30">|</span>
-            <a href="/lab/mobile/preview" className="text-white/50 hover:text-white" title="the rehearsal's world as it runs (bot server, read only)">
-              리허설 세계
-            </a>
-            <a href={`/lab/mobile/preview${PREVIEW_TEST}`} className="text-white/50 hover:text-white" title="no bot server · 24 test walkers · one observer in view">
-              시험 장면
-            </a>
-          </>
-        )}
         {/* the scan reads the world it is given: the EXHIBITION's, watched (the bot server's "redesign" world as a plain
             view — the buildings and the bots as they walk; this tab sends nothing, so the wall never sees it:
             useBotServer.ts watchExhibition) or this browser's own stored one (the artist, 2026-11-24: "이거 global 에서
-            읽어오는 게 아닌 거지...?" → "그렇게 붙여봐" → "봇 받아오게 해 그냥"). botserver=1 keeps the page from adding =0. */}
-        {page === "scan-present" && (
+            읽어오는 게 아닌 거지...?" → "그렇게 붙여봐" → "봇 받아오게 해 그냥"). botserver=1 keeps the page from adding =0.
+            The action preview has the same two (the artist, 2026-11-24: "액션 프리뷰에 각 세션 변경사항 연결"): its test
+            scene is the lab's (24 test walkers, one observer in view), the old "rehearsal world" (empty) is gone. */}
+        {(page === "scan-present" || page === "preview") && (
           <>
             <span className="text-white/30">|</span>
-            <a href="/lab/mobile/scan-present?botserver=1&watch=1" className={scanLive ? "text-white underline" : "text-white/50 hover:text-white"} title="the exhibition's world as it runs (bot server, watched: this tab sends nothing)">
+            <a href={`/lab/mobile/${page}?botserver=1&watch=1`} className={scanLive ? "text-white underline" : "text-white/50 hover:text-white"} title="the exhibition's world as it runs (bot server, watched: this tab sends nothing)">
               전시 세계
             </a>
-            <a href="/lab/mobile/scan-present?botserver=0" className={scanLive ? "text-white/50 hover:text-white" : "text-white underline"} title="no bot server: this browser's own stored world">
+            <a href={`/lab/mobile/${page}?botserver=0`} className={scanLive ? "text-white/50 hover:text-white" : "text-white underline"} title={page === "preview" ? "no bot server · 24 test walkers · one observer in view" : "no bot server: this browser's own stored world"}>
               시험 장면
             </a>
           </>
