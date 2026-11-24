@@ -37,6 +37,7 @@ export type LidarColour = "distance" | "white" | "grey";
  *  at right angles to where I walk, flown out ahead, read whatever surface they meet: the ground, the walls on both
  *  sides, what is above — together the hemisphere in front of me). She keeps both to compare ("비교를 해볼 수 있었으면"). */
 export type LidarAxis = "view" | "heading" | "vertical";
+export type GroundStyle = "points" | "lines";
 /* THE VIEW (the artist, 2026-11-24: "원이 보이는 게 아쉽거든... 레퍼런스보면 '내가 보는 표면' 레이트레이싱처럼 … 시야각
  * 정해서 그렇게 점으로 보여주면 안 되나 … 내 시야 밖으로는 버퍼 구간만 조금 더"): no spinning sensor at all — rays from
  * the eye scattered evenly over what I see (an R2 sequence over the screen, a fresh share every frame) plus a margin
@@ -88,13 +89,26 @@ export interface LidarLook {
   /** …and readings TOO NEAR thinned (the artist, 2026-11-24: "건물 부재속에 있을 때 렉이 심해지는데 … 너무 가까운 건 점점
    *  성기게"): within this distance (world; 0 = off) a reading is kept with the chance (d / near)², at least 3 %. */
   near: number;
+  /** With the view, the ground's ring radar on a small budget of its own (the artist, 2026-11-24: "땅 그리는 데에는 너무
+   *  많이 쓰지 마"): this many rings, from the lowest beam to just under the horizon, this many readings a turn. */
+  groundRings: number;
+  groundAz: number;
+  /** The ground's own four colours, near → far (the buildings keep c0…c3: the artist, 2026-11-24, "땅이랑 건물 색 셰이더도
+   *  따로 지정 가능하도록"). */
+  g0: string;
+  g1: string;
+  g2: string;
+  g3: string;
+  /** The ground's rings as readings (dots) or as LINES ("땅 레이더는 아예 선으로 해도 되고 (선택 가능하게)"): lines are
+   *  drawn round the sensor anew ten times a second, broken where something stands in front. */
+  groundStyle: GroundStyle;
   /** Where the sensor is: at the walker, at eye height (world), `eyeBack` (world) ahead of the camera — so a camera
    *  set back and up (눈 › 뒤로, 눈높이) looks down on the rings round me, as the photo does. */
   eyeH: number;
   eyeBack: number;
 }
 
-export const DEFAULT_LIDAR: LidarLook = { on: true, black: true, beams: 64, lowDeg: -60, highDeg: 85, azimuths: 720, hz: 5, decaySec: 1.5, range: 22, dot: 2, colour: "distance", axis: "view", coneDeg: 8, rate: 120_000, margin: 0.15, slant: 1, c0: "#5ff0c8", c1: "#c6f06a", c2: "#ffb86b", c3: "#ff7eb0", fovea: 1, budgetMs: 4, idle: 0.3, lod: 12, near: 2, eyeH: 0.64, eyeBack: 0 };
+export const DEFAULT_LIDAR: LidarLook = { on: true, black: true, beams: 64, lowDeg: -60, highDeg: 85, azimuths: 720, hz: 5, decaySec: 1.5, range: 22, dot: 2, colour: "distance", axis: "view", coneDeg: 8, rate: 120_000, margin: 0.15, slant: 1, c0: "#5ff0c8", c1: "#c6f06a", c2: "#ffb86b", c3: "#ff7eb0", fovea: 1, budgetMs: 4, idle: 0.3, lod: 12, near: 2, groundRings: 10, groundAz: 360, g0: "#5ff0c8", g1: "#c6f06a", g2: "#ffb86b", g3: "#ff7eb0", groundStyle: "points", eyeH: 0.64, eyeBack: 0 };
 const fwd = new THREE.Vector3();
 
 /** Set by the scan (present) knobs (labKnobsScanPresent.ts), read per frame here and at render by ParliamentScene. */
@@ -126,6 +140,7 @@ const VERT = /* glsl */ `
 attribute float aBirth;
 attribute float aDist;
 attribute float aSz;
+attribute float aKind;
 uniform float uTime;
 uniform float uDecay;
 uniform float uSize;
@@ -135,9 +150,16 @@ uniform vec3 uC0;
 uniform vec3 uC1;
 uniform vec3 uC2;
 uniform vec3 uC3;
+uniform vec3 uG0;
+uniform vec3 uG1;
+uniform vec3 uG2;
+uniform vec3 uG3;
 varying vec3 vCol;
 varying float vA;
 varying float vPx;
+vec3 ramp(vec3 c0, vec3 c1, vec3 c2, vec3 c3, float t) {
+  return t < 1.0 ? mix(c0, c1, t) : t < 2.0 ? mix(c1, c2, t - 1.0) : mix(c2, c3, t - 2.0);
+}
 void main() {
   float age = uTime - aBirth;
   // a reading stays at full strength for most of its life and goes only at the end (a viewer's decay: the last turns
@@ -145,7 +167,8 @@ void main() {
   vA = age < 0.0 ? 0.0 : 1.0 - smoothstep(uDecay * 0.55, uDecay, age);
   // the photo's ramp by distance from the sensor: mint, green-yellow, peach, pink
   float t = clamp(aDist / uRange, 0.0, 1.0) * 3.0;
-  vec3 dc = t < 1.0 ? mix(uC0, uC1, t) : t < 2.0 ? mix(uC1, uC2, t - 1.0) : mix(uC2, uC3, t - 2.0);
+  // (the ground's ramp or the buildings')
+  vec3 dc = aKind > 0.5 ? ramp(uG0, uG1, uG2, uG3, t) : ramp(uC0, uC1, uC2, uC3, t);
   vCol = uMode < 0.5 ? dc : uMode < 1.5 ? vec3(1.0) : vec3(0.55);
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   gl_Position = projectionMatrix * mv;
@@ -167,6 +190,29 @@ void main() {
   gl_FragColor = vec4(vCol, a);
 }`;
 
+/** The ground's rings as lines: at most 40 rings × 1024 directions, two vertices a segment. */
+const MAX_LINE_V = 40 * 1024 * 2;
+const LINE_VERT = /* glsl */ `
+attribute float aDist;
+uniform float uRange;
+uniform float uMode;
+uniform vec3 uG0;
+uniform vec3 uG1;
+uniform vec3 uG2;
+uniform vec3 uG3;
+varying vec3 vCol;
+void main() {
+  float t = clamp(aDist / uRange, 0.0, 1.0) * 3.0;
+  vec3 dc = t < 1.0 ? mix(uG0, uG1, t) : t < 2.0 ? mix(uG1, uG2, t - 1.0) : mix(uG2, uG3, t - 2.0);
+  vCol = uMode < 0.5 ? dc : uMode < 1.5 ? vec3(1.0) : vec3(0.55);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`;
+const LINE_FRAG = /* glsl */ `
+varying vec3 vCol;
+void main() {
+  gl_FragColor = vec4(vCol, 0.85);
+}`;
+
 /** A colour picked as seen on screen (sRGB), handed to the shader in the working (linear) space. */
 function lin(hex: string): THREE.Color {
   return new THREE.Color(hex);
@@ -179,11 +225,13 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
     const birth = new THREE.BufferAttribute(new Float32Array(MAX_POINTS).fill(-1e6), 1);
     const dist = new THREE.BufferAttribute(new Float32Array(MAX_POINTS), 1);
     const sz = new THREE.BufferAttribute(new Float32Array(MAX_POINTS).fill(1), 1);
-    for (const a of [pos, birth, dist, sz]) a.setUsage(THREE.DynamicDrawUsage);
+    const kind = new THREE.BufferAttribute(new Float32Array(MAX_POINTS), 1);
+    for (const a of [pos, birth, dist, sz, kind]) a.setUsage(THREE.DynamicDrawUsage);
     g.setAttribute("position", pos);
     g.setAttribute("aBirth", birth);
     g.setAttribute("aDist", dist);
     g.setAttribute("aSz", sz);
+    g.setAttribute("aKind", kind);
     g.setDrawRange(0, 0);
     return g;
   }, []);
@@ -201,6 +249,10 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
           uC1: { value: lin("#c6f06a") },
           uC2: { value: lin("#ffb86b") },
           uC3: { value: lin("#ff7eb0") },
+          uG0: { value: lin("#5ff0c8") },
+          uG1: { value: lin("#c6f06a") },
+          uG2: { value: lin("#ffb86b") },
+          uG3: { value: lin("#ff7eb0") },
         },
         vertexShader: VERT,
         fragmentShader: FRAG,
@@ -218,7 +270,33 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
     [geom, mat],
   );
   const points = useRef<THREE.Points>(null);
-  const st = useRef({ head: 0, filled: 0, sweep: 0, az: 0, cellsOf: null as readonly Cell[] | null, grid: new Map<number, Cell[]>(), hf: null as Float32Array | null, r2: 0, cols: "", camP: new THREE.Vector3(), camQ: new THREE.Quaternion(), camSet: false, decay: 0 });
+  const st = useRef({ head: 0, filled: 0, sweep: 0, az: 0, cellsOf: null as readonly Cell[] | null, grid: new Map<number, Cell[]>(), hf: null as Float32Array | null, r2: 0, cols: "", camP: new THREE.Vector3(), camQ: new THREE.Quaternion(), camSet: false, decay: 0, lineT: 10, gd: null as Float32Array | null });
+  const lines = useRef<THREE.LineSegments>(null);
+  const lineGeom = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MAX_LINE_V * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute("aDist", new THREE.BufferAttribute(new Float32Array(MAX_LINE_V), 1).setUsage(THREE.DynamicDrawUsage));
+    g.setDrawRange(0, 0);
+    return g;
+  }, []);
+  const lineMat = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        uniforms: { uRange: { value: 22 }, uMode: { value: 0 }, uG0: { value: lin("#5ff0c8") }, uG1: { value: lin("#c6f06a") }, uG2: { value: lin("#ffb86b") }, uG3: { value: lin("#ff7eb0") } },
+        vertexShader: LINE_VERT,
+        fragmentShader: LINE_FRAG,
+        transparent: true,
+        depthWrite: true,
+      }),
+    [],
+  );
+  useEffect(
+    () => () => {
+      lineGeom.dispose();
+      lineMat.dispose();
+    },
+    [lineGeom, lineMat],
+  );
 
   useFrame((state, dt) => {
     const P = points.current;
@@ -233,9 +311,14 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
     u.uRange.value = L.range;
     u.uMode.value = L.colour === "distance" ? 0 : L.colour === "white" ? 1 : 2;
     // her four colours (picked as seen: sRGB, turned into the working space by THREE.Color)
-    const cols = `${L.c0}${L.c1}${L.c2}${L.c3}`;
+    const cols = `${L.c0}${L.c1}${L.c2}${L.c3}${L.g0}${L.g1}${L.g2}${L.g3}`;
     if (cols !== s.cols) {
       s.cols = cols;
+      (u.uG0.value as THREE.Color).set(L.g0);
+      (u.uG1.value as THREE.Color).set(L.g1);
+      (u.uG2.value as THREE.Color).set(L.g2);
+      (u.uG3.value as THREE.Color).set(L.g3);
+      for (const k of ["uG0", "uG1", "uG2", "uG3"] as const) (lineMat.uniforms[k].value as THREE.Color).copy(u[k].value as THREE.Color);
       (u.uC0.value as THREE.Color).set(L.c0);
       (u.uC1.value as THREE.Color).set(L.c1);
       (u.uC2.value as THREE.Color).set(L.c2);
@@ -262,7 +345,20 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
 
     // this frame's share of the turn (at most a quarter turn a frame: a slow frame slows the sweep, not the frame)
     const t0 = performance.now();
-    const A = Math.max(64, Math.round(L.azimuths)), B = Math.max(2, Math.round(L.beams));
+    const viewMode = L.axis === "view";
+    // (with the view the spin draws only the ground, on its own small budget)
+    const A = Math.max(64, Math.round(viewMode ? Math.min(L.azimuths, L.groundAz) : L.azimuths));
+    // RINGS AND BEAMS APART (the artist, 2026-11-24: "빔수랑 고리수는 따로 조절 가능하게"): the ring radar's downward beams —
+    // `groundRings` of them, from the lowest beam to just under the horizon — and, for the vertical spin, `beams` more from
+    // the horizon up to the highest beam, for the walls; the heading axis's circles are `beams`
+    const rings = Math.max(1, Math.round(L.groundRings)), beamsN = Math.max(2, Math.round(L.beams));
+    const gTop = Math.min(L.highDeg, -2);
+    const angles: number[] = [];
+    if (L.axis !== "heading") {
+      for (let b = 0; b < rings; b++) angles.push(rings === 1 ? L.lowDeg : L.lowDeg + ((gTop - L.lowDeg) * b) / (rings - 1));
+      if (!viewMode && L.highDeg > -1) for (let b = 0; b < beamsN; b++) angles.push(-1 + ((L.highDeg + 1) * (b + 0.5)) / beamsN);
+    }
+    const B = L.axis === "heading" ? beamsN : angles.length;
     s.sweep += Math.min(0.25, dt) * L.hz * A;
     const n = Math.min(Math.floor(s.sweep), Math.ceil(A / 4));
     if (n <= 0 && L.axis !== "view") return;
@@ -274,12 +370,15 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
     const ex = view ? cam.position.x : cam.position.x + fwd.x * L.eyeBack, ez = view ? cam.position.z : cam.position.z + fwd.z * L.eyeBack;
     const H = view ? Math.max(0.05, cam.position.y) : Math.max(0.05, L.eyeH);
     const R = L.range, step = CELL_SIZE / 2, half = CELL_SIZE / 2, now = state.clock.elapsedTime;
-    const tans = new Float32Array(B);
-    for (let b = 0; b < B; b++) tans[b] = Math.tan(((L.lowDeg + ((L.highDeg - L.lowDeg) * b) / (B - 1)) * Math.PI) / 180);
+    const tans = new Float32Array(angles.length);
+    for (let b = 0; b < angles.length; b++) tans[b] = Math.tan((angles[b] * Math.PI) / 180);
+    const groundLines = L.groundStyle === "lines" && L.axis !== "heading";
     const pos = geom.getAttribute("position") as THREE.BufferAttribute;
     const birth = geom.getAttribute("aBirth") as THREE.BufferAttribute;
     const dist = geom.getAttribute("aDist") as THREE.BufferAttribute;
     const sza = geom.getAttribute("aSz") as THREE.BufferAttribute;
+    const kna = geom.getAttribute("aKind") as THREE.BufferAttribute;
+    const Ka = kna.array as Float32Array;
     const Pa = pos.array as Float32Array, Ba = birth.array as Float32Array, Da = dist.array as Float32Array, Sa = sza.array as Float32Array;
     const start = s.head;
     let written = 0;
@@ -293,9 +392,10 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
       const q = (L.lod / d) * (L.lod / d);
       return Math.random() < q ? Math.min(4, d / L.lod) : -1;
     };
-    const put = (x: number, y: number, z: number, d: number, size = 1) => {
+    const put = (x: number, y: number, z: number, d: number, size = 1, kind = 0) => {
       const j = s.head;
       Sa[j] = size;
+      Ka[j] = kind;
       Pa[j * 3] = x;
       Pa[j * 3 + 1] = y;
       Pa[j * 3 + 2] = z;
@@ -443,7 +543,7 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
             if (size < 0) continue;
             const jit = 1 + Math.sin((a * 9137 + b * 71) * 12.9898) * 0.003;
             const d = hit * jit;
-            put(ex + dx * d, Math.max(0.01, H + dy * d), ez + dz * d, hit, size);
+            put(ex + dx * d, Math.max(0.01, H + dy * d), ez + dz * d, hit, size, onGround ? 1 : 0);
           }
         }
       }
@@ -451,15 +551,10 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
     // THE GROUND BY THE RING RADAR (the artist, 2026-11-24: "땅은... 원 레이더로만 그려서 비용 줄이고!"): with the view,
     // the vertical spin still runs, for the ground alone — its downward beams share one walk through the cells per
     // direction (and stop at what stands in front); the view's own rays leave the ground unmarked
-    if (L.axis === "vertical" || view) {
-    const groundOnly = view;
     const hitD: number[] = [], hitOut: number[] = [], hitH: number[] = [];
-    for (let i = 0; i < n; i++) {
-      const a = ((s.az + i) % A) / A;
-      const th = a * Math.PI * 2 + 0.37;
-      const cx = Math.cos(th), cz = Math.sin(th);
-      // the cells along this ray, in order: where the ray enters and leaves each, and its height (the cell the sensor
-      // stands in is not one of them: a beam starts above it)
+    /** The cells along a level direction from the sensor, in order: where it enters and leaves each, and its height
+     *  (the cell the sensor stands in is not one of them: a beam starts above it). */
+    const march = (cx: number, cz: number) => {
       hitD.length = 0;
       hitOut.length = 0;
       hitH.length = 0;
@@ -482,6 +577,30 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
           break;
         }
       }
+    };
+    /** Where a downward beam (its slope) reaches the ground along the last march, or −1 (out of reach, or something
+     *  stands in front: its wall or its roof takes the beam). */
+    const groundOf = (tn: number): number => {
+      const dg = H / -tn;
+      for (let k = 0; k < hitD.length; k++) {
+        const dk = hitD[k], hk = hitH[k];
+        if (dk >= dg) break;
+        const yk = H + dk * tn;
+        if (yk >= 0 && yk <= hk) return -1;
+        if (H > hk) {
+          const dt2 = (H - hk) / -tn;
+          if (dt2 >= dk && dt2 <= hitOut[k]) return -1;
+        }
+      }
+      return dg <= R ? dg : -1;
+    };
+    if (L.axis === "vertical" || view) {
+    const groundOnly = view;
+    for (let i = 0; i < n; i++) {
+      const a = ((s.az + i) % A) / A;
+      const th = a * Math.PI * 2 + 0.37;
+      const cx = Math.cos(th), cz = Math.sin(th);
+      march(cx, cz);
       for (let b = 0; b < B; b++) {
         const tn = tans[b];
         if (groundOnly && tn >= 0) continue;
@@ -508,7 +627,7 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
           }
         }
         if (d < 0) {
-          if (dg > R) continue;
+          if (dg > R || groundLines) continue; // (lines: the ground is drawn below)
           d = dg;
           y = 0.01;
         } else if (groundOnly) continue; // (a wall or a roof: the view's rays read those)
@@ -521,6 +640,7 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
         Pa[j * 3 + 2] = ez + cz * d * jit;
         Ba[j] = now;
         Sa[j] = 1;
+        Ka[j] = y <= 0.011 ? 1 : 0;
         // colour by the range the beam travelled (a wall high above reads as far as it is, not as its foot)
         Da[j] = Math.hypot(d, y - H);
         s.head = (s.head + 1) % MAX_POINTS;
@@ -528,13 +648,53 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
       }
     }
     }
+    // THE GROUND AS LINES: every ring round the sensor, anew ten times a second — one march a direction for all rings,
+    // a segment wherever two neighbouring directions both reach the ground
+    const LS = lines.current;
+    if (LS) LS.visible = groundLines;
+    s.lineT += dt;
+    if (groundLines && LS && s.lineT >= 0.1) {
+      s.lineT = 0;
+      const AG = Math.max(32, Math.min(1024, Math.round(L.groundAz)));
+      const RG = Math.min(rings, 40);
+      if (!s.gd || s.gd.length < RG * AG) s.gd = new Float32Array(RG * AG);
+      const gd = s.gd;
+      for (let a = 0; a < AG; a++) {
+        const th = (a / AG) * Math.PI * 2 + 0.37;
+        march(Math.cos(th), Math.sin(th));
+        for (let r = 0; r < RG; r++) gd[r * AG + a] = groundOf(tans[r]);
+      }
+      const lp = lineGeom.getAttribute("position") as THREE.BufferAttribute;
+      const ld = lineGeom.getAttribute("aDist") as THREE.BufferAttribute;
+      const LP = lp.array as Float32Array, LD = ld.array as Float32Array;
+      let v = 0;
+      for (let r = 0; r < RG; r++)
+        for (let a = 0; a < AG; a++) {
+          const d0 = gd[r * AG + a], d1 = gd[r * AG + ((a + 1) % AG)];
+          if (d0 < 0 || d1 < 0 || v + 2 > MAX_LINE_V) continue;
+          const t0a = (a / AG) * Math.PI * 2 + 0.37, t1a = ((a + 1) / AG) * Math.PI * 2 + 0.37;
+          LP[v * 3] = ex + Math.cos(t0a) * d0;
+          LP[v * 3 + 1] = 0.01;
+          LP[v * 3 + 2] = ez + Math.sin(t0a) * d0;
+          LD[v++] = d0;
+          LP[v * 3] = ex + Math.cos(t1a) * d1;
+          LP[v * 3 + 1] = 0.01;
+          LP[v * 3 + 2] = ez + Math.sin(t1a) * d1;
+          LD[v++] = d1;
+        }
+      lp.needsUpdate = true;
+      ld.needsUpdate = true;
+      lineGeom.setDrawRange(0, v);
+      lineMat.uniforms.uRange.value = L.range;
+      lineMat.uniforms.uMode.value = u.uMode.value;
+    }
     s.sweep = Math.min(s.sweep - done, A / 4);
     s.az = (s.az + done) % A;
     markSpan("lidar", performance.now() - t0);
     if (!written) return;
     s.filled = Math.min(MAX_POINTS, s.filled + written);
     // upload only what this frame wrote (one range, or two when the ring buffer wrapped)
-    for (const at of [pos, birth, dist, sza]) {
+    for (const at of [pos, birth, dist, sza, kna]) {
       at.clearUpdateRanges();
       const k = at.itemSize;
       if (start + written <= MAX_POINTS) at.addUpdateRange(start * k, written * k);
@@ -547,5 +707,10 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
     geom.setDrawRange(0, s.filled);
   });
 
-  return <points ref={points} geometry={geom} material={mat} frustumCulled={false} renderOrder={4} />;
+  return (
+    <>
+      <points ref={points} geometry={geom} material={mat} frustumCulled={false} renderOrder={4} />
+      <lineSegments ref={lines} geometry={lineGeom} material={lineMat} frustumCulled={false} renderOrder={4} visible={false} />
+    </>
+  );
 }

@@ -237,6 +237,14 @@ Sessions test only with `?botserver=0`.
 - Colours: 거리 색 1–4, her own (defaults the photo's mint → green-yellow → peach → pink).
 - Blur ("여기엔 왜 흐림 적용이 안 되지"): the points write their depth, so 사진 › 가까운/먼 흐림 soften them by
   distance like everything else; only the fade to white stays off on the scan (it would grey the black).
+- **"전시 세계 클릭해도 아무것도 안 보여"**: her saved `시야: 초당 점 수` was 2000 — the view drew, but too few to see
+  (test scene: 4 348 readings in 15 s). Not a fault; she raises it.
+- **Then (same hour):** the ground's ring radar on a small budget of its own ("땅 그리는 데에는 너무 많이 쓰지 마"):
+  고리 수 (땅, default 10) apart from 빔 수 (the buildings: above the horizon for the vertical spin, the circles for
+  the heading axis) ("빔수랑 고리수는 따로"); 땅 고리 한 바퀴 점 수 (360). Ground and buildings each have their own four
+  colours ("땅이랑 건물 색 셰이더도 따로") — a per-reading kind picks the ramp. 땅 레이더: 점 / 선 ("아예 선으로 해도 되고
+  (선택 가능하게)"): lines = every ring round the sensor drawn anew ten times a second, one march a direction for all
+  rings, a segment wherever two neighbouring directions both reach the ground (broken behind what stands).
 
 ### bot (present)
 

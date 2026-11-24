@@ -12,7 +12,9 @@ import { LAB_GROUP, labLists } from "./mobileLab";
 import { DEFAULT_PEOPLE } from "./PointPeople";
 import type { GrassMode } from "./NatureCloud";
 import type { LogPlace } from "./StreetHud";
-import { DEFAULT_LIDAR, setLidarLook, type LidarAxis, type LidarColour } from "./LidarScan";
+import { DEFAULT_LIDAR, setLidarLook, type GroundStyle, type LidarAxis, type LidarColour } from "./LidarScan";
+
+const GROUND_STYLES: Record<string, GroundStyle> = { "점": "points", "선 (원 레이더를 선으로)": "lines" };
 
 const LIDAR_AXES: Record<string, LidarAxis> = {
   "시야 — 내가 보는 표면 (원 없이, 시야 + 여유)": "view",
@@ -55,17 +57,24 @@ export function useScanPresentKnobs(isV2: boolean) {
         lidarRate: { value: DEFAULT_LIDAR.rate, min: 10_000, max: 600_000, step: 10_000, label: "시야: 초당 점 수", render: v2 },
         lidarMargin: { value: DEFAULT_LIDAR.margin, min: 0, max: 1, step: 0.05, label: "시야: 시야 밖 여유 (화면 반폭의 몫)", render: v2 },
         lidarSlant: { value: DEFAULT_LIDAR.slant, min: 0, max: 4, step: 0.25, label: "면 각도 → 밀도 (0 = 고르게 · 1 = 비스듬하면 성기게 · 클수록 더)", render: v2 },
-        lidarC0: { value: DEFAULT_LIDAR.c0, label: "거리 색 1 — 가까이", render: v2 },
-        lidarC1: { value: DEFAULT_LIDAR.c1, label: "거리 색 2", render: v2 },
-        lidarC2: { value: DEFAULT_LIDAR.c2, label: "거리 색 3", render: v2 },
-        lidarC3: { value: DEFAULT_LIDAR.c3, label: "거리 색 4 — 닿는 거리 끝", render: v2 },
+        lidarC0: { value: DEFAULT_LIDAR.c0, label: "건물 색 1 — 가까이", render: v2 },
+        lidarC1: { value: DEFAULT_LIDAR.c1, label: "건물 색 2", render: v2 },
+        lidarC2: { value: DEFAULT_LIDAR.c2, label: "건물 색 3", render: v2 },
+        lidarC3: { value: DEFAULT_LIDAR.c3, label: "건물 색 4 — 닿는 거리 끝", render: v2 },
+        lidarG0: { value: DEFAULT_LIDAR.g0, label: "땅 색 1 — 가까이", render: v2 },
+        lidarG1: { value: DEFAULT_LIDAR.g1, label: "땅 색 2", render: v2 },
+        lidarG2: { value: DEFAULT_LIDAR.g2, label: "땅 색 3", render: v2 },
+        lidarG3: { value: DEFAULT_LIDAR.g3, label: "땅 색 4 — 닿는 거리 끝", render: v2 },
+        lidarGroundStyle: { options: GROUND_STYLES, value: DEFAULT_LIDAR.groundStyle, label: "땅 레이더: 점 / 선", render: v2 },
         lidarFovea: { value: DEFAULT_LIDAR.fovea, min: 0, max: 6, step: 0.25, label: "시야: 가운데 집중 (0 = 고르게)", render: v2 },
         lidarIdle: { value: DEFAULT_LIDAR.idle, min: 0, max: 1, step: 0.05, label: "시야: 멈춰 있을 때 새로 읽는 몫 (재생성 텀)", render: v2 },
         lidarLod: { value: DEFAULT_LIDAR.lod, min: 0, max: 40, step: 1, label: "먼 점 뭉치기 시작 거리 (월드; 0 = 끔)", render: v2 },
         lidarNear: { value: DEFAULT_LIDAR.near, min: 0, max: 8, step: 0.25, label: "너무 가까운 점 성기게 (월드; 이 안쪽은 점점 성기게, 0 = 끔)", render: v2 },
+        lidarGroundRings: { value: DEFAULT_LIDAR.groundRings, min: 2, max: 40, step: 1, label: "고리 수 (땅 — 세로축 · 시야)", render: v2 },
+        lidarGroundAz: { value: DEFAULT_LIDAR.groundAz, min: 64, max: 1024, step: 32, label: "땅 고리 한 바퀴 점 수 (시야 · 선)", render: v2 },
         lidarBudget: { value: DEFAULT_LIDAR.budgetMs, min: 0.5, max: 16, step: 0.5, label: "프레임당 스캔 시간 예산 (ms)", render: v2 },
         lidarCone: { value: DEFAULT_LIDAR.coneDeg, min: 1, max: 80, step: 1, label: "진행방향 축: 가장 앞 원 (° — 작을수록 멀리 앞)", render: v2 },
-        lidarBeams: { value: DEFAULT_LIDAR.beams, min: 4, max: 128, step: 1, label: "빔 수 = 고리 수", render: v2 },
+        lidarBeams: { value: DEFAULT_LIDAR.beams, min: 4, max: 128, step: 1, label: "빔 수 (건물 — 세로축: 수평선 위 빔 · 진행방향 축: 원 수)", render: v2 },
         lidarLow: { value: DEFAULT_LIDAR.lowDeg, min: -89, max: -2, step: 1, label: "세로축: 가장 아래 빔 (°) — 발밑 빈 원의 크기", render: v2 },
         lidarHigh: { value: DEFAULT_LIDAR.highDeg, min: -10, max: 89, step: 1, label: "세로축: 가장 위 빔 (°) — 벽에만 맞음 (85 = 거의 머리 위)", render: v2 },
         lidarAz: { value: DEFAULT_LIDAR.azimuths, min: 128, max: 2048, step: 64, label: "한 바퀴 점 수", render: v2 },
@@ -139,6 +148,13 @@ export function useScanPresentKnobs(isV2: boolean) {
     lod: c.lidarLod,
     budgetMs: c.lidarBudget,
     near: c.lidarNear,
+    groundRings: c.lidarGroundRings,
+    groundAz: c.lidarGroundAz,
+    g0: c.lidarG0,
+    g1: c.lidarG1,
+    g2: c.lidarG2,
+    g3: c.lidarG3,
+    groundStyle: c.lidarGroundStyle,
     beams: c.lidarBeams,
     lowDeg: c.lidarLow,
     highDeg: c.lidarHigh,
