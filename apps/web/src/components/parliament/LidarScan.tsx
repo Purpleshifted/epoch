@@ -68,13 +68,33 @@ export interface LidarLook {
    *  다르게 보여야 하지 않나?"): a reading is kept with the chance cos(angle)^slant — a surface facing me full, one I
    *  look along (the ground far off, a wall beside me) sparse. 0 = even everywhere. Not the vertical spin. */
   slant: number;
+  /** The distance ramp's four colours, near → far (the artist, 2026-11-24: "그냥 핑크-초록 말고도 내가 지정할 수 있게"). */
+  c0: string;
+  c1: string;
+  c2: string;
+  c3: string;
+  /** LAG (the artist, 2026-11-24, "랙 줄일 방법 … 진행"): the view's readings gathered towards the middle of the view
+   *  (0 = even; a reading at the screen's edge is kept with the chance 1 / (1 + fovea·r²)) … */
+  fovea: number;
+  /** …the scan's time budget a frame (ms: what is left goes to the next frame — a slow machine fills slower, the frame
+   *  does not stop) … */
+  budgetMs: number;
+  /** …the refresh term: what is read stays; standing still, only this share of the readings is made anew (moving or
+   *  turning brings it back to all) … */
+  idle: number;
+  /** …and far readings thinned into bigger dots past this distance (world; 0 = off): kept with the chance (lod/d)², drawn
+   *  d/lod times larger (at most 4×). */
+  lod: number;
+  /** …and readings TOO NEAR thinned (the artist, 2026-11-24: "건물 부재속에 있을 때 렉이 심해지는데 … 너무 가까운 건 점점
+   *  성기게"): within this distance (world; 0 = off) a reading is kept with the chance (d / near)², at least 3 %. */
+  near: number;
   /** Where the sensor is: at the walker, at eye height (world), `eyeBack` (world) ahead of the camera — so a camera
    *  set back and up (눈 › 뒤로, 눈높이) looks down on the rings round me, as the photo does. */
   eyeH: number;
   eyeBack: number;
 }
 
-export const DEFAULT_LIDAR: LidarLook = { on: true, black: true, beams: 64, lowDeg: -60, highDeg: 85, azimuths: 720, hz: 5, decaySec: 1.5, range: 22, dot: 2, colour: "distance", axis: "view", coneDeg: 8, rate: 120_000, margin: 0.15, slant: 1, eyeH: 0.64, eyeBack: 0 };
+export const DEFAULT_LIDAR: LidarLook = { on: true, black: true, beams: 64, lowDeg: -60, highDeg: 85, azimuths: 720, hz: 5, decaySec: 1.5, range: 22, dot: 2, colour: "distance", axis: "view", coneDeg: 8, rate: 120_000, margin: 0.15, slant: 1, c0: "#5ff0c8", c1: "#c6f06a", c2: "#ffb86b", c3: "#ff7eb0", fovea: 1, budgetMs: 4, idle: 0.3, lod: 12, near: 2, eyeH: 0.64, eyeBack: 0 };
 const fwd = new THREE.Vector3();
 
 /** Set by the scan (present) knobs (labKnobsScanPresent.ts), read per frame here and at render by ParliamentScene. */
@@ -105,6 +125,7 @@ const MAX_POINTS = 420_000;
 const VERT = /* glsl */ `
 attribute float aBirth;
 attribute float aDist;
+attribute float aSz;
 uniform float uTime;
 uniform float uDecay;
 uniform float uSize;
@@ -129,7 +150,7 @@ void main() {
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   gl_Position = projectionMatrix * mv;
   // a lidar viewer's points: one size on screen wherever they lie, a little larger right by the eye
-  vPx = uSize * clamp(3.0 / max(0.1, -mv.z), 1.0, 1.6);
+  vPx = uSize * aSz * clamp(3.0 / max(0.1, -mv.z), 1.0, 1.6);
   gl_PointSize = vPx;
 }`;
 
@@ -157,10 +178,12 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
     const pos = new THREE.BufferAttribute(new Float32Array(MAX_POINTS * 3), 3);
     const birth = new THREE.BufferAttribute(new Float32Array(MAX_POINTS).fill(-1e6), 1);
     const dist = new THREE.BufferAttribute(new Float32Array(MAX_POINTS), 1);
-    for (const a of [pos, birth, dist]) a.setUsage(THREE.DynamicDrawUsage);
+    const sz = new THREE.BufferAttribute(new Float32Array(MAX_POINTS).fill(1), 1);
+    for (const a of [pos, birth, dist, sz]) a.setUsage(THREE.DynamicDrawUsage);
     g.setAttribute("position", pos);
     g.setAttribute("aBirth", birth);
     g.setAttribute("aDist", dist);
+    g.setAttribute("aSz", sz);
     g.setDrawRange(0, 0);
     return g;
   }, []);
@@ -182,7 +205,8 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
         vertexShader: VERT,
         fragmentShader: FRAG,
         transparent: true,
-        depthWrite: false,
+        // (its depth written, so the paper's softening by depth reads each dot where it is — InkPaper.tsx)
+        depthWrite: true,
       }),
     [],
   );
@@ -194,7 +218,7 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
     [geom, mat],
   );
   const points = useRef<THREE.Points>(null);
-  const st = useRef({ head: 0, filled: 0, sweep: 0, az: 0, cellsOf: null as readonly Cell[] | null, grid: new Map<number, Cell[]>(), hf: null as Float32Array | null, r2: 0 });
+  const st = useRef({ head: 0, filled: 0, sweep: 0, az: 0, cellsOf: null as readonly Cell[] | null, grid: new Map<number, Cell[]>(), hf: null as Float32Array | null, r2: 0, cols: "", camP: new THREE.Vector3(), camQ: new THREE.Quaternion(), camSet: false, decay: 0 });
 
   useFrame((state, dt) => {
     const P = points.current;
@@ -208,6 +232,15 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
     u.uSize.value = L.dot * state.viewport.dpr;
     u.uRange.value = L.range;
     u.uMode.value = L.colour === "distance" ? 0 : L.colour === "white" ? 1 : 2;
+    // her four colours (picked as seen: sRGB, turned into the working space by THREE.Color)
+    const cols = `${L.c0}${L.c1}${L.c2}${L.c3}`;
+    if (cols !== s.cols) {
+      s.cols = cols;
+      (u.uC0.value as THREE.Color).set(L.c0);
+      (u.uC1.value as THREE.Color).set(L.c1);
+      (u.uC2.value as THREE.Color).set(L.c2);
+      (u.uC3.value as THREE.Color).set(L.c3);
+    }
 
     // the building cells in a grid of buckets (each cell in every bucket it overlaps), renewed with the list
     const cells = getCells();
@@ -246,11 +279,23 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
     const pos = geom.getAttribute("position") as THREE.BufferAttribute;
     const birth = geom.getAttribute("aBirth") as THREE.BufferAttribute;
     const dist = geom.getAttribute("aDist") as THREE.BufferAttribute;
-    const Pa = pos.array as Float32Array, Ba = birth.array as Float32Array, Da = dist.array as Float32Array;
+    const sza = geom.getAttribute("aSz") as THREE.BufferAttribute;
+    const Pa = pos.array as Float32Array, Ba = birth.array as Float32Array, Da = dist.array as Float32Array, Sa = sza.array as Float32Array;
     const start = s.head;
     let written = 0;
-    const put = (x: number, y: number, z: number, d: number) => {
+    /** How many of this frame's turn were done (the time budget may stop the heading axis early). */
+    let done = n;
+    const budget = Math.max(0.5, L.budgetMs);
+    /** Far readings: dropped (−1) or the size to draw them at (LOD). */
+    const lodSize = (d: number): number => {
+      if (L.near > 0 && d < L.near && Math.random() > Math.max(0.03, (d / L.near) * (d / L.near))) return -1;
+      if (L.lod <= 0 || d <= L.lod) return 1;
+      const q = (L.lod / d) * (L.lod / d);
+      return Math.random() < q ? Math.min(4, d / L.lod) : -1;
+    };
+    const put = (x: number, y: number, z: number, d: number, size = 1) => {
       const j = s.head;
+      Sa[j] = size;
       Pa[j * 3] = x;
       Pa[j * 3 + 1] = y;
       Pa[j * 3 + 2] = z;
@@ -283,6 +328,8 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
       const st2 = CELL_SIZE / 3;
       /** The surface's normal at the last hit (cast): a wall's face (x or z), a roof or the ground (up). */
       let nx = 0, ny = 1, nz = 0;
+      /** Whether the last hit was the ground (not a wall or a roof). */
+      let onGround = false;
       const cellI = (x: number) => Math.floor(x / CELL_SIZE);
       /** Where a ray from the sensor meets a wall, a roof or the ground within reach (its length), or −1. */
       const cast = (dx: number, dy: number, dz: number): number => {
@@ -301,6 +348,7 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
               if (solid(ex + dx * m, H + dy * m, ez + dz * m)) hi = m;
               else lo = m;
             }
+            onGround = false;
             // which face it came through: the same cell from above = its roof; else the side it crossed into
             const xi0 = cellI(ex + dx * lo), xi1 = cellI(ex + dx * hi), zi0 = cellI(ez + dz * lo), zi1 = cellI(ez + dz * hi);
             nx = 0;
@@ -317,6 +365,7 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
         nx = 0;
         ny = 1;
         nz = 0;
+        onGround = true;
         return tg <= R ? tg : -1;
       };
       /** Kept, by the surface's angle to the ray (slant): facing me always, along my look seldom. */
@@ -329,10 +378,36 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
         const th = Math.tan(((pc.fov ?? 60) * Math.PI) / 360), asp = pc.aspect ?? 1;
         const e = cam.matrixWorld.elements;
         const m = 1 + Math.max(0, L.margin);
-        const k = Math.min(30_000, Math.round(L.rate * Math.min(0.1, dt)));
+        // the refresh term: how much the eye moved or turned since the last frame (world/s, rad/s) → the share made anew
+        let motion = 1;
+        if (s.camSet && dt > 0) {
+          const moved = cam.position.distanceTo(s.camP) / dt;
+          const turned = (2 * Math.acos(Math.min(1, Math.abs(cam.quaternion.dot(s.camQ))))) / dt;
+          motion = Math.min(1, moved / 1.5 + turned / 0.6);
+        }
+        s.camP.copy(cam.position);
+        s.camQ.copy(cam.quaternion);
+        s.camSet = true;
+        const idle = Math.min(1, Math.max(0, L.idle));
+        const share = Math.max(0.05, idle + (1 - idle) * motion);
+        // …and what is read lives longer by as much (readings a second × life = the same density): eased over about a
+        // second, so the dots do not all go at once when I start walking again
+        const target = L.decaySec / share;
+        s.decay = s.decay > 0 ? s.decay + (target - s.decay) * Math.min(1, dt) : target;
+        u.uDecay.value = s.decay;
+        const k = Math.min(30_000, Math.round(L.rate * share * Math.min(0.1, dt)));
+        const fov = Math.max(0, L.fovea);
         for (let i = 0; i < k; i++) {
-          s.r2 = (s.r2 + 1) % 1_000_003;
-          const sx = ((0.5 + s.r2 * 0.7548776662) % 1) * 2 - 1, sy = ((0.5 + s.r2 * 0.569840291) % 1) * 2 - 1;
+          // (the time budget, looked at every 64 rays)
+          if ((i & 63) === 63 && performance.now() - t0 > budget) break;
+          // a place on the screen: even (R2), then — fovea — kept more often the nearer the middle
+          let sx = 0, sy = 0;
+          for (let tries = 0; tries < 8; tries++) {
+            s.r2 = (s.r2 + 1) % 1_000_003;
+            sx = ((0.5 + s.r2 * 0.7548776662) % 1) * 2 - 1;
+            sy = ((0.5 + s.r2 * 0.569840291) % 1) * 2 - 1;
+            if (fov <= 0 || Math.random() * (1 + fov * (sx * sx + sy * sy)) < 1) break;
+          }
           const px = sx * m * th * asp, py = sy * m * th;
           let dx = -e[8] + e[0] * px + e[4] * py, dy = -e[9] + e[1] * px + e[5] * py, dz = -e[10] + e[2] * px + e[6] * py;
           const l = Math.hypot(dx, dy, dz);
@@ -340,8 +415,10 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
           dy /= l;
           dz /= l;
           const t = cast(dx, dy, dz);
-          if (t < 0 || !keep(dx, dy, dz)) continue;
-          put(ex + dx * t, Math.max(0.01, H + dy * t), ez + dz * t, t);
+          if (t < 0 || onGround || !keep(dx, dy, dz)) continue;
+          const size = lodSize(t);
+          if (size < 0) continue;
+          put(ex + dx * t, Math.max(0.01, H + dy * t), ez + dz * t, t, size);
         }
       } else {
         // THE HEADING AXIS: circles at right angles to where I walk — F ahead (level), U up, S to the side
@@ -349,6 +426,10 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
         const Sx = -Fz, Sz = Fx;
         const a0 = (Math.max(0.5, Math.min(89, L.coneDeg)) * Math.PI) / 180;
         for (let i = 0; i < n; i++) {
+          if (performance.now() - t0 > budget) {
+            done = i;
+            break;
+          }
           const a = ((s.az + i) % A) / A;
           const ph = a * Math.PI * 2;
           const cu = Math.cos(ph), cs = Math.sin(ph);
@@ -358,13 +439,20 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
             const dx = ca * Fx + sa * cs * Sx, dy = sa * cu, dz = ca * Fz + sa * cs * Sz;
             const hit = cast(dx, dy, dz);
             if (hit < 0 || !keep(dx, dy, dz)) continue;
+            const size = lodSize(hit);
+            if (size < 0) continue;
             const jit = 1 + Math.sin((a * 9137 + b * 71) * 12.9898) * 0.003;
             const d = hit * jit;
-            put(ex + dx * d, Math.max(0.01, H + dy * d), ez + dz * d, hit);
+            put(ex + dx * d, Math.max(0.01, H + dy * d), ez + dz * d, hit, size);
           }
         }
       }
-    } else {
+    }
+    // THE GROUND BY THE RING RADAR (the artist, 2026-11-24: "땅은... 원 레이더로만 그려서 비용 줄이고!"): with the view,
+    // the vertical spin still runs, for the ground alone — its downward beams share one walk through the cells per
+    // direction (and stop at what stands in front); the view's own rays leave the ground unmarked
+    if (L.axis === "vertical" || view) {
+    const groundOnly = view;
     const hitD: number[] = [], hitOut: number[] = [], hitH: number[] = [];
     for (let i = 0; i < n; i++) {
       const a = ((s.az + i) % A) / A;
@@ -396,6 +484,7 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
       }
       for (let b = 0; b < B; b++) {
         const tn = tans[b];
+        if (groundOnly && tn >= 0) continue;
         const dg = tn < 0 ? H / -tn : Infinity;
         let d = -1, y = 0;
         for (let k = 0; k < hitD.length; k++) {
@@ -422,7 +511,8 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
           if (dg > R) continue;
           d = dg;
           y = 0.01;
-        }
+        } else if (groundOnly) continue; // (a wall or a roof: the view's rays read those)
+        if (lodSize(d) < 0) continue; // (too near, thinned; the vertical spin's dots keep their size)
         // a hair of the sensor's noise, so a ring is a row of readings, not a drawn line
         const jit = 1 + (Math.sin((a * 9137 + b * 71) * 12.9898) * 0.5) * 0.006;
         const j = s.head;
@@ -430,6 +520,7 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
         Pa[j * 3 + 1] = y;
         Pa[j * 3 + 2] = ez + cz * d * jit;
         Ba[j] = now;
+        Sa[j] = 1;
         // colour by the range the beam travelled (a wall high above reads as far as it is, not as its foot)
         Da[j] = Math.hypot(d, y - H);
         s.head = (s.head + 1) % MAX_POINTS;
@@ -437,13 +528,13 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
       }
     }
     }
-    s.sweep = Math.min(s.sweep - n, A / 4);
-    s.az = (s.az + n) % A;
+    s.sweep = Math.min(s.sweep - done, A / 4);
+    s.az = (s.az + done) % A;
     markSpan("lidar", performance.now() - t0);
     if (!written) return;
     s.filled = Math.min(MAX_POINTS, s.filled + written);
     // upload only what this frame wrote (one range, or two when the ring buffer wrapped)
-    for (const at of [pos, birth, dist]) {
+    for (const at of [pos, birth, dist, sza]) {
       at.clearUpdateRanges();
       const k = at.itemSize;
       if (start + written <= MAX_POINTS) at.addUpdateRange(start * k, written * k);

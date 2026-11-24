@@ -69,7 +69,7 @@ import { NatureCloud, type GrassReaction } from "./NatureCloud";
 import { AnswerBurst, ConcreteLines, ConcreteOutline, OtherDots, type BurstAt, type MarksData } from "./Marks";
 import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
-import { blockFrameFor, botServerOn, livingBotsNear, useVisitorLink } from "./useBotServer";
+import { blockFrameFor, botServerOn, livingBotsNear, useVisitorLink, watchCentre } from "./useBotServer";
 import { onLifeEvent } from "./lifeEvents";
 import { newWordMotifOf } from "@/lib/parliament/glyph";
 import { blockSeatOffset, herdSeatOffset } from "@/lib/parliament/rise";
@@ -233,6 +233,11 @@ export function RoleField({
   const lastKeepWall = useRef(0);
   const foldTimer = useRef(10);
   const ledgerTimer = useRef(10);
+  // THE INTERVALS STRETCH WITH THEIR COST (the artist, 2026-11-24: "쓰로틀링/디바운싱 역치를 동적으로"): a reading of the
+  // world that took long waits longer before the next — the fold at most ~6 % of the time, the ledger ~4 % — never
+  // shorter than their base intervals, so a light world reads as before
+  const foldEvery = useRef(FOLD_EVERY);
+  const ledgerEvery = useRef(LEDGER_EVERY);
   /** My trail at the fold's cadence (the footprint map draws it; the ledger itself reads the world less often). */
   const trail = useRef<{ x: number; z: number; t: number }[]>([]);
   // the ticker reads the latest Leva values through this ref
@@ -480,6 +485,10 @@ export function RoleField({
       burst.current = { id: `${me.current.id}:${answers.current}`, x, y: BURST_Y, z, atMs: performance.now() };
     }
     const p = playerPosRef.current;
+    // (a tab watching the exhibition's world takes in only what is near the walker: useBotServer.ts)
+    watchCentre.x = p.x;
+    watchCentre.z = p.z;
+    watchCentre.set = true;
 
     // ── the grass reaction's quick stress: where the walker IS, every nearEvery seconds, while live ──
     if (grass && grass.mode !== "off" && (!lifeRef || lifeRef.current.phase === "live")) {
@@ -503,7 +512,8 @@ export function RoleField({
 
     // ── fold what this visitor can see at their own time ──
     foldTimer.current += dt;
-    if (foldTimer.current >= FOLD_EVERY) {
+    if (foldTimer.current >= foldEvery.current) {
+      const sinceFold = foldTimer.current;
       foldTimer.current = 0;
       const events = log.all();
       const tFold = performance.now();
@@ -515,7 +525,9 @@ export function RoleField({
       aliveN.current = alive.size;
       snap.current = fold.at(sMe, { x: p.x, z: p.z, r: readR });
       stress.current = stressAt(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
-      markSpan("fold", performance.now() - tFold);
+      const foldMs = performance.now() - tFold;
+      markSpan("fold", foldMs);
+      foldEvery.current = Math.min(3, Math.max(FOLD_EVERY, foldMs / 1000 / 0.06));
       if (witnessRef) {
         witnessRef.current = observe({
           me: { id: me.current.id, x: p.x, z: p.z, vx: p.vx ?? 0, vz: p.vz ?? 0 },
@@ -531,9 +543,9 @@ export function RoleField({
         if (future?.on && future.encounterOn) witnessRef.current.future = futureMeet.last;
         // the ledger of this life: only while LIVE (after the end it keeps the life's last reading); it reads the
         // WHOLE world (its totals, my slabs wherever they are), so less often than the drawing
-        ledgerTimer.current += FOLD_EVERY;
+        ledgerTimer.current += sinceFold;
         if (ledgerRef && lifeRef?.current.phase === "live") trail.current.push({ x: p.x, z: p.z, t: lifeRef.current.t });
-        if (ledgerRef && lifeRef?.current.phase === "live" && ledgerTimer.current >= LEDGER_EVERY) {
+        if (ledgerRef && lifeRef?.current.phase === "live" && ledgerTimer.current >= ledgerEvery.current) {
           ledgerTimer.current = 0;
           const tLed = performance.now();
           wordsRef.current = wordSpots(heads.current, me.current.id, sMe);
@@ -554,6 +566,7 @@ export function RoleField({
           });
           ledgerMs.current = performance.now() - tLed;
           markSpan("ledger", ledgerMs.current);
+          ledgerEvery.current = Math.min(10, Math.max(LEDGER_EVERY, ledgerMs.current / 1000 / 0.04));
         }
         // the marks: others within the view, the sealed cells (marks.ts)
         if (marks?.on) {

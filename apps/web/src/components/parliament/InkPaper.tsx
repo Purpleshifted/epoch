@@ -98,11 +98,11 @@ void main() {
   vec3 bn = texture2D(uNear, vUv).rgb;
   vec3 bw = texture2D(uWide, vUv).rgb;
   float d = clamp(linDepth(texture2D(uDepth, vUv).r) / uFogFar, 0.0, 1.0);
-  // the one depth rule: near sharp, far soft and pale — none of it while the lidar scan is the place (its points write no
-  // depth, so they would all read as far and go to mush; a scan's reading is sharp wherever it lies)
+  // the one depth rule: near sharp, far soft and pale — while the lidar scan is the place, soft by depth as well (its
+  // points write their depth: the artist, 2026-11-24, "여기엔 왜 흐림 적용이 안 되지"), but never paled: the fade to
+  // white would lift the scan's black to grey
   vec3 col = mix(mix(sc, bn, 0.35), bw, smoothstep(0.1, 0.85, d));
-  col = mix(col, vec3(1.0), uFade * d * 0.5);
-  col = mix(col, sc, uSharp);
+  col = mix(col, vec3(1.0), uFade * d * 0.5 * (1.0 - uSharp));
   // the exposure: what accumulated darkens the frame (a standing body dense, a walking one thin — by time, not by drawing)
   // overexposed: the white bleeds into the edges (a soft copy mixed in) and the mid-tones lift (a power), blacks stay
   vec3 feed = mix(texture2D(uFeed, vUv).rgb, texture2D(uFeedSoft, vUv).rgb, uHalo);

@@ -18,6 +18,7 @@ import type { DensityConfig } from "@/lib/parliament/density";
 import type { HerdConfig } from "@/lib/parliament/lifecycle";
 import { risePause, type BlockFrame } from "@/lib/parliament/rise";
 import { savedValuesReady } from "./levaSave";
+import { wrapDist } from "@/lib/parliament/world";
 
 /** The bot server and the world on it. `?botserver=0` on a view's address: the old way (the bots in this tab). */
 export const BOT_SERVER = process.env.NEXT_PUBLIC_BOT_SERVER ?? "wss://anthropocene-bots.anthropocene-hesse.workers.dev";
@@ -361,6 +362,12 @@ export function livingBotsNear(withinMs = 3000): { since: number; bots: { o: str
  * ("redesign", wherever the page runs) as a plain VIEW — it hears the whole world as it stands and the bots as they
  * walk, and SENDS NOTHING: no visitor (the walls do not see this tab, no bot comes to it), no people, no knobs, no clear.
  */
+/** Where the watching tab's walker stands (set each frame by RoleField): the watch feeds the log only the world near it. */
+export const watchCentre = { x: 0, z: 0, set: false };
+/** How near (world units) the watched world is put in the log — as a phone hears only what is written near its
+ *  visitor (the server's NEAR, 40), with room for the scan's reach. The rest waits beside it until the walker comes. */
+const WATCH_NEAR = 56;
+
 export function watchExhibition(): boolean {
   if (typeof window === "undefined") return false;
   return new URLSearchParams(window.location.search).get("watch") === "1";
@@ -378,6 +385,36 @@ export function useVisitorLink(active: boolean, log: EventLog): (e: PEvent, epoc
     // ending is HELD, not dropped — and the wait gives up after 4 s, as the wall's link does)
     const held: PEvent[] = [];
     let waitUntil = 0;
+    // (LAG, the artist 2026-11-24: the whole exhibition world — 25k events — in the log made every reading of it heavy;
+    // a phone holds only what is near. So: near → the log; far → waits here, and goes in when the walker comes near)
+    const far = new Map<string, PEvent>();
+    let sweptAt = { x: Infinity, z: Infinity };
+    const putNear = (evs: PEvent[]) => {
+      if (!watchCentre.set) {
+        for (const e of evs) far.set(e.id, e);
+        return;
+      }
+      const near: PEvent[] = [];
+      for (const e of evs) {
+        if (wrapDist(e.x, e.z, watchCentre.x, watchCentre.z) <= WATCH_NEAR) near.push(e);
+        else far.set(e.id, e);
+      }
+      if (near.length) log.addMany(near);
+    };
+    /** The waiting world swept for what is now near (when the walker has moved a few units). */
+    const sweepFar = () => {
+      if (!watchCentre.set || !far.size) return;
+      if (wrapDist(sweptAt.x, sweptAt.z, watchCentre.x, watchCentre.z) < 4) return;
+      sweptAt = { x: watchCentre.x, z: watchCentre.z };
+      const near: PEvent[] = [];
+      for (const [id, e] of far) {
+        if (wrapDist(e.x, e.z, watchCentre.x, watchCentre.z) <= WATCH_NEAR) {
+          near.push(e);
+          far.delete(id);
+        }
+      }
+      if (near.length) log.addMany(near);
+    };
     // (the phone's own world ending: until useWorld has emptied the log, nothing of the server's is put in it)
     let waitDrops = -1;
     const joined = () => {
@@ -413,8 +450,8 @@ export function useVisitorLink(active: boolean, log: EventLog): (e: PEvent, epoc
           // epoch's change, and what came before would go with it)
           if (watch) {
             if (ready()) {
-              if (held.length) log.addMany(held.splice(0));
-              log.addMany(evs);
+              if (held.length) putNear(held.splice(0));
+              putNear(evs);
             } else held.push(...evs);
           } else if (ready()) log.addMany(evs);
           return;
@@ -473,7 +510,10 @@ export function useVisitorLink(active: boolean, log: EventLog): (e: PEvent, epoc
       // (watching: nothing of this tab goes to the exhibition's world)
       if (watch) {
         q.length = 0;
-        if (held.length && ready()) log.addMany(held.splice(0));
+        if (ready()) {
+          if (held.length) putNear(held.splice(0));
+          sweepFar();
+        }
         return;
       }
       if (!q.length || !ws || ws.readyState !== WebSocket.OPEN || !epoch) return;

@@ -217,6 +217,27 @@ Sessions test only with `?botserver=0`.
   look along sparse. The surface's normal comes from the ray march (the face of the cell it crossed into; a roof or the
   ground = up). View and heading axes; the vertical spin unchanged.
 
+**Lag and look, one batch (2026-11-24, the artist: "랙 줄일 방법 검토좀 … 여튼 진행", with her ideas along the way).**
+- World (the real cost: fold 412 ms, ledger 179 ms in the slowest frame of a minute, against lidar 11 ms):
+  - 전시 세계 now puts in the log only the world within 56 units of the walker, as a phone hears only what is near its
+    visitor (the server's NEAR 40); the rest waits beside it and goes in when the walker comes near
+    (`useBotServer.ts` `watchCentre`, set each frame by RoleField).
+  - The fold and the ledger wait longer after a long reading (RoleField `foldEvery`/`ledgerEvery`: the fold at most
+    ~6 % of the time, the ledger ~4 %, never shorter than the old 0.5 s / 2 s — a light world reads as before). This
+    is in the personal view itself, every page.
+- Points:
+  - 프레임당 스캔 시간 예산 (4 ms): what is left goes to the next frame.
+  - 시야: 가운데 집중 (1): a reading kept with the chance 1/(1 + fovea·r²) — the middle of the view densest.
+  - 시야: 멈춰 있을 때 새로 읽는 몫 (0.3): the refresh term — standing still, fewer new readings, and what is read
+    lives longer by as much (eased over a second), so the density holds.
+  - 먼 점 뭉치기 (12 world): past it a reading is kept with the chance (lod/d)² and drawn d/lod times larger (≤ 4×).
+  - 너무 가까운 점 성기게 (2 world, "건물 부재속에 있을 때 렉이 심해지는데"): within it kept with (d/near)², ≥ 3 %.
+  - The ground by the ring radar only ("땅은... 원 레이더로만"): with 시야, the view's rays mark walls and roofs; the
+    vertical spin's downward beams draw the ground (one walk through the cells per direction for all of them).
+- Colours: 거리 색 1–4, her own (defaults the photo's mint → green-yellow → peach → pink).
+- Blur ("여기엔 왜 흐림 적용이 안 되지"): the points write their depth, so 사진 › 가까운/먼 흐림 soften them by
+  distance like everything else; only the fade to white stays off on the scan (it would grey the black).
+
 ### bot (present)
 
 **New slot `/lab/mobile/frames` — `frames · 사람 프레임 배치` (`FrameLab.tsx`, 2026-11-23).** The artist: "나와의 상대 각도
