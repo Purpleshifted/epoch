@@ -130,9 +130,11 @@ export interface PeopleLook {
   frHop: boolean;
   frAskSolid: boolean;
   frAskScale: number;
+  /** The pictograms' size × of the frames study's height: "픽토그램 크기 전반적으로 줄이면서" (2026-11-24). */
+  frSize: number;
 }
 
-export const DEFAULT_PEOPLE: PeopleLook = { mode: "frames", gait: "mocap", colour: 1, paper: false, ink: 1, blur: 3, fadeDist: 12, labelDist: 4, flicker: true, stretchGain: 1, shake: 2, blotDist: 8, bubble: true, aspectMin: 0.5, aspectMax: 1.3, tailSec: 1.6, exposure: 0.5, frame: 1, askTurn: true, ripple: true, paperVariety: 1, boxAspect: 0.55, boxRest: 0.22, cue: true, points: 480, pointsPhone: 200, scale: 2.5, dot: 0.07, maxPx: 6, grey: 0.78, height: 1.7, variety: 1, maxCadence: 2.2, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3, meBody: false, meRest: 0.4, frHop: true, frAskSolid: true, frAskScale: 1.15 };
+export const DEFAULT_PEOPLE: PeopleLook = { mode: "frames", gait: "mocap", colour: 1, paper: false, ink: 1, blur: 3, fadeDist: 12, labelDist: 4, flicker: true, stretchGain: 1, shake: 2, blotDist: 8, bubble: true, aspectMin: 0.5, aspectMax: 1.3, tailSec: 1.6, exposure: 0.5, frame: 1, askTurn: true, ripple: true, paperVariety: 1, boxAspect: 0.55, boxRest: 0.22, cue: true, points: 480, pointsPhone: 200, scale: 2.5, dot: 0.07, maxPx: 6, grey: 0.78, height: 1.7, variety: 1, maxCadence: 2.2, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3, meBody: false, meRest: 0.4, frHop: true, frAskSolid: true, frAskScale: 1.15, frSize: 0.7 };
 
 /** The visitor, for their own body: where they stand and look (the controller's yaw), and their melody. */
 export interface MeInput {
@@ -1504,12 +1506,15 @@ export function PointPeople({
 
   return (
     <>
-      {look.mode !== "points" ? <mesh ref={boxMesh} geometry={boxGeom} material={boxMat} frustumCulled={false} renderOrder={9} /> : <points geometry={geom} material={mat} frustumCulled={false} renderOrder={9} />}
+      {/* (the frames' pictograms draw the people alone: the old windows — on the black ground the boxes with their edge
+          lines, "검정바탕에서 보니까... 슬릿 보임" — are not drawn under them) */}
+      {look.mode === "frames" ? null : look.mode !== "points" ? <mesh ref={boxMesh} geometry={boxGeom} material={boxMat} frustumCulled={false} renderOrder={9} /> : <points geometry={geom} material={mat} frustumCulled={false} renderOrder={9} />}
       {look.mode === "boxes" && <mesh ref={bodyMesh} geometry={bodyGeom} material={bodyMat} frustumCulled={false} renderOrder={10} />}
       {look.mode === "boxes" && <mesh geometry={depthGeom} material={depthMat} frustumCulled={false} renderOrder={11} />}
       {look.mode === "fibers" && <mesh geometry={fiberGeom} material={fiberMat} frustumCulled={false} renderOrder={10} />}
       {look.mode === "sprites" && <mesh geometry={spriteGeom} material={spriteMat} frustumCulled={false} renderOrder={10} />}
-      {look.mode === "frames" && <FramePeopleLayer getList={() => framesList.current} playerPosRef={playerPosRef} unit={k} asking={asking} hop={look.frHop ?? true} askSolid={look.frAskSolid ?? true} askScale={look.frAskScale ?? 1.15} />}
+      {/* (frames: the pictograms where these bodies are, read each frame — 2026-11-24) */}
+      {look.mode === "frames" && <FramePeopleLayer getList={() => framesList.current} playerPosRef={playerPosRef} unit={k} asking={asking} hop={look.frHop ?? true} askSolid={look.frAskSolid ?? true} askScale={look.frAskScale ?? 1.15} size={look.frSize ?? 0.7} getPeople={() => people.current} paper={look.paper} />}
       {/* 흰 바탕: the record device's labels — the being's number and a leader line, by the nearest few */}
       {look.paper &&
         labels.map((l) => (

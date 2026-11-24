@@ -46,6 +46,18 @@ interface BotWalker extends Walker {
   seen: number;
 }
 
+/** A body in the street as PointPeople keeps it: its place, way and pace (world units), its fade; on the white ground the
+ *  body that walks on its own between the samples. */
+export interface StreetBody {
+  x: number;
+  z: number;
+  vx: number;
+  vz: number;
+  heading: number;
+  alpha: number;
+  body: { x: number; z: number; vx: number; vz: number; heading: number };
+}
+
 /** A place this far from the last (m) is the world wrapping, not a walk: the frames start over. */
 const JUMP_M = 20;
 /** Below this pace (m/s) a bot stands. */
@@ -65,6 +77,9 @@ export function FramePeopleLayer({
   hop = true,
   askSolid = true,
   askScale = 1.15,
+  size = 1,
+  getPeople,
+  paper = false,
 }: {
   getList: () => readonly Other[] | null;
   playerPosRef: React.MutableRefObject<{ x: number; z: number }>;
@@ -74,6 +89,14 @@ export function FramePeopleLayer({
   hop?: boolean;
   askSolid?: boolean;
   askScale?: number;
+  /** The pictograms' size × (all of them; the bot lab's knob). */
+  size?: number;
+  /** THE PEOPLE WHERE THE STREET ALREADY HAS THEM (the artist, 2026-11-24: "픽토그램 이거 이 자리에서 그려내도록 하면 안
+   *  되나? … 그냥 네모 상자일 때는 안 이랬잖아"): PointPeople's own moving bodies — a pictogram drawn right there, one a
+   *  person, facing me, no arrivals, no lag. Given, it replaces the arrivals' frames. */
+  getPeople?: () => ReadonlyMap<string, StreetBody>;
+  /** The white ground: the body that walks on its own (`body`), else the person's own place. */
+  paper?: boolean;
 }) {
   const gl = useThree((st) => st.gl);
   const camera = useThree((st) => st.camera);
@@ -140,15 +163,37 @@ export function FramePeopleLayer({
   const lastList = useRef<readonly Other[] | null>(null);
 
   useFrame((state, delta) => {
-    const L = look;
-    if (!L) return;
+    if (!look) return;
+    // (in the street the pictograms stand where the bodies are: nothing left at arrivals, no delay — always facing me, the
+    // pictogram's own)
+    const L: Look = getPeople ? { ...look, standMode: false, stamp: false } : look;
     const dt = Math.min(delta, 0.05);
     const now = state.clock.elapsedTime;
     const me = playerPosRef.current;
     const B = bots.current;
     const span = Math.max(1, L.sampleSec);
     // ARRIVALS: a bot's place changed → a frame where it came, facing the way it went
-    const list = getList();
+    const list = getPeople ? null : getList();
+    if (getPeople) {
+      const P = getPeople();
+      for (const [id, p] of P) {
+        const src = paper ? p.body : p;
+        let w = B.get(id);
+        if (!w) {
+          const hash = idHash(id);
+          w = { id, hash, x: src.x, z: src.z, h: src.heading, ph: hash, s: 0, dir: 1, gx: 0, gz: 0, hist: [], stamps: [], lastHist: -1, lastSample: now, home: 0, standing: true, speed: 0, gap: 0.08, cycle: 1.3, lastT: now, mps: 0, still: true, seen: now };
+          B.set(id, w);
+        }
+        w.x = src.x;
+        w.z = src.z;
+        w.mps = Math.hypot(src.vx, src.vz) / unit;
+        if (w.mps > STILL_MPS) w.h = Math.atan2(src.vx, src.vz);
+        w.still = w.mps < STILL_MPS;
+        w.fade = p.alpha;
+        w.seen = now;
+      }
+      for (const id of [...B.keys()]) if (!P.has(id)) B.delete(id);
+    }
     if (list && list !== lastList.current) {
       lastList.current = list;
       for (const o of list) {
@@ -189,7 +234,7 @@ export function FramePeopleLayer({
       const askingMe = (asking?.current.get(id) ?? 0) > nowMs;
       w.talking = hop && askingMe;
       w.solid = askSolid && askingMe;
-      w.boost = askingMe ? askScale : 1;
+      w.boost = (askingMe ? askScale : 1) * size;
       if (w.still && now - w.lastSample >= span) {
         w.lastSample = now;
         w.stamps.unshift({ t: now, x: w.x, z: w.z, h: w.h, ph: 0 });

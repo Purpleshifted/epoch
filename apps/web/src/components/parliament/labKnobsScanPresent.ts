@@ -56,7 +56,9 @@ export function useScanPresentKnobs(isV2: boolean) {
       }),
       "눈": folder({
         eyeOn: { value: true, label: "눈높이 카메라", render: v2 },
-        eyeHeight: { value: 1.6, min: 0.6, max: 4, step: 0.05, label: "눈높이 (m)", render: v2 },
+        // (1.6 → 1.1, lowered with the pictograms made smaller — the artist, 2026-11-24, in bot (present): "픽토그램 크기 전반적으로
+        // 줄이면서 내 눈높이도 낮춰줘")
+        eyeHeight: { value: 1.1, min: 0.6, max: 4, step: 0.05, label: "눈높이 (m)", render: v2 },
         eyeBack: { value: 0, min: 0, max: 8, step: 0.1, label: "뒤로 (m; 0 = 1인칭)", render: v2 },
         eyeLook: { value: 6, min: 2, max: 20, step: 0.5, label: "시선이 닿는 거리 (m)", render: v2 },
         walkSpeed: { value: 2.5, min: 0.5, max: 10, step: 0.5, label: "걷는 속도 (월드/s; 봇 2.2)", render: v2 },

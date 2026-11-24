@@ -97,6 +97,8 @@ function useBodyKnobs(isV2: boolean) {
   // (a folder shows only while its way of drawing is chosen — the artist, 2026-11-23: "안 쓰는 노브는 다 지워가고 새로운 건
   // 추가해가면서"; hidden values are kept)
   const modeIs = (m: string) => (get: (path: string) => unknown) => show() && get(`${G}.사람.ppMode`) === m;
+  // (the frames' pictograms read none of the bodies' knobs — "안 쓰는 레바 싹 없애고", 2026-11-24)
+  const notFrames = (get: (path: string) => unknown) => show() && get(`${G}.사람.ppMode`) !== "frames";
   const moveRoot = `${G}.움직임`;
   const mv = useControls(
     moveRoot,
@@ -108,7 +110,7 @@ function useBodyKnobs(isV2: boolean) {
       mvGest: { value: DEFAULT_MOVE.gestures, label: "서 있으면 제스처", render: v2 },
       mvGestSec: { value: DEFAULT_MOVE.gestureSec, min: 1, max: 20, step: 0.5, label: "제스처가 바뀌는 간격 (s)", render: v2 },
     }),
-    { collapsed: false, render: show },
+    { collapsed: false, render: notFrames },
   ) as unknown as Record<string, number | boolean>;
   const spriteRoot = `${G}.2D 사람`;
   const sp = useControls(
@@ -166,7 +168,7 @@ function useBodyKnobs(isV2: boolean) {
     archView: { options: { "군중 — 비중대로": "all", "1만": 0, "2만": 1, "3만": 2, "4만": 3, "5만": 4 } as Record<string, ArchetypeView>, value: "all", label: "보기 (이 랩 페이지에서만)", render: v2 },
   };
   for (let i = 0; i < DEFAULT_ARCHETYPES.length; i++) archSchema[`아키타입 ${i + 1}`] = archetypeSchema(i, v2);
-  const a = useControls(archRoot, savable(archRoot, archSchema) as Parameters<typeof useControls>[1], { collapsed: false, render: show }) as unknown as Record<string, unknown>;
+  const a = useControls(archRoot, savable(archRoot, archSchema) as Parameters<typeof useControls>[1], { collapsed: false, render: notFrames }) as unknown as Record<string, unknown>;
   bodyTuning.trail = {
     on: !!t.trOn,
     sec: Number(t.trSec),
@@ -227,6 +229,10 @@ const PEOPLE_MODES: Record<string, PeopleMode> = {
 
 export function useBotPresentKnobs(isV2: boolean) {
   const v2 = () => isV2;
+  // (what the frames' pictograms do not read is hidden while they draw the people — "안 쓰는 레바 싹 없애고"; the values
+  // are kept for the other ways of drawing)
+  const nf = (get: (path: string) => unknown) => isV2 && get(`${LAB_GROUP["bot-present"]}.사람.ppMode`) !== "frames";
+  const isFr = (get: (path: string) => unknown) => isV2 && get(`${LAB_GROUP["bot-present"]}.사람.ppMode`) === "frames";
   useBodyKnobs(isV2);
   return useControls(
     LAB_GROUP["bot-present"],
@@ -236,16 +242,19 @@ export function useBotPresentKnobs(isV2: boolean) {
       "사람": folder({
         streetPeople: { value: true, label: "사람을 아래 방식으로 (끄면 옛 네모)", render: v2 },
         ppMode: { options: PEOPLE_MODES, value: DEFAULT_PEOPLE.mode, label: "그리기", render: v2 },
-        ppGait: { options: { "모캡 걷기 — CMU 실제 보행 넷 (사람마다 하나)": "mocap", "사인 걷기 — 절차적 골격": "sine" } as Record<string, "mocap" | "sine">, value: DEFAULT_PEOPLE.gait, label: "걸음", render: v2 },
-        ppColour: { value: DEFAULT_PEOPLE.colour, min: 0, max: 1, step: 0.05, label: "옷 색 (0 = 회색, 1 = 팔레트)", render: v2 },
-        ppHeight: { value: DEFAULT_PEOPLE.height, min: 1, max: 2.4, step: 0.05, label: "키 (m, 평균)", render: v2 },
-        ppVariety: { value: DEFAULT_PEOPLE.variety, min: 0, max: 1, step: 0.05, label: "다양성 — 키·체격·걸음", render: v2 },
-        paperVariety: { value: 1, min: 0, max: 1, step: 0.05, label: "다양성 — 진하기·창의 기울기", render: v2 },
-        ppMaxCadence: { value: DEFAULT_PEOPLE.maxCadence, min: 0.8, max: 4, step: 0.1, label: "걸음 박자 상한 (걸음/s)", render: v2 },
-        ppFaceEach: { value: DEFAULT_PEOPLE.faceEach, label: "서 있으면 가까운 이를 마주 봄", render: v2 },
-        ppFaceRadius: { value: DEFAULT_PEOPLE.faceRadius, min: 1, max: 8, step: 0.5, label: "마주 보는 거리 (m)", render: v2 },
+        // (the artist, 2026-11-24: "픽토그램 크기 전반적으로 줄이면서")
+        frSize: { value: DEFAULT_PEOPLE.frSize, min: 0.3, max: 1.5, step: 0.01, label: "프레임: 픽토그램 크기 ×", render: isFr },
+        ppGait: { options: { "모캡 걷기 — CMU 실제 보행 넷 (사람마다 하나)": "mocap", "사인 걷기 — 절차적 골격": "sine" } as Record<string, "mocap" | "sine">, value: DEFAULT_PEOPLE.gait, label: "걸음", render: nf },
+        ppColour: { value: DEFAULT_PEOPLE.colour, min: 0, max: 1, step: 0.05, label: "옷 색 (0 = 회색, 1 = 팔레트)", render: nf },
+        ppHeight: { value: DEFAULT_PEOPLE.height, min: 1, max: 2.4, step: 0.05, label: "키 (m, 평균)", render: nf },
+        ppVariety: { value: DEFAULT_PEOPLE.variety, min: 0, max: 1, step: 0.05, label: "다양성 — 키·체격·걸음", render: nf },
+        paperVariety: { value: 1, min: 0, max: 1, step: 0.05, label: "다양성 — 진하기·창의 기울기", render: nf },
+        ppMaxCadence: { value: DEFAULT_PEOPLE.maxCadence, min: 0.8, max: 4, step: 0.1, label: "걸음 박자 상한 (걸음/s)", render: nf },
+        ppFaceEach: { value: DEFAULT_PEOPLE.faceEach, label: "서 있으면 가까운 이를 마주 봄", render: nf },
+        ppFaceRadius: { value: DEFAULT_PEOPLE.faceRadius, min: 1, max: 8, step: 0.5, label: "마주 보는 거리 (m)", render: nf },
       }),
-      "지나간 자리 — 사람마다의 창": folder({
+      "지나간 자리 — 사람마다의 창": folder(
+        {
         paperInk: { value: 1, min: 0.2, max: 1, step: 0.05, label: "몸의 진하기", render: v2 },
         // (hidden 2026-11-23 — the artist: "플리커링 있어 보이는 거 끔찍": on the white the body walks continuously and
         // the window neither jumps nor shakes; the values are kept)
@@ -256,16 +265,18 @@ export function useBotPresentKnobs(isV2: boolean) {
         paperFrame: { value: 1, min: 0, max: 2, step: 0.1, label: "창 필름의 세기", render: v2 },
         paperAspectMin: { value: 0.5, min: 0.2, max: 2, step: 0.05, label: "창 비율 최소 (폭/키)", render: v2 },
         paperAspectMax: { value: 1.3, min: 0.2, max: 2.5, step: 0.05, label: "창 비율 최대", render: v2 },
-      }),
+        },
+        { render: nf },
+      ),
       "말 걸기": folder({
-        ppCue: { value: DEFAULT_PEOPLE.cue, label: "말 거는 이의 창이 커짐", render: v2 },
+        ppCue: { value: DEFAULT_PEOPLE.cue, label: "말 거는 이의 창이 커짐", render: nf },
         askTurn: { value: true, label: "시선이 그쪽으로 돌아감 (손대면 멈춤)", render: v2 },
-        askRipple: { value: true, label: "창에서 사각 파문", render: v2 },
+        askRipple: { value: true, label: "창에서 사각 파문", render: nf },
         paperBubble: { value: true, label: "옆에 멜로디 기호 버블", render: v2 },
         // (the frames' pictograms — the artist, 2026-11-24: "present bot 에서 해당 작업내용 보고 인터랙션 다듬게")
-        frHop: { value: DEFAULT_PEOPLE.frHop, label: "프레임: 말 거는 이의 머리가 멜로디 박자로 튐", render: v2 },
-        frAskSolid: { value: DEFAULT_PEOPLE.frAskSolid, label: "프레임: 말 거는 이는 가까이서도 진하게", render: v2 },
-        frAskScale: { value: DEFAULT_PEOPLE.frAskScale, min: 1, max: 1.6, step: 0.01, label: "프레임: 말 거는 이 크기 ×", render: v2 },
+        frHop: { value: DEFAULT_PEOPLE.frHop, label: "프레임: 말 거는 이의 머리가 멜로디 박자로 튐", render: isFr },
+        frAskSolid: { value: DEFAULT_PEOPLE.frAskSolid, label: "프레임: 말 거는 이는 가까이서도 진하게", render: isFr },
+        frAskScale: { value: DEFAULT_PEOPLE.frAskScale, min: 1, max: 1.6, step: 0.01, label: "프레임: 말 거는 이 크기 ×", render: isFr },
       }),
       "옛 점 몸 · 옛 노브": folder({
         ppPoints: { value: DEFAULT_PEOPLE.points, min: 64, max: 800, step: 16, label: "점 몸: 점 수", render: v2 },

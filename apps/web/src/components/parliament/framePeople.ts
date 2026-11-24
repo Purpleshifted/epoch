@@ -228,6 +228,8 @@ export interface Walker {
   /** Asking me something in the street: its height × and whether it stays solid near me (the bot lab's 말 걸기 knobs). */
   boost?: number;
   solid?: boolean;
+  /** Its fade in and out (the street's, as it comes into view and goes; 1 when not given). */
+  fade?: number;
   // walking across my view now (in profile), kept a little past the threshold
   sideNow?: boolean;
 }
@@ -401,7 +403,9 @@ float pxRect(vec2 p, float x0, float y0, float w, float h) {
 // two steps a loop; hurrying lifts higher, running bobs and spreads; talking waves an arm; standing stands
 vec4 pixFig(float u, float v) {
   vec2 p = vec2((u - 0.5) * 30.0 * uAspect, v * 30.0);
-  p = (floor(p / uPixCell) + 0.5) * uPixCell;
+  // (cells centred on the body's middle line — centred between, the gap between the legs fell inside a cell and the body
+  // read as one block; vertically on the cell's own middle)
+  p = vec2(floor(p.x / uPixCell + 0.5) * uPixCell, (floor(p.y / uPixCell) + 0.5) * uPixCell);
   float st = vRow;            // 0 walk · 1 brisk · 2 run · 3 stand · 4 talk
   float f = vFrame;
   float side = mod(floor(f / 8.0), 2.0);
@@ -905,7 +909,7 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
     const tall = personHeight(L, w, CL[w.home] ?? set);
     A[n * 4 + 2] = (tall / Math.max(0.2, set?.fill ?? 1)) * (1 + (T.scale - 1) * u) * unit * (w.boost ?? 1);
     // (pictograms near me fainter — "가까운 애들은 투명도 높여주고": the near band at pixNear, full past the middle)
-    A[n * 4 + 3] = alpha * (set?.ink ?? 1) * Q.ink * (L.pix && !w.solid ? L.pixNear + (1 - L.pixNear) * Q.mid : 1);
+    A[n * 4 + 3] = alpha * (set?.ink ?? 1) * Q.ink * (L.pix && !w.solid ? L.pixNear + (1 - L.pixNear) * Q.mid : 1) * (w.fade ?? 1);
     B[n * 4] = slot;
     // standing or talking past the near band: one still frame of their own (no frames run where nobody reads them)
     const still = L.tier.stillNear && w.standing && Q.mid > 0.5;
