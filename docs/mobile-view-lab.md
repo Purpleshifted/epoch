@@ -184,6 +184,16 @@ asset page always has `?botserver=0`, so the scan read this browser's own stored
 The scan (present) page's bar now has 「리허설 세계」 (`?botserver=1`: the bot server's world — the wall's buildings now;
 this window joins as a visitor, so the wall sees it and bots may come to it) and 「시험 장면」 (`?botserver=0`, as before).
 Sessions test only with `?botserver=0`.
+- **Then (same day): the preview's world was empty.** On a branch preview (and localhost) the bot server's world is
+  "rehearsal", which was off with 0 events; only the exhibition's world ("redesign") runs (26 bots, 18k events, read
+  from `/state/` GET). The artist: "봇 받아오게 해 그냥". The link is now 「전시 세계」 = `?botserver=1&watch=1`:
+  `useBotServer.ts` `watchExhibition()` makes the personal view's server link join "redesign" as a plain VIEW — the
+  whole world on joining (held until this tab has joined the epoch; 4 s at most) and the bots as they walk — and send
+  NOTHING (no visitor, no people, no knobs, no clear), so the wall never sees the tab. Not tried by a session (rule:
+  sessions never join the live bot server); she checks it.
+- **Background (same day, "배경 색은 또 왜이래 이거").** With 흰 바탕 off, the old black mode's ground showed under the
+  scan: the green grass face and the grey worn paths (DitherGround) and the path lines. While the scan is on: the
+  background is pure black whatever the paper switch says, and DitherGround and PathLines draw nothing.
 
 ### bot (present)
 

@@ -355,6 +355,17 @@ export function livingBotsNear(withinMs = 3000): { since: number; bots: { o: str
   return { since: nearSince, bots };
 }
 
+/**
+ * THE SCAN WATCHES THE EXHIBITION (the artist, 2026-11-24, on the scan (present) lab page: "봇 받아오게 해 그냥" — a
+ * branch preview's own world, "rehearsal", was off and empty): `?watch=1` on the address joins the EXHIBITION's world
+ * ("redesign", wherever the page runs) as a plain VIEW — it hears the whole world as it stands and the bots as they
+ * walk, and SENDS NOTHING: no visitor (the walls do not see this tab, no bot comes to it), no people, no knobs, no clear.
+ */
+export function watchExhibition(): boolean {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("watch") === "1";
+}
+
 export function useVisitorLink(active: boolean, log: EventLog): (e: PEvent, epochMs: number) => void {
   const queue = useRef<{ e: PEvent; epochMs: number }[]>([]);
   useEffect(() => {
@@ -362,15 +373,21 @@ export function useVisitorLink(active: boolean, log: EventLog): (e: PEvent, epoc
     let gone = false, tries = 0, retry = 0;
     let ws: WebSocket | null = null;
     let epoch = 0;
+    const watch = watchExhibition();
+    // (watching, the whole world comes once, right after the hello: what comes while this tab's own world is still
+    // ending is HELD, not dropped — and the wait gives up after 4 s, as the wall's link does)
+    const held: PEvent[] = [];
+    let waitUntil = 0;
     // (the phone's own world ending: until useWorld has emptied the log, nothing of the server's is put in it)
     let waitDrops = -1;
     const joined = () => {
-      if (waitDrops >= 0 && log.drops !== waitDrops) waitDrops = -1;
+      if (waitDrops >= 0 && (log.drops !== waitDrops || (watch && Date.now() > waitUntil))) waitDrops = -1;
       return waitDrops < 0;
     };
+    const ready = () => !!epoch && currentEpochKey() === String(epoch) && joined();
     const connect = () => {
       if (gone) return;
-      const sock = new WebSocket(`${BOT_SERVER}/${BOT_WORLD}?as=visitor`);
+      const sock = new WebSocket(watch ? `${BOT_SERVER}/redesign` : `${BOT_SERVER}/${BOT_WORLD}?as=visitor`);
       ws = sock;
       sock.onopen = () => {
         tries = 0;
@@ -394,7 +411,12 @@ export function useVisitorLink(active: boolean, log: EventLog): (e: PEvent, epoc
           }
           // (only once the phone's own world has ended and it is in the server's: useWorld empties the log on the
           // epoch's change, and what came before would go with it)
-          if (epoch && currentEpochKey() === String(epoch) && joined()) log.addMany(evs);
+          if (watch) {
+            if (ready()) {
+              if (held.length) log.addMany(held.splice(0));
+              log.addMany(evs);
+            } else held.push(...evs);
+          } else if (ready()) log.addMany(evs);
           return;
         }
         // THE WORLD'S RULES, FOR THE FUTURE UNDER THE VISITOR'S FEET (futurePresence.ts, 2026-11-22): the server's
@@ -413,7 +435,10 @@ export function useVisitorLink(active: boolean, log: EventLog): (e: PEvent, epoc
           localStorage.setItem(LS_TIME_RATE_KEY, JSON.stringify({ r: d.clock.r - skew, v: d.clock.v, rate: d.clock.rate }));
           // (the player view's own world ends and it joins the server's epoch: useWorld's onCleared)
           if (d.t === "hello" && typeof d.epochMs === "number" && currentEpochKey() !== String(d.epochMs)) {
-            if (currentEpochKey() !== null) waitDrops = log.drops;
+            if (currentEpochKey() !== null) {
+              waitDrops = log.drops;
+              waitUntil = Date.now() + 4000;
+            }
             localStorage.setItem(LS_PARLIAMENT_EPOCH_KEY, String(d.epochMs));
             // useWorld looks at once: the life ends its own world and joins this one (its first life too — before
             // 2026-11-21 a fresh browser's first life missed the change and stayed alone in a world of its own)
@@ -445,6 +470,12 @@ export function useVisitorLink(active: boolean, log: EventLog): (e: PEvent, epoc
     connect();
     const timer = window.setInterval(() => {
       const q = queue.current;
+      // (watching: nothing of this tab goes to the exhibition's world)
+      if (watch) {
+        q.length = 0;
+        if (held.length && ready()) log.addMany(held.splice(0));
+        return;
+      }
       if (!q.length || !ws || ws.readyState !== WebSocket.OPEN || !epoch) return;
       const events = q.filter((x) => x.epochMs === epoch).map((x) => x.e);
       q.length = 0;

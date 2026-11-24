@@ -530,8 +530,9 @@ export default function ParliamentScene({ lab }: { lab?: LabPage } = {}) {
   // 흰 바탕 (오가닉): the brutal look on paper — a white ground, a white fog (things pale to nothing)
   const paper = isV2 && brutal && street.paper;
   // (the lidar scan on the photo's black ground — LidarScan.tsx, scan (present) only for now: no paper, the log not inverted)
-  const scanBlack = paper && lidarBlack();
-  const ground = brutal ? (paper && !scanBlack ? PAPER : "#000000") : FOG_COLOR;
+  // (the scan's black whatever the paper switch says: with 흰 바탕 off the old black mode's fog colour showed instead)
+  const scanBlack = lidarBlack();
+  const ground = scanBlack ? "#000000" : brutal ? (paper ? PAPER : "#000000") : FOG_COLOR;
   const paperFog = isV2 && brutal && street.paper && !viewOn;
   const fogN = viewOn ? street.view.radius * 0.45 : paperFog ? 12 : fogNear;
   const fogF = viewOn ? street.view.radius : paperFog ? 44 : fogFar;

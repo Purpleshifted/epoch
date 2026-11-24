@@ -20,6 +20,7 @@ import { CELL_SIZE } from "@/lib/stratum/field";
 import { WORLD_SIZE, grassDensity, wrapCell, type NatureConfig, type Snapshot } from "@/lib/parliament";
 import { markSpan } from "./usePerfMeter";
 import { streetGround } from "./streetLook";
+import { lidarActive } from "./LidarScan";
 
 const REFRESH = 0.1;
 
@@ -209,6 +210,11 @@ export function DitherGround({
   );
 
   useFrame(({ gl, scene, clock }, dt) => {
+    // no ground while the lidar scan is the place: its black is the scan's only (the artist, 2026-11-24, "배경 색은 또
+    // 왜이래" — the green grass face and the grey worn paths showed under the scan with 흰 바탕 off)
+    const scanning = lidarActive();
+    if (mesh.current) mesh.current.visible = !scanning;
+    if (scanning) return;
     const p = playerPosRef.current;
     mesh.current?.position.set(p.x, 0.005, p.z);
     const u = mat.uniforms;

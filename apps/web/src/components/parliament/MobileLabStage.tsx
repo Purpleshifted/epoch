@@ -81,14 +81,15 @@ export default function MobileLabStage({ page }: { page: LabPage }) {
             </a>
           </>
         )}
-        {/* the scan reads the world it is given: the rehearsal's (the bot server — the wall's buildings now; this window
-            joins as a visitor, so the wall sees it) or this browser's own stored one (the artist, 2026-11-24: "이거 global
-            에서 읽어오는 게 아닌 거지...?" → "그렇게 붙여봐"). botserver=1 on the address keeps the page from adding =0. */}
+        {/* the scan reads the world it is given: the EXHIBITION's, watched (the bot server's "redesign" world as a plain
+            view — the buildings and the bots as they walk; this tab sends nothing, so the wall never sees it:
+            useBotServer.ts watchExhibition) or this browser's own stored one (the artist, 2026-11-24: "이거 global 에서
+            읽어오는 게 아닌 거지...?" → "그렇게 붙여봐" → "봇 받아오게 해 그냥"). botserver=1 keeps the page from adding =0. */}
         {page === "scan-present" && (
           <>
             <span className="text-white/30">|</span>
-            <a href="/lab/mobile/scan-present?botserver=1" className={scanLive ? "text-white underline" : "text-white/50 hover:text-white"} title="the rehearsal's world as it runs (bot server): the wall's buildings now">
-              리허설 세계
+            <a href="/lab/mobile/scan-present?botserver=1&watch=1" className={scanLive ? "text-white underline" : "text-white/50 hover:text-white"} title="the exhibition's world as it runs (bot server, watched: this tab sends nothing)">
+              전시 세계
             </a>
             <a href="/lab/mobile/scan-present?botserver=0" className={scanLive ? "text-white/50 hover:text-white" : "text-white underline"} title="no bot server: this browser's own stored world">
               시험 장면

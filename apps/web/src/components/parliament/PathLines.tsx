@@ -13,6 +13,7 @@ import * as THREE from "three";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { nearestImage, wrapCell, type Snapshot } from "@/lib/parliament";
 import { streetGround } from "./streetLook";
+import { lidarActive } from "./LidarScan";
 
 const MAX_SEGS = 8000;
 const MIN_P = 0.08;
@@ -42,7 +43,8 @@ export function PathLines({
 
   useFrame((_, dt) => {
     // 흰 바탕 (streetLook.ts): the line language is given up — the worn ground (DitherGround) carries the path
-    if (streetGround.on && streetGround.paper) {
+    // …and none while the lidar scan is the place (its black is the scan's only: the artist, 2026-11-24, "배경 색은 또 왜이래")
+    if ((streetGround.on && streetGround.paper) || lidarActive()) {
       if (geom.drawRange.count !== 0) geom.setDrawRange(0, 0);
       timer.current = 10;
       return;
