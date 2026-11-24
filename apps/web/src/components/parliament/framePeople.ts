@@ -225,6 +225,9 @@ export interface Walker {
   id?: string;
   /** Its pace from its speed: 0 walking, 1 brisk, 2 running (the pictogram's, which needs no clip). */
   pace?: number;
+  /** Asking me something in the street: its height × and whether it stays solid near me (the bot lab's 말 걸기 knobs). */
+  boost?: number;
+  solid?: boolean;
   // walking across my view now (in profile), kept a little past the threshold
   sideNow?: boolean;
 }
@@ -900,9 +903,9 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
     A[n * 4 + 1] = s.z + Math.cos(seedA) * T.scatter * u * unit;
     // (a clip standing in — a profile one crossing my view — takes the person's own height: "크기는 옆모습 사이즈랑 연동")
     const tall = personHeight(L, w, CL[w.home] ?? set);
-    A[n * 4 + 2] = (tall / Math.max(0.2, set?.fill ?? 1)) * (1 + (T.scale - 1) * u) * unit;
+    A[n * 4 + 2] = (tall / Math.max(0.2, set?.fill ?? 1)) * (1 + (T.scale - 1) * u) * unit * (w.boost ?? 1);
     // (pictograms near me fainter — "가까운 애들은 투명도 높여주고": the near band at pixNear, full past the middle)
-    A[n * 4 + 3] = alpha * (set?.ink ?? 1) * Q.ink * (L.pix ? L.pixNear + (1 - L.pixNear) * Q.mid : 1);
+    A[n * 4 + 3] = alpha * (set?.ink ?? 1) * Q.ink * (L.pix && !w.solid ? L.pixNear + (1 - L.pixNear) * Q.mid : 1);
     B[n * 4] = slot;
     // standing or talking past the near band: one still frame of their own (no frames run where nobody reads them)
     const still = L.tier.stillNear && w.standing && Q.mid > 0.5;
@@ -934,7 +937,7 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
     Ff[n * 4 + 1] = L.pix ? 0 : Q.grad * G2.amt;
     // (talking: the head hops on each note of their melody — up two cells, then one, then down, within the step)
     let hop = 0;
-    if (L.pix && stateOf(w) === "talk") {
+    if (L.pix && (stateOf(w) === "talk" || w.talking)) {
       const ms = performance.now();
       if (rhythmOf(w.id ?? String(Math.round(w.hash * 1e6)))[stepAt(ms)]) {
         const q = (ms % 250) / 250;

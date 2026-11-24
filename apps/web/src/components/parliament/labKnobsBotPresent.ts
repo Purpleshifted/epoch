@@ -230,7 +230,9 @@ export function useBotPresentKnobs(isV2: boolean) {
   useBodyKnobs(isV2);
   return useControls(
     LAB_GROUP["bot-present"],
-    savable(LAB_GROUP["bot-present"], {
+    savable(
+      LAB_GROUP["bot-present"],
+      {
       "사람": folder({
         streetPeople: { value: true, label: "사람을 아래 방식으로 (끄면 옛 네모)", render: v2 },
         ppMode: { options: PEOPLE_MODES, value: DEFAULT_PEOPLE.mode, label: "그리기", render: v2 },
@@ -260,6 +262,10 @@ export function useBotPresentKnobs(isV2: boolean) {
         askTurn: { value: true, label: "시선이 그쪽으로 돌아감 (손대면 멈춤)", render: v2 },
         askRipple: { value: true, label: "창에서 사각 파문", render: v2 },
         paperBubble: { value: true, label: "옆에 멜로디 기호 버블", render: v2 },
+        // (the frames' pictograms — the artist, 2026-11-24: "present bot 에서 해당 작업내용 보고 인터랙션 다듬게")
+        frHop: { value: DEFAULT_PEOPLE.frHop, label: "프레임: 말 거는 이의 머리가 멜로디 박자로 튐", render: v2 },
+        frAskSolid: { value: DEFAULT_PEOPLE.frAskSolid, label: "프레임: 말 거는 이는 가까이서도 진하게", render: v2 },
+        frAskScale: { value: DEFAULT_PEOPLE.frAskScale, min: 1, max: 1.6, step: 0.01, label: "프레임: 말 거는 이 크기 ×", render: v2 },
       }),
       "옛 점 몸 · 옛 노브": folder({
         ppPoints: { value: DEFAULT_PEOPLE.points, min: 64, max: 800, step: 16, label: "점 몸: 점 수", render: v2 },
@@ -282,7 +288,11 @@ export function useBotPresentKnobs(isV2: boolean) {
         paperBlur: { value: 3, min: 0, max: 8, step: 0.5, label: "옛: 시트 번짐 (px)", render: () => false },
         paperFade: { value: 12, min: 3, max: 30, step: 0.5, label: "옛: 필름 옅어지는 거리", render: v2 },
       }, { collapsed: true, render: (get) => get(`${LAB_GROUP["bot-present"]}.사람.ppMode`) === "points" }),
-    }),
+      },
+      [],
+      // (the people become the frames study's pictograms — once, over what was saved before the day's end)
+      [{ tag: "pp-frames-2026-11-24", set: { ppMode: "frames" } }],
+    ),
     { collapsed: false, order: 0.6, render: () => isV2 && labLists("bot-present") },
   );
 }

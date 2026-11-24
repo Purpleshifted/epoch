@@ -57,7 +57,24 @@ function idHash(o: string): number {
   return ((h >>> 0) % 100000) / 100000;
 }
 
-export function FramePeopleLayer({ getList, playerPosRef, unit }: { getList: () => readonly Other[] | null; playerPosRef: React.MutableRefObject<{ x: number; z: number }>; unit: number }) {
+export function FramePeopleLayer({
+  getList,
+  playerPosRef,
+  unit,
+  asking,
+  hop = true,
+  askSolid = true,
+  askScale = 1.15,
+}: {
+  getList: () => readonly Other[] | null;
+  playerPosRef: React.MutableRefObject<{ x: number; z: number }>;
+  unit: number;
+  /** Who is asking me something, until when (performance.now ms) — PointPeople's, from the life events. */
+  asking?: React.MutableRefObject<Map<string, number>>;
+  hop?: boolean;
+  askSolid?: boolean;
+  askScale?: number;
+}) {
   const gl = useThree((st) => st.gl);
   const camera = useThree((st) => st.camera);
   const geom = useMemo(() => makeFrameGeometry(), []);
@@ -164,7 +181,15 @@ export function FramePeopleLayer({ getList, playerPosRef, unit }: { getList: () 
     }
     // a bot standing still: a frame where it stands once an arrival span; one gone from the list: dropped once faded
     const W: BotWalker[] = [];
+    const nowMs = performance.now();
     for (const [id, w] of B) {
+      // ASKING ME SOMETHING (a word asked, until answered or the question closes — PointPeople's `asking`, from the life
+      // events): the head hops on its melody, it stays
+      // solid near me, a little larger
+      const askingMe = (asking?.current.get(id) ?? 0) > nowMs;
+      w.talking = hop && askingMe;
+      w.solid = askSolid && askingMe;
+      w.boost = askingMe ? askScale : 1;
       if (w.still && now - w.lastSample >= span) {
         w.lastSample = now;
         w.stamps.unshift({ t: now, x: w.x, z: w.z, h: w.h, ph: 0 });
