@@ -379,7 +379,8 @@ export default function FrameLab() {
           // (the artist, 2026-11-23: "사이 프레임은 박자보단 개수가 낫다")
           flBetween: { options: { "개수로": 2, "클립 박자대로 (영상 한 장마다 한 판)": 3, "없음": 0 }, value: 2, label: "잔상 사이 프레임", render: (get) => get(`${G}.사람.flPix`) === false },
         },
-        { order: 3, collapsed: true },
+        // (the pictogram walks where it is: nothing left at arrivals, none of these read)
+        { order: 3, collapsed: true, render: (get) => get(`${G}.사람.flPix`) === false },
       ),
       // the afterimages by state — one state shown at a time (standing ones blow away by default)
       [TRAIL_F]: folder(

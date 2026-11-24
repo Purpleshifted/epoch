@@ -251,6 +251,8 @@ export function FramePeopleLayer({
     prepareWalkers(W, L, idx.current?.sheet.cols ?? 16, (w) => ({ speed: (w as BotWalker).mps, standing: (w as BotWalker).still }));
     const n = drawFrames(geom, mat, L, idx.current, W, camera.position, now, unit);
     (window as unknown as { __framesBots?: unknown }).__framesBots = { cards: n, bots: W.length };
+    // (a handle for the headless checks: the material, to switch the layer off and see what else draws)
+    if (process.env.NODE_ENV === "development") (window as unknown as { __framesLayer?: unknown }).__framesLayer = { mat, sideMat, geom };
   });
 
   // (pictograms: one card a bot, no thickness)

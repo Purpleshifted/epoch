@@ -488,8 +488,13 @@ void main() {
   float slitHalf = 0.5 * uSlit;
   vec4 t;
   float a;
-  if (abs(x) <= slitHalf) {
-    t = cellB(x + 0.5, vUv.y);
+  // THE THIN LINES AT THE CARDS' SIDES ("봇 옆에 가느다란 선들", 2026-11-24): a pixel on a card's edge is shaded a hair
+  // past it (x a little over the slit), and that "beyond" drew the stretch's streak — the body's middle column — down the
+  // edge. Nothing is beyond a card that is not stretched: an edge pixel is the card's own (and the pictogram never
+  // streaks)
+  float stretched = max(0.0, abs(x) - 0.5) > 0.01 ? 1.0 : 0.0;
+  if (uPix > 0.5 || abs(x) <= slitHalf + 0.01 || (stretched < 0.5 && uSlit > 0.999)) {
+    t = cellB(clamp(x + 0.5, 0.0, 1.0), vUv.y);
     a = t.a;
   } else {
     // the stretched part: beyond the frame's slit, towards the copy before
@@ -1226,7 +1231,9 @@ export function lookFromValues(c: Record<string, unknown>, sets: ClipSet[], pick
     con: num("flCon", 1),
     bright: num("flBright", 0),
     stamp: c.flStamp !== false,
-    standMode: c.flStandMode !== false,
+    // (the pictogram is a body walking where it is, not frames left at arrivals — the artist, 2026-11-24: "프레임 랩에서
+    // 카드가 아니라 동적 에셋으로 그려내는 픽토그램이도록")
+    standMode: c.flStandMode !== false && c.flPix === false,
     standCarry: c.flStandCarry !== false,
     carryKind: num("flCarryKind", 2),
     sampleSec: num("flSample", 0.5),
