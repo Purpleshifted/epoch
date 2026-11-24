@@ -129,6 +129,8 @@ export interface Look {
   pixNear: number;
   /** Of the people standing, the share talking to me (the study; bots will take theirs from the conversation). */
   talkShare: number;
+  /** A brisk walker's stride × (on the pictogram's): shorter, so the steps come quicker. */
+  pixBrisk: number;
   /** The card turned from its walking direction (rad); what fills between two copies (0 none · 2 a count of frames · 3 one per frame time). */
   yaw: number;
   between: number;
@@ -393,7 +395,8 @@ vec4 pixFig(float u, float v) {
   float f = vFrame;
   float side = mod(floor(f / 8.0), 2.0);
   float k = sin(3.14159265 * mod(f, 8.0) / 8.0);
-  float lift = st < 0.5 ? 3.0 : st < 1.5 ? 4.0 : st < 2.5 ? 6.0 : 0.0;
+  // (a brisk walk lifts the feet least — quick, short, low steps: "경보는 걷듯이 좀더 발발발발")
+  float lift = st < 0.5 ? 3.0 : st < 1.5 ? 2.0 : st < 2.5 ? 6.0 : 0.0;
   float rise = floor(k * lift + 0.5);
   float run = st > 1.5 && st < 2.5 ? 1.0 : 0.0;
   float bob = run * floor(k * 1.5 + 0.5);
@@ -406,6 +409,11 @@ vec4 pixFig(float u, float v) {
   float talk = st > 3.5 ? 1.0 : 0.0;
   float nod = talk * mod(floor(f / 6.0), 2.0);
   a = max(a, pxRect(p, -4.0, 22.0 + bob - nod, 8.0, 8.0));
+  if (st > 0.5 && st < 1.5) {
+    // brisk: the arms pump at the sides, the one opposite the lifted foot up (a power walk)
+    a = max(a, pxRect(p, -8.0, 11.0 + (1.0 - side) * 3.0, 3.0, 5.0));
+    a = max(a, pxRect(p, 5.0, 11.0 + side * 3.0, 3.0, 5.0));
+  }
   if (talk > 0.5) {
     float up = mod(floor(f / 3.0), 2.0);
     a = max(a, pxRect(p, 5.0, 14.0 + up * 6.0, 3.0, 6.0 + up * 3.0));
@@ -670,6 +678,11 @@ export function multiplies(L: Look): boolean {
   return L.multiply && !(L.pix && L.pixWhite);
 }
 
+/** The pictogram's stride × of a person's (its own short steps; a brisk walk's shorter still). */
+function pixStrideOf(L: Look, set: ClipSet | undefined): number {
+  return L.pix ? L.pixStride * (set?.state === "brisk" ? L.pixBrisk : 1) : 1;
+}
+
 /** The pictogram's pose a state (the row it is drawn with). */
 const STATE_INDEX: Record<StateKey, number> = { walk: 0, brisk: 1, run: 2, stand: 3, talk: 4 };
 
@@ -700,7 +713,7 @@ function stepPhases(L: Look, w: Walker, unit: number): void {
     else {
       const d = Math.hypot(st.x - prev.x, st.z - prev.z) / unit;
       const span = Math.max(0.05, st.t - prev.t);
-      const step = (strideOf(d / span, personHeight(L, w, set)) * (L.pix ? L.pixStride : 1)) / 2;
+      const step = (strideOf(d / span, personHeight(L, w, set)) * pixStrideOf(L, set)) / 2;
       const n = w.standing || d < 0.05 ? 0 : Math.max(1, Math.round(d / step));
       st.ph = prev.ph + n / 2;
     }
@@ -759,7 +772,7 @@ export function prepareWalkers(W: Walker[], L: Look, cols: number, own: (w: Walk
     const still = w.standing || !set || set.state === "stand" || set.state === "talk";
     w.speed = still ? 0 : L.speedMode === 1 ? vOwn : set.dist / Math.max(1e-3, set.gap);
     // (the frames follow the speed: a frame for each of the clip's own steps, so the feet keep to the ground)
-    w.gap = !set ? 0.04 : w.speed > 0 && L.speedMode === 1 ? (L.gait ? (strideOf(w.speed, personHeight(L, w, set)) * (L.pix ? L.pixStride : 1)) / 16 : set.dist) / w.speed : set.gap;
+    w.gap = !set ? 0.04 : w.speed > 0 && L.speedMode === 1 ? (L.gait ? (strideOf(w.speed, personHeight(L, w, set)) * pixStrideOf(L, set)) / 16 : set.dist) / w.speed : set.gap;
     // the clip's playback speed: its frames faster or slower (moving by the clip's set, the pace with them — the feet
     // stay matched); a ping-pong loop takes twice the frames a cycle
     const play = Math.max(0.05, set?.play ?? 1);
@@ -1154,6 +1167,7 @@ export function lookFromValues(c: Record<string, unknown>, sets: ClipSet[], pick
     pixWhite: c.flPixInk !== "black",
     pixNear: num("flPixNear", 0.45),
     talkShare: num("flTalkShare", 0.5),
+    pixBrisk: num("flPixBrisk", 0.55),
     yaw: (num("flYaw", 0) * Math.PI) / 180,
     between: num("flBetween", 2),
     trails: Object.fromEntries(

@@ -349,6 +349,7 @@ export default function FrameLab() {
           flPixInk: { options: { "흰 픽셀 · 검정 바탕 (포스터)": "white", "검정 픽셀 · 흰 바탕": "black" }, value: "white", label: "픽토그램 색", render: (get) => get(`${G}.사람.flPix`) !== false },
           flPixCell: { value: 2, min: 0.5, max: 6, step: 0.5, label: "픽토그램 칸 크기 (몸 30칸 기준)", render: (get) => get(`${G}.사람.flPix`) !== false },
           flPixStride: { value: 0.6, min: 0.2, max: 1.5, step: 0.05, label: "픽토그램 보폭 × (작을수록 토도도)", render: (get) => get(`${G}.사람.flPix`) !== false },
+          flPixBrisk: { value: 0.55, min: 0.2, max: 1.2, step: 0.05, label: "경보 보폭 × (작을수록 발발발 · 2026-11-24)", render: (get) => get(`${G}.사람.flPix`) !== false },
           flHeightBase: { value: 1.72, min: 1.2, max: 2.1, step: 0.01, label: "키 (m)" },
           flHeightVar: { value: 0.08, min: 0, max: 0.3, step: 0.01, label: "사람마다 키 차이 (±)" },
           flSpeedMin: { value: 0.5, min: 0.05, max: 3, step: 0.05, label: "가장 느린 사람 (m/s)" },
