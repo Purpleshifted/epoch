@@ -211,6 +211,11 @@ Sessions test only with `?botserver=0`.
   margin round it (시야 밖 여유, 0.15 of the half-width), `시야: 초당 점 수` a second (120k); each kept where it meets a
   wall, a roof or the ground, fading as before. No rings, no scan lines — a depth camera's reading. Shares the height
   map and the ray march with the heading axis. All three stay on 스캔 축 to compare.
+- **Density by the surface's angle (same day, "내 시야에서 면 각도 따라 밀도 다르게 보여야 하지 않나?").** Rays spread
+  evenly over the screen made every surface equally dense on screen — flat. Now a reading is kept with the chance
+  cos(angle between ray and surface)^`면 각도 → 밀도` (default 1): a wall facing me full, the ground far off and a wall I
+  look along sparse. The surface's normal comes from the ray march (the face of the cell it crossed into; a roof or the
+  ground = up). View and heading axes; the vertical spin unchanged.
 
 ### bot (present)
 

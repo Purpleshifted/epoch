@@ -64,13 +64,17 @@ export interface LidarLook {
   /** View: readings a second, and the margin read outside the view (a share of the screen's half-width/height). */
   rate: number;
   margin: number;
+  /** How the surface's angle to the ray thins the readings (the artist, 2026-11-24: "내 시야에서 면 각도 따라 밀도
+   *  다르게 보여야 하지 않나?"): a reading is kept with the chance cos(angle)^slant — a surface facing me full, one I
+   *  look along (the ground far off, a wall beside me) sparse. 0 = even everywhere. Not the vertical spin. */
+  slant: number;
   /** Where the sensor is: at the walker, at eye height (world), `eyeBack` (world) ahead of the camera — so a camera
    *  set back and up (눈 › 뒤로, 눈높이) looks down on the rings round me, as the photo does. */
   eyeH: number;
   eyeBack: number;
 }
 
-export const DEFAULT_LIDAR: LidarLook = { on: true, black: true, beams: 64, lowDeg: -60, highDeg: 85, azimuths: 720, hz: 5, decaySec: 1.5, range: 22, dot: 2, colour: "distance", axis: "view", coneDeg: 8, rate: 120_000, margin: 0.15, eyeH: 0.64, eyeBack: 0 };
+export const DEFAULT_LIDAR: LidarLook = { on: true, black: true, beams: 64, lowDeg: -60, highDeg: 85, azimuths: 720, hz: 5, decaySec: 1.5, range: 22, dot: 2, colour: "distance", axis: "view", coneDeg: 8, rate: 120_000, margin: 0.15, slant: 1, eyeH: 0.64, eyeBack: 0 };
 const fwd = new THREE.Vector3();
 
 /** Set by the scan (present) knobs (labKnobsScanPresent.ts), read per frame here and at render by ParliamentScene. */
@@ -277,6 +281,9 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
         return y <= hf[ci * N + cj];
       };
       const st2 = CELL_SIZE / 3;
+      /** The surface's normal at the last hit (cast): a wall's face (x or z), a roof or the ground (up). */
+      let nx = 0, ny = 1, nz = 0;
+      const cellI = (x: number) => Math.floor(x / CELL_SIZE);
       /** Where a ray from the sensor meets a wall, a roof or the ground within reach (its length), or −1. */
       const cast = (dx: number, dy: number, dz: number): number => {
         const tg = dy < -1e-6 ? H / -dy : Infinity;
@@ -294,13 +301,27 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
               if (solid(ex + dx * m, H + dy * m, ez + dz * m)) hi = m;
               else lo = m;
             }
+            // which face it came through: the same cell from above = its roof; else the side it crossed into
+            const xi0 = cellI(ex + dx * lo), xi1 = cellI(ex + dx * hi), zi0 = cellI(ez + dz * lo), zi1 = cellI(ez + dz * hi);
+            nx = 0;
+            ny = 0;
+            nz = 0;
+            if (xi0 === xi1 && zi0 === zi1) ny = 1;
+            else if (xi0 !== xi1 && (zi0 === zi1 || Math.abs(dx) >= Math.abs(dz))) nx = dx > 0 ? -1 : 1;
+            else nz = dz > 0 ? -1 : 1;
             return hi;
           }
           prev = tt;
           if (tt >= tEnd) break;
         }
+        nx = 0;
+        ny = 1;
+        nz = 0;
         return tg <= R ? tg : -1;
       };
+      /** Kept, by the surface's angle to the ray (slant): facing me always, along my look seldom. */
+      const slant = Math.max(0, L.slant);
+      const keep = (dx: number, dy: number, dz: number) => slant <= 0 || Math.random() < Math.pow(Math.abs(dx * nx + dy * ny + dz * nz), slant);
       if (view) {
         // THE VIEW: this frame's share of the readings, scattered over the screen and a margin round it (R2: even,
         // never a grid), each turned into a ray through the camera's lens
@@ -319,7 +340,7 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
           dy /= l;
           dz /= l;
           const t = cast(dx, dy, dz);
-          if (t < 0) continue;
+          if (t < 0 || !keep(dx, dy, dz)) continue;
           put(ex + dx * t, Math.max(0.01, H + dy * t), ez + dz * t, t);
         }
       } else {
@@ -336,7 +357,7 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
             const ca = Math.cos(al), sa = Math.sin(al);
             const dx = ca * Fx + sa * cs * Sx, dy = sa * cu, dz = ca * Fz + sa * cs * Sz;
             const hit = cast(dx, dy, dz);
-            if (hit < 0) continue;
+            if (hit < 0 || !keep(dx, dy, dz)) continue;
             const jit = 1 + Math.sin((a * 9137 + b * 71) * 12.9898) * 0.003;
             const d = hit * jit;
             put(ex + dx * d, Math.max(0.01, H + dy * d), ez + dz * d, hit);
