@@ -162,6 +162,8 @@ function Scene({ L, viewRef, readoutRef }: { L: Look; viewRef: React.MutableRefO
       // each person their own speed: between the least and the most, more of them slow
       speed: L.speedMin + Math.max(0, L.speedMax - L.speedMin) * Math.pow(frac(w.hash * 11.3), Math.max(0.2, L.speedSkew)),
     }));
+    // (a share of the people standing talk to me — the pictogram waves; in the street the conversation will say who)
+    for (const w of W) w.talking = w.standing && frac(w.hash * 3.71) < L.talkShare;
     const stateOf = (w: Walker) => stateOfWalker(L, w);
     const keepSec = keepSecOf(L);
     W.forEach((w, i) => {
@@ -339,6 +341,7 @@ export default function FrameLab() {
           flPath: { options: PATHS, value: "across" as Path, label: "길" },
           flCount: { value: 3, min: 1, max: 24, step: 1, label: "사람 수" },
           flStand: { value: 0, min: 0, max: 1, step: 0.05, label: "서 있는 사람의 몫" },
+          flTalkShare: { value: 0.5, min: 0, max: 1, step: 0.05, label: "서 있는 사람 중 말 거는 몫 (손 흔듦)", render: (get) => get(`${G}.사람.flPix`) !== false },
           // (one height for all, each person their own factor; a person's speed picks walk / brisk / run by the thresholds,
           // the legs' tempo from a walking person's stride — the clips are uniform, 2026-11-24)
           // (the artist, 2026-11-24: the motion poster's future observers — "현장에서 바로 돌려도" — drawn live, no clips)
@@ -495,6 +498,8 @@ export default function FrameLab() {
           flFarSide: { value: true, label: "멀리: 가로지르면 옆모습", render: (get) => !!get(`${G}.거리 위계 — 가까이 · 중간 · 멀리.flUseSide`) },
           // (the artist, 2026-11-23: "가만히 있는 건 가까이 있는 거 아니면 굳이 프레임 재생 안 해도")
           flStillNear: { value: true, label: "서 있기·소통: 프레임 재생은 가까이에서만" },
+          // (the artist, 2026-11-24: "가까운 애들은 투명도 높여주고")
+          flPixNear: { value: 0.45, min: 0.05, max: 1, step: 0.05, label: "가까이: 픽토그램 불투명도 (낮을수록 투명)", render: (get) => get(`${G}.사람.flPix`) !== false },
           // (the artist, 2026-11-23: "사람이 나를 통과해서 지나갈 때 fps 가 순간적으로 확 떨어지는데")
           flNearCut: { value: 0.8, min: 0, max: 4, step: 0.05, label: "나를 통과할 때: 사라지는 거리 (m)" },
           flNearBand: { value: 0.8, min: 0.05, max: 4, step: 0.05, label: "나를 통과할 때: 옅어지는 폭 (m)" },

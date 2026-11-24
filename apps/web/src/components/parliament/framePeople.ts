@@ -125,6 +125,10 @@ export interface Look {
   pixStride: number;
   /** White pictograms on a black ground (the artist, 2026-11-24: "예전 검정배경에 흰 픽셀로"), or black on white. */
   pixWhite: boolean;
+  /** The pictogram's opacity near me (the near band; full past the middle band). */
+  pixNear: number;
+  /** Of the people standing, the share talking to me (the study; bots will take theirs from the conversation). */
+  talkShare: number;
   /** The card turned from its walking direction (rad); what fills between two copies (0 none · 2 a count of frames · 3 one per frame time). */
   yaw: number;
   between: number;
@@ -212,6 +216,8 @@ export interface Walker {
   gap: number;
   // seconds a phase cycle takes (the clip's frames once — twice for a ping-pong loop)
   cycle: number;
+  /** Standing and talking to me (the pictogram waves). */
+  talking?: boolean;
   // walking across my view now (in profile), kept a little past the threshold
   sideNow?: boolean;
 }
@@ -395,11 +401,15 @@ vec4 pixFig(float u, float v) {
   float a = pxRect(p, -5.0 - run, lL, 4.0, 8.0 + bob - lL);
   a = max(a, pxRect(p, 1.0 + run, lR, 4.0, 8.0 + bob - lR));
   a = max(a, pxRect(p, -5.0, 8.0 + bob, 10.0, 12.0));
-  a = max(a, pxRect(p, -4.0, 22.0 + bob, 8.0, 8.0));
-  if (st > 3.5) {
-    // (the arm up and down every four frames: a wave)
-    float up = mod(floor(f / 4.0), 2.0);
-    a = max(a, pxRect(p, 5.0, 12.0 + up * 6.0, 3.0, 6.0 + up * 2.0));
+  // TALKING TO ME ("말 걸 때 모션도 보여줘"): the arm up and down every three frames (a wave), the other hand at the chest
+  // now and then, the head nodding a cell — a signal from where they stand
+  float talk = st > 3.5 ? 1.0 : 0.0;
+  float nod = talk * mod(floor(f / 6.0), 2.0);
+  a = max(a, pxRect(p, -4.0, 22.0 + bob - nod, 8.0, 8.0));
+  if (talk > 0.5) {
+    float up = mod(floor(f / 3.0), 2.0);
+    a = max(a, pxRect(p, 5.0, 14.0 + up * 6.0, 3.0, 6.0 + up * 3.0));
+    a = max(a, pxRect(p, -8.0, 12.0 + mod(floor(f / 8.0), 2.0) * 3.0, 3.0, 5.0));
   }
   return vec4(uPixInk, a);
 }
@@ -702,6 +712,8 @@ function stepPhases(L: Look, w: Walker, unit: number): void {
  *  when its clip runs). */
 export function stateOfWalker(L: Look, w: Walker): StateKey {
   const st = L.clips[w.home]?.state;
+  // (the pictogram needs no talking clip: a person standing and talking to me waves — `talking`)
+  if (w.standing && L.pix) return w.talking ? "talk" : "stand";
   return w.standing ? (st === "talk" ? "talk" : "stand") : st === "run" ? "run" : st === "brisk" ? "brisk" : "walk";
 }
 
@@ -868,7 +880,8 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
     // (a clip standing in — a profile one crossing my view — takes the person's own height: "크기는 옆모습 사이즈랑 연동")
     const tall = personHeight(L, w, CL[w.home] ?? set);
     A[n * 4 + 2] = (tall / Math.max(0.2, set?.fill ?? 1)) * (1 + (T.scale - 1) * u) * unit;
-    A[n * 4 + 3] = alpha * (set?.ink ?? 1) * Q.ink;
+    // (pictograms near me fainter — "가까운 애들은 투명도 높여주고": the near band at pixNear, full past the middle)
+    A[n * 4 + 3] = alpha * (set?.ink ?? 1) * Q.ink * (L.pix ? L.pixNear + (1 - L.pixNear) * Q.mid : 1);
     B[n * 4] = slot;
     // standing or talking past the near band: one still frame of their own (no frames run where nobody reads them)
     const still = L.tier.stillNear && w.standing && Q.mid > 0.5;
@@ -954,10 +967,11 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
         }
         const sA = a >= 0 ? S[a] : S[S.length - 1];
         const sB = a > 0 ? S[a - 1] : null;
-        let body: Stamp = { t: tb, x: sA.x, z: sA.z, h: sA.h, ph: sA.ph };
+        // (standing, the body keeps its own beat — a wave, a nod — rather than the steps' still pose)
+        let body: Stamp = { t: tb, x: sA.x, z: sA.z, h: sA.h, ph: w.standing ? w.ph : sA.ph };
         if (sB) {
           const e = Math.min(1, Math.max(0, (tb - sA.t) / Math.max(1e-3, sB.t - sA.t)));
-          body = { t: tb, x: sA.x + (sB.x - sA.x) * e, z: sA.z + (sB.z - sA.z) * e, h: sB.h, ph: sA.ph + (sB.ph - sA.ph) * e };
+          body = { t: tb, x: sA.x + (sB.x - sA.x) * e, z: sA.z + (sB.z - sA.z) * e, h: sB.h, ph: w.standing ? w.ph : sA.ph + (sB.ph - sA.ph) * e };
         }
         list.push({ s: body, age: 0 });
       } else {
@@ -1138,6 +1152,8 @@ export function lookFromValues(c: Record<string, unknown>, sets: ClipSet[], pick
     pixCell: num("flPixCell", 2),
     pixStride: num("flPixStride", 0.6),
     pixWhite: c.flPixInk !== "black",
+    pixNear: num("flPixNear", 0.45),
+    talkShare: num("flTalkShare", 0.5),
     yaw: (num("flYaw", 0) * Math.PI) / 180,
     between: num("flBetween", 2),
     trails: Object.fromEntries(
