@@ -11,6 +11,9 @@ import { ATLAS_GLSL, type SpriteIndex } from "./spritePeople";
 import { rhythmOf, stepAt } from "@/lib/parliament";
 
 export const MAX_CARDS = 4096;
+/** The pictograms' own layer: the street's softening (InkPaper's blur by depth, its exposure) leaves it out and draws it
+ *  over the frame as drawn — its blur is its own (2026-11-24: "픽토그램에는 블러 적용 따로 되도록"). */
+export const PICTO_LAYER = 5; // (2 is InkPaper's EXPOSURE_LAYER)
 export const TAU = Math.PI * 2;
 
 export type Path = "across" | "circle" | "toward" | "wander" | "scatter";
@@ -132,6 +135,8 @@ export interface Look {
   talkShare: number;
   /** A brisk walker's stride × (on the pictogram's): shorter, so the steps come quicker. */
   pixBrisk: number;
+  /** The pictogram's own blur (a share of its width; 0 = crisp). */
+  pixBlur: number;
   /** The card turned from its walking direction (rad); what fills between two copies (0 none · 2 a count of frames · 3 one per frame time). */
   yaw: number;
   between: number;
@@ -943,7 +948,7 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
     C[n * 4 + 2] = prev ? 1 : 0;
     C[n * 4 + 3] = (T.rise * u + (set?.lift ?? 0)) * unit;
     Dd[n * 4] = T.desat * u;
-    Ff[n * 4] = L.pix ? 0 : T.blur * u + Q.blur;
+    Ff[n * 4] = L.pix ? L.pixBlur : T.blur * u + Q.blur;
     // the flowing colour: the walker's state's own
     const G2 = L.grads[stateOf(w)];
     // (the pictogram has no colour flowing: "이럴거면 색 효과 넣을 필요 없음")
@@ -1202,6 +1207,7 @@ export function lookFromValues(c: Record<string, unknown>, sets: ClipSet[], pick
     pixNear: num("flPixNear", 0.45),
     talkShare: num("flTalkShare", 0.5),
     pixBrisk: num("flPixBrisk", 0.55),
+    pixBlur: num("flPixBlur", 0),
     yaw: (num("flYaw", 0) * Math.PI) / 180,
     between: num("flBetween", 2),
     trails: Object.fromEntries(

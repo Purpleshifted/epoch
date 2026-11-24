@@ -292,6 +292,7 @@ export function usePersonalVisuals(): PersonalVisuals {
         frAskSolid: c.frAskSolid ?? true,
         frAskScale: c.frAskScale ?? 1.15,
         frSize: c.frSize ?? 0.7, // (the pictograms smaller, 2026-11-24)
+        frBlur: c.frBlur ?? 0, // (the pictograms' own blur)
       },
       // the eye's lengths are metres: divided by the scale into world units
       eye: { on: c.streetOn && c.eyeOn, height: c.eyeHeight / c.ppScale, back: c.eyeBack / c.ppScale, look: c.eyeLook / c.ppScale },
@@ -303,7 +304,7 @@ export function usePersonalVisuals(): PersonalVisuals {
       paper: c.streetOn && c.paperOn,
       ink: { narrow: c.inkNarrow, wide: c.inkWide, decay: c.inkDecay, gain: c.paperExposure, density: c.inkDensity, fade: c.inkFade, grain: c.inkGrain, rolloff: c.inkRolloff, shake: c.inkShake, halo: c.inkHalo, burn: c.inkBurn },
     }),
-    [c.streetOn, c.streetPeople, c.paperOn, c.paperInk, c.paperBlur, c.paperFade, c.paperLabel, c.paperFlicker, c.paperStretch, c.paperShake, c.paperBlot, c.paperBubble, c.paperAspectMin, c.paperAspectMax, c.paperTail, c.paperVariety, c.paperExposure, c.paperFrame, c.askTurn, c.askRipple, c.inkNarrow, c.inkWide, c.inkDecay, c.inkDensity, c.inkFade, c.inkGrain, c.inkRolloff, c.inkShake, c.inkHalo, c.inkBurn, c.ppMode, c.ppBoxAspect, c.ppBoxRest, c.ppCue, c.ppPoints, c.ppPointsPhone, c.ppScale, c.ppDot, c.ppMaxPx, c.ppGait, c.ppColour, c.viewOn, c.viewRadius, c.hintsOn, c.hintRadius, c.hintEvery, c.logPlace, c.ppGrey, c.ppHeight, c.ppVariety, c.ppMaxCadence, c.ppPlate, c.ppPlateAlpha, c.ppSmearSec, c.ppSmearCopies, c.ppBreath, c.ppFog, c.ppMaxSpeed, c.otherRecent, c.ppFaceEach, c.ppFaceRadius, c.meBody, c.meRest, c.frHop, c.frAskSolid, c.frAskScale, c.frSize, c.eyeOn, c.eyeHeight, c.eyeBack, c.eyeLook, c.streetFog, c.walkSpeed],
+    [c.streetOn, c.streetPeople, c.paperOn, c.paperInk, c.paperBlur, c.paperFade, c.paperLabel, c.paperFlicker, c.paperStretch, c.paperShake, c.paperBlot, c.paperBubble, c.paperAspectMin, c.paperAspectMax, c.paperTail, c.paperVariety, c.paperExposure, c.paperFrame, c.askTurn, c.askRipple, c.inkNarrow, c.inkWide, c.inkDecay, c.inkDensity, c.inkFade, c.inkGrain, c.inkRolloff, c.inkShake, c.inkHalo, c.inkBurn, c.ppMode, c.ppBoxAspect, c.ppBoxRest, c.ppCue, c.ppPoints, c.ppPointsPhone, c.ppScale, c.ppDot, c.ppMaxPx, c.ppGait, c.ppColour, c.viewOn, c.viewRadius, c.hintsOn, c.hintRadius, c.hintEvery, c.logPlace, c.ppGrey, c.ppHeight, c.ppVariety, c.ppMaxCadence, c.ppPlate, c.ppPlateAlpha, c.ppSmearSec, c.ppSmearCopies, c.ppBreath, c.ppFog, c.ppMaxSpeed, c.otherRecent, c.ppFaceEach, c.ppFaceRadius, c.meBody, c.meRest, c.frHop, c.frAskSolid, c.frAskScale, c.frSize, c.frBlur, c.eyeOn, c.eyeHeight, c.eyeBack, c.eyeLook, c.streetFog, c.walkSpeed],
   );
   // the ground's part of the street look goes to the components RoleField mounts, through the module value
   useEffect(() => {

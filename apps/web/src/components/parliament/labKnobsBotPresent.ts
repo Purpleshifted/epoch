@@ -245,6 +245,9 @@ export function useBotPresentKnobs(isV2: boolean) {
         ppMode: { options: PEOPLE_MODES, value: DEFAULT_PEOPLE.mode, label: "그리기", render: v2 },
         // (the artist, 2026-11-24: "픽토그램 크기 전반적으로 줄이면서")
         frSize: { value: DEFAULT_PEOPLE.frSize, min: 0.3, max: 1.5, step: 0.01, label: "프레임: 픽토그램 크기 ×", render: isFr },
+        // (its own blur, apart from the street's softening — the artist, 2026-11-24: "픽토그램에는 블러 적용 따로 되도록";
+        // drawn in the pictogram's shader, so the same on the white ground and the black)
+        frBlur: { value: DEFAULT_PEOPLE.frBlur, min: 0, max: 0.2, step: 0.005, label: "프레임: 픽토그램 흐림 (0 = 또렷)", render: isFr },
         ppGait: { options: { "모캡 걷기 — CMU 실제 보행 넷 (사람마다 하나)": "mocap", "사인 걷기 — 절차적 골격": "sine" } as Record<string, "mocap" | "sine">, value: DEFAULT_PEOPLE.gait, label: "걸음", render: nf },
         ppColour: { value: DEFAULT_PEOPLE.colour, min: 0, max: 1, step: 0.05, label: "옷 색 (0 = 회색, 1 = 팔레트)", render: nf },
         ppHeight: { value: DEFAULT_PEOPLE.height, min: 1, max: 2.4, step: 0.05, label: "키 (m, 평균)", render: nf },

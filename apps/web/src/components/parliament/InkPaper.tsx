@@ -20,6 +20,7 @@ import * as THREE from "three";
 import { LongExposure, setExposureWeight } from "./longExposure";
 import { EXPOSE_GLSL, EXPOSURE_LAYER } from "./paperLook";
 import { lidarActive } from "./LidarScan";
+import { PICTO_LAYER } from "./framePeople";
 export { EXPOSURE_LAYER };
 
 export interface InkPaperLook {
@@ -272,6 +273,17 @@ export function InkPaper({ look = DEFAULT_INK, fogFar }: { look?: InkPaperLook; 
     setUniforms(u, { uScene: sceneRT.texture, uNear: nB.texture, uWide: wB.texture, uFeed: exposure.texture, uFeedSoft: look.halo > 0 ? fB.texture : exposure.texture, uHalo: look.halo, uBurn: look.burn, uDepth: sceneRT.depthTexture, uCamNear: pc.near, uCamFar: pc.far, uFogFar: fogFar, uTime: state.clock.elapsedTime, uDensity: look.density, uFade: look.fade, uGrain: look.grain, uRolloff: look.rolloff, uSharp: lidarActive() ? 1 : 0 });
     gl.setRenderTarget(null);
     gl.render(quad.sCompose, quad.cam);
+    // 5. the pictograms (FramePeopleLayer, PICTO_LAYER): over the composed frame as they are drawn — not softened with
+    // the scene, not exposed; their blur is their own (2026-11-24: "픽토그램에는 블러 적용 따로 되도록")
+    camera.layers.set(PICTO_LAYER);
+    const bgP = scene.background;
+    setBackground(scene, null);
+    const autoP = gl.autoClear;
+    setAutoClear(gl, false);
+    gl.render(scene, camera);
+    setAutoClear(gl, autoP);
+    setBackground(scene, bgP);
+    camera.layers.set(0);
   }, 1);
 
   return null;

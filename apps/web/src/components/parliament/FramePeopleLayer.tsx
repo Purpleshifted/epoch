@@ -28,6 +28,7 @@ import {
   makeFrameGeometry,
   makeMaterial,
   makeSideMaterial,
+  PICTO_LAYER,
   multiplies,
   prepareWalkers,
   setBlend,
@@ -78,6 +79,7 @@ export function FramePeopleLayer({
   askSolid = true,
   askScale = 1.15,
   size = 1,
+  blur = 0,
   getPeople,
   paper = false,
 }: {
@@ -91,6 +93,8 @@ export function FramePeopleLayer({
   askScale?: number;
   /** The pictograms' size × (all of them; the bot lab's knob). */
   size?: number;
+  /** The pictograms' own blur (0 = crisp; the bot lab's knob). */
+  blur?: number;
   /** THE PEOPLE WHERE THE STREET ALREADY HAS THEM (the artist, 2026-11-24: "픽토그램 이거 이 자리에서 그려내도록 하면 안
    *  되나? … 그냥 네모 상자일 때는 안 이랬잖아"): PointPeople's own moving bodies — a pictogram drawn right there, one a
    *  person, facing me, no arrivals, no lag. Given, it replaces the arrivals' frames. */
@@ -155,8 +159,8 @@ export function FramePeopleLayer({
   useEffect(() => {
     if (!look) return;
     // (white pictograms lay over the ground; the street's ground itself is the scan's — black for them)
-    setBlend(mat, multiplies(look));
-    setBlend(sideMat, multiplies(look));
+    setBlend(mat, !look.pix && multiplies(look));
+    setBlend(sideMat, !look.pix && multiplies(look));
   }, [look, mat, sideMat]);
 
   const bots = useRef(new Map<string, BotWalker>());
@@ -166,7 +170,12 @@ export function FramePeopleLayer({
     if (!look) return;
     // (in the street the pictograms stand where the bodies are: nothing left at arrivals, no delay — always facing me, the
     // pictogram's own)
-    const L: Look = getPeople ? { ...look, standMode: false, stamp: false } : look;
+    // (the pictogram's ink by the street's ground — black on the white paper, white on the black — laid over, never
+    // multiplied; its blur its own)
+    const pixOwn = { pixBlur: blur, pixWhite: !paper, multiply: look.pix ? false : look.multiply };
+    const L: Look = getPeople ? { ...look, standMode: false, stamp: false, ...pixOwn } : { ...look, ...pixOwn };
+    // (their own layer: the street's plain render draws it with the rest; InkPaper leaves it out of its softening)
+    state.camera.layers.enable(PICTO_LAYER); // (InkPaper sets the camera's layers for each of its passes itself)
     const dt = Math.min(delta, 0.05);
     const now = state.clock.elapsedTime;
     const me = playerPosRef.current;
@@ -259,8 +268,8 @@ export function FramePeopleLayer({
   const thickOn = !!look && !look.pix && (look.thick > 0 || look.thickFill) && look.thickInk > 0;
   return (
     <>
-      <mesh geometry={geom} material={mat} frustumCulled={false} renderOrder={10} />
-      {thickOn && <mesh geometry={geom} material={sideMat} frustumCulled={false} renderOrder={10} />}
+      <mesh ref={(m) => m?.layers.set(PICTO_LAYER)} geometry={geom} material={mat} frustumCulled={false} renderOrder={10} />
+      {thickOn && <mesh ref={(m) => m?.layers.set(PICTO_LAYER)} geometry={geom} material={sideMat} frustumCulled={false} renderOrder={10} />}
     </>
   );
 }
