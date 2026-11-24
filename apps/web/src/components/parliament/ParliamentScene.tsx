@@ -24,7 +24,7 @@ import { RoleField, type ParliamentDebug, type Visitor } from "./RoleField";
 import { PointPeople } from "./PointPeople";
 import { StreetHud, type LogPlace } from "./StreetHud";
 import { PAPER, streetGaze } from "./streetLook";
-import { lidarBlack } from "./LidarScan";
+import { lidarActive, lidarBlack } from "./LidarScan";
 import { InkPaper } from "./InkPaper";
 import { LEVA_THEME, useFoldControls, useNatureControls } from "./useWorld";
 import { savable } from "./levaSave";
@@ -500,11 +500,16 @@ export default function ParliamentScene({ lab }: { lab?: LabPage } = {}) {
   // THE FUTURE UNDER THE VISITOR'S FEET (FuturePresence.tsx, a trial of 2026-11-22; Leva 미래 (개인뷰 · 시험), ?future=)
   const futureKnobs = useFuturePresenceControls(isV2);
   // the lab's asset pages: the future's place on scan (future), its observers on bot (future), nothing of it elsewhere
+  // — and nothing of the future while the lidar scan reads the place, wherever it runs: neither its lines nor its
+  // observers (the artist, 2026-11-24: "레이더 돌릴 때는 가려줘", the future's lines). (usePersonalVisuals above has set
+  // the lidar's look for this render, so this reads the switch as it is now.)
+  const lidarOn = lidarActive();
   const future = useMemo(() => {
+    if (lidarOn) return { ...futureKnobs, on: false, overlayOn: false, encounterOn: false };
     if (!lab || lab === "preview") return futureKnobs;
     const overlayOn = lab === "scan-future", encounterOn = lab === "bot-future";
     return { ...futureKnobs, on: overlayOn || encounterOn, overlayOn, encounterOn };
-  }, [futureKnobs, lab]);
+  }, [futureKnobs, lab, lidarOn]);
   // …and the people only where they are the asset (or everything is)
   const labPeople = !lab || lab === "preview" || lab === "bot-present";
   const getRhythm = useCallback(() => (witnessRef.current ? rhythmOf(witnessRef.current.me) : null), []);
