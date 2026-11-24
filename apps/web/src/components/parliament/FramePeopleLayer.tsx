@@ -16,6 +16,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { nearestImage, type Other } from "@/lib/parliament";
 import { savedGroup } from "./levaSave";
+import { lidarActive } from "./LidarScan";
 import { LAB_GROUP } from "./mobileLab";
 import { loadSpriteList, loadSpriteSheet, type SpriteIndex } from "./spritePeople";
 import {
@@ -170,9 +171,9 @@ export function FramePeopleLayer({
     if (!look) return;
     // (in the street the pictograms stand where the bodies are: nothing left at arrivals, no delay — always facing me, the
     // pictogram's own)
-    // (the pictogram's ink by the street's ground — black on the white paper, white on the black — laid over, never
-    // multiplied; its blur its own)
-    const pixOwn = { pixBlur: blur, pixWhite: !paper, multiply: look.pix ? false : look.multiply };
+    // (the pictogram's ink by the street's ground — black on the white paper, white on the black, the lidar's included
+    // (it reads the white pipeline onto black) — laid over, never multiplied; its blur its own)
+    const pixOwn = { pixBlur: blur, pixWhite: !paper || lidarActive(), multiply: look.pix ? false : look.multiply };
     const L: Look = getPeople ? { ...look, standMode: false, stamp: false, ...pixOwn } : { ...look, ...pixOwn };
     // (their own layer: the street's plain render draws it with the rest; InkPaper leaves it out of its softening)
     state.camera.layers.enable(PICTO_LAYER); // (InkPaper sets the camera's layers for each of its passes itself)
