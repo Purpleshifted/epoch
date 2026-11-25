@@ -134,9 +134,12 @@ export interface PeopleLook {
   frSize: number;
   /** The pictograms' own blur (0 = crisp; the street's softening never reaches them). */
   frBlur: number;
+  /** The tracking boxes round who is with me (0 none, 1 the asker, 2 + whoever is within frTrackRadius m). */
+  frTrack: number;
+  frTrackRadius: number;
 }
 
-export const DEFAULT_PEOPLE: PeopleLook = { mode: "frames", gait: "mocap", colour: 1, paper: false, ink: 1, blur: 3, fadeDist: 12, labelDist: 4, flicker: true, stretchGain: 1, shake: 2, blotDist: 8, bubble: true, aspectMin: 0.5, aspectMax: 1.3, tailSec: 1.6, exposure: 0.5, frame: 1, askTurn: true, ripple: true, paperVariety: 1, boxAspect: 0.55, boxRest: 0.22, cue: true, points: 480, pointsPhone: 200, scale: 2.5, dot: 0.07, maxPx: 6, grey: 0.78, height: 1.7, variety: 1, maxCadence: 2.2, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3, meBody: false, meRest: 0.4, frHop: true, frAskSolid: true, frAskScale: 1.15, frSize: 0.7, frBlur: 0 };
+export const DEFAULT_PEOPLE: PeopleLook = { mode: "frames", gait: "mocap", colour: 1, paper: false, ink: 1, blur: 3, fadeDist: 12, labelDist: 4, flicker: true, stretchGain: 1, shake: 2, blotDist: 8, bubble: true, aspectMin: 0.5, aspectMax: 1.3, tailSec: 1.6, exposure: 0.5, frame: 1, askTurn: true, ripple: true, paperVariety: 1, boxAspect: 0.55, boxRest: 0.22, cue: true, points: 480, pointsPhone: 200, scale: 2.5, dot: 0.07, maxPx: 6, grey: 0.78, height: 1.7, variety: 1, maxCadence: 2.2, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3, meBody: false, meRest: 0.4, frHop: true, frAskSolid: true, frAskScale: 1.15, frSize: 0.7, frBlur: 0, frTrack: 2, frTrackRadius: 4 };
 
 /** The visitor, for their own body: where they stand and look (the controller's yaw), and their melody. */
 export interface MeInput {
@@ -1125,6 +1128,15 @@ export function PointPeople({
       } else if (p.trail.length) p.trail.length = 0;
       const askUntil = asking.current.get(id);
       const cue = look.cue && askUntil !== undefined && nowMs < askUntil ? 1 : 0;
+      // (the pictograms: the eye turns to whoever asks me something — the boxes' branch below, where it lived, is not run
+      // for them; "고개 그쪽으로 돌아감", 2026-11-25)
+      if (look.mode === "frames" && askUntil !== undefined && nowMs < askUntil && gazeId.current !== id) {
+        gazeId.current = id;
+        streetGaze.x = p.x;
+        streetGaze.z = p.z;
+        streetGaze.until = now + 1.2;
+        streetGaze.on = look.askTurn;
+      }
       // the body's way, written down for its traces
       if (paper && (fibers || sprites ? !M.stamp : T.on)) {
         const b = p.body;
@@ -1516,7 +1528,7 @@ export function PointPeople({
       {look.mode === "fibers" && <mesh geometry={fiberGeom} material={fiberMat} frustumCulled={false} renderOrder={10} />}
       {look.mode === "sprites" && <mesh geometry={spriteGeom} material={spriteMat} frustumCulled={false} renderOrder={10} />}
       {/* (frames: the pictograms where these bodies are, read each frame — 2026-11-24) */}
-      {look.mode === "frames" && <FramePeopleLayer getList={() => framesList.current} playerPosRef={playerPosRef} unit={k} asking={asking} hop={look.frHop ?? true} askSolid={look.frAskSolid ?? true} askScale={look.frAskScale ?? 1.15} size={look.frSize ?? 0.7} blur={look.frBlur ?? 0} getPeople={() => people.current} paper={look.paper} />}
+      {look.mode === "frames" && <FramePeopleLayer getList={() => framesList.current} playerPosRef={playerPosRef} unit={k} asking={asking} hop={look.frHop ?? true} askSolid={look.frAskSolid ?? true} askScale={look.frAskScale ?? 1.15} size={look.frSize ?? 0.7} blur={look.frBlur ?? 0} track={look.frTrack ?? 2} trackRadius={look.frTrackRadius ?? 4} getPeople={() => people.current} paper={look.paper} />}
       {/* 흰 바탕: the record device's labels — the being's number and a leader line, by the nearest few */}
       {look.paper &&
         labels.map((l) => (

@@ -14,7 +14,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { nearestImage, type Other } from "@/lib/parliament";
+import { individualNo, nearestImage, type Other } from "@/lib/parliament";
 import { savedGroup } from "./levaSave";
 import { lidarActive } from "./LidarScan";
 import { LAB_GROUP } from "./mobileLab";
@@ -29,6 +29,7 @@ import {
   makeFrameGeometry,
   makeMaterial,
   makeSideMaterial,
+  personHeight,
   PICTO_LAYER,
   multiplies,
   prepareWalkers,
@@ -46,6 +47,8 @@ interface BotWalker extends Walker {
   mps: number;
   still: boolean;
   seen: number;
+  /** Asking me something now (the tracking box's bold one). */
+  asks?: boolean;
 }
 
 /** A body in the street as PointPeople keeps it: its place, way and pace (world units), its fade; on the white ground the
@@ -81,6 +84,8 @@ export function FramePeopleLayer({
   askScale = 1.15,
   size = 1,
   blur = 0,
+  track = 2,
+  trackRadius = 4,
   getPeople,
   paper = false,
 }: {
@@ -96,6 +101,11 @@ export function FramePeopleLayer({
   size?: number;
   /** The pictograms' own blur (0 = crisp; the bot lab's knob). */
   blur?: number;
+  /** TRACKED (the artist, 2026-11-25: "나랑 interact 중인애들한테 touchdesigner blob 처럼 사각형 실시간으로 트랙되도록"): a
+   *  box drawn round each one with me on the screen, every frame — 0 none, 1 who asks me something, 2 that and whoever is
+   *  within `trackRadius` (m). */
+  track?: number;
+  trackRadius?: number;
   /** THE PEOPLE WHERE THE STREET ALREADY HAS THEM (the artist, 2026-11-24: "픽토그램 이거 이 자리에서 그려내도록 하면 안
    *  되나? … 그냥 네모 상자일 때는 안 이랬잖아"): PointPeople's own moving bodies — a pictogram drawn right there, one a
    *  person, facing me, no arrivals, no lag. Given, it replaces the arrivals' frames. */
@@ -164,6 +174,20 @@ export function FramePeopleLayer({
     setBlend(sideMat, !look.pix && multiplies(look));
   }, [look, mat, sideMat]);
 
+  // the tracking boxes: a 2D canvas over the scene's (nothing on the GPU), cleared and drawn each frame
+  const overlay = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const parent = gl.domElement.parentElement;
+    if (!parent) return;
+    const cv = document.createElement("canvas");
+    cv.style.cssText = "position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:2";
+    parent.appendChild(cv);
+    overlay.current = cv;
+    return () => {
+      cv.remove();
+      overlay.current = null;
+    };
+  }, [gl]);
   const bots = useRef(new Map<string, BotWalker>());
   const lastList = useRef<readonly Other[] | null>(null);
 
@@ -242,6 +266,7 @@ export function FramePeopleLayer({
       // events): the head hops on its melody, it stays
       // solid near me, a little larger
       const askingMe = (asking?.current.get(id) ?? 0) > nowMs;
+      w.asks = askingMe;
       w.talking = hop && askingMe;
       w.solid = askSolid && askingMe;
       w.boost = (askingMe ? askScale : 1) * size;
@@ -260,7 +285,67 @@ export function FramePeopleLayer({
     }
     prepareWalkers(W, L, idx.current?.sheet.cols ?? 16, (w) => ({ speed: (w as BotWalker).mps, standing: (w as BotWalker).still }));
     const n = drawFrames(geom, mat, L, idx.current, W, camera.position, now, unit);
-    (window as unknown as { __framesBots?: unknown }).__framesBots = { cards: n, bots: W.length };
+    // THE BLOB TRACKING (TouchDesigner's look): a thin box round each one with me — the asker's bolder — and its number
+    // and distance above, following the pictogram on the screen every frame
+    const cv = overlay.current;
+    let tracked = 0;
+    let nearest: string | null = null;
+    let nearD = Infinity;
+    for (const w of W) {
+      const d = Math.hypot(w.x - camera.position.x, w.z - camera.position.z) / unit;
+      if (d < nearD) {
+        nearD = d;
+        nearest = w.id ?? null;
+      }
+    }
+    if (cv) {
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const cw = gl.domElement.clientWidth, ch = gl.domElement.clientHeight;
+      if (cv.width !== Math.round(cw * dpr) || cv.height !== Math.round(ch * dpr)) {
+        cv.width = Math.round(cw * dpr);
+        cv.height = Math.round(ch * dpr);
+      }
+      const ctx = cv.getContext("2d");
+      if (ctx) {
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, cw, ch);
+        if (track > 0 && L.pix) {
+          const ink = L.pixWhite ? "255,255,255" : "12,12,12";
+          const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).setY(0).normalize();
+          const v = new THREE.Vector3();
+          ctx.font = "10px ui-monospace, monospace";
+          for (const w of W) {
+            const d = Math.hypot(w.x - camera.position.x, w.z - camera.position.z) / unit;
+            const asks = !!(w as BotWalker).asks;
+            if (!(asks || (track === 2 && d < trackRadius))) continue;
+            // the pictogram's body: its height, and 10 of its card's 15 units across (the card half as wide as tall)
+            const h = personHeight(L, w, undefined) * (w.boost ?? 1) * unit;
+            const half = (h * 0.5 * (10 / 15)) / 2;
+            let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, behind = false;
+            for (const [sx, sy] of [[-1, 0], [1, 0], [-1, 1], [1, 1]] as const) {
+              v.set(w.x + right.x * half * sx, h * sy, w.z + right.z * half * sx).project(camera);
+              if (v.z > 1) behind = true;
+              const px = (v.x * 0.5 + 0.5) * cw, py = (1 - (v.y * 0.5 + 0.5)) * ch;
+              x0 = Math.min(x0, px);
+              x1 = Math.max(x1, px);
+              y0 = Math.min(y0, py);
+              y1 = Math.max(y1, py);
+            }
+            if (behind || x1 < 0 || x0 > cw || y1 < 0 || y0 > ch) continue;
+            const pad = 4;
+            ctx.strokeStyle = `rgba(${ink},${asks ? 1 : 0.75})`;
+            ctx.lineWidth = asks ? 2 : 1;
+            ctx.strokeRect(Math.round(x0 - pad) + 0.5, Math.round(y0 - pad) + 0.5, Math.round(x1 - x0 + 2 * pad), Math.round(y1 - y0 + 2 * pad));
+            ctx.fillStyle = `rgba(${ink},${asks ? 1 : 0.75})`;
+            ctx.fillText(`${individualNo(w.id ?? "")}  ${d.toFixed(1)}m${asks ? "  ♪" : ""}`, Math.round(x0 - pad), Math.round(y0 - pad) - 4);
+            tracked++;
+          }
+        }
+      }
+    }
+    (window as unknown as { __framesBots?: unknown }).__framesBots = { cards: n, bots: W.length, tracked };
+    // (the lab's "말 걸기 시험" asks with the nearest one)
+    (window as unknown as { __framesNearest?: string | null }).__framesNearest = nearest;
     // (a handle for the headless checks: the material, to switch the layer off and see what else draws)
     if (process.env.NODE_ENV === "development") (window as unknown as { __framesLayer?: unknown }).__framesLayer = { mat, sideMat, geom };
   });

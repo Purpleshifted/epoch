@@ -9,7 +9,8 @@
  * (usePersonalVisuals assembles them into StreetVisual / GrassVisual).
  */
 
-import { folder, useControls } from "leva";
+import { button, folder, useControls } from "leva";
+import { emitLifeEvent } from "./lifeEvents";
 import { savable } from "./levaSave";
 import { LAB_GROUP, labLists } from "./mobileLab";
 import { DEFAULT_PEOPLE, type PeopleMode } from "./PointPeople";
@@ -281,6 +282,15 @@ export function useBotPresentKnobs(isV2: boolean) {
         frHop: { value: DEFAULT_PEOPLE.frHop, label: "프레임: 말 거는 이의 머리가 멜로디 박자로 튐", render: isFr },
         frAskSolid: { value: DEFAULT_PEOPLE.frAskSolid, label: "프레임: 말 거는 이는 가까이서도 진하게", render: isFr },
         frAskScale: { value: DEFAULT_PEOPLE.frAskScale, min: 1, max: 1.6, step: 0.01, label: "프레임: 말 거는 이 크기 ×", render: isFr },
+        // (the artist, 2026-11-25: "나랑 interact 중인애들한테 touchdesigner blob 처럼 사각형 실시간으로 트랙")
+        frTrack: { options: { "끔": 0, "말 거는 이만": 1, "말 거는 이 + 가까이 있는 이": 2 }, value: DEFAULT_PEOPLE.frTrack, label: "프레임: 추적 사각형", render: isFr },
+        frTrackRadius: { value: DEFAULT_PEOPLE.frTrackRadius, min: 0.5, max: 15, step: 0.5, label: "프레임: 가까이 = 이 안 (m)", render: (get) => isFr(get) && Number(get(`${LAB_GROUP["bot-present"]}.말 걸기.frTrack`)) === 2 },
+        // (to see it in the lab: the nearest one asks me something — a test line on this screen, nothing written to the
+        // world or the bot server)
+        "말 걸기 시험 — 가장 가까운 이": button(() => {
+          const id = (window as unknown as { __framesNearest?: string | null }).__framesNearest;
+          if (id) emitLifeEvent({ kind: "word.asked", text: "(시험)", level: 1, who: id });
+        }),
       }),
       "옛 점 몸 · 옛 노브": folder({
         ppPoints: { value: DEFAULT_PEOPLE.points, min: 64, max: 800, step: 16, label: "점 몸: 점 수", render: v2 },
