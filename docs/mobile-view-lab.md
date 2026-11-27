@@ -500,3 +500,16 @@ The artist: "움직이는 방향 뒤로 번져 보이는 건?" — `창 › 움�
 - Capture `trail-v1.jpg` (before · after · IMG_1575): the side clip drags back over about a body's width, the legs
   as several strides. That capture had twelve moments (the row of copies showed at the head); now sixteen with the
   per-pixel offset, not captured again.
+
+#### On hold outside its own page (2026-11-27)
+
+The artist: "일단 해당 랩 말고는 걍 다 안 보이게 해놔 … 보류 차원에서". The observers walk only on the bot (future) lab
+page. On the action preview, the experiment address and a `?future=` address they are not drawn (ParliamentScene's
+future gating; the future's place stays as it was there). The wall's own observers (`FutureExcavatorsWall`, white
+strokes and light pillars) are not touched. Lifting the hold = return `futureKnobs` again for `!lab || preview`.
+
+Open (her call): how the observer shows under the lidar. Proposed 11/27:
+- **A · read by the scan (recommended)**: the beams land on the cut-out too, in the future's colour; the scan's own
+  decay leaves the smear.
+- **B · a hole in the scan**: no readings where the observer stands; the residue only inside the hole.
+- **C · the cut-out window laid over the scan**: two languages side by side.

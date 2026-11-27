@@ -512,7 +512,10 @@ export default function ParliamentScene({ lab }: { lab?: LabPage } = {}) {
   const lookOn = newLook();
   const future = useMemo(() => {
     if (lidarOn || (!lookOn && !futureAsked)) return { ...futureKnobs, on: false, overlayOn: false, encounterOn: false };
-    if (!lab || lab === "preview") return futureKnobs;
+    // THE OBSERVERS ON HOLD (the artist, 2026-11-27: "일단 해당 랩 말고는 걍 다 안 보이게 해놔 … 보류 차원에서"): they
+    // walk only on bot (future)'s own lab page — not on the action preview, the experiment address or a ?future= one
+    // (the future's place stays as it was there). Lift the hold by returning futureKnobs here again.
+    if (!lab || lab === "preview") return { ...futureKnobs, on: futureKnobs.overlayOn, encounterOn: false };
     const overlayOn = lab === "scan-future", encounterOn = lab === "bot-future";
     return { ...futureKnobs, on: overlayOn || encounterOn, overlayOn, encounterOn };
   }, [futureKnobs, lab, lidarOn, lookOn, futureAsked]);
