@@ -399,7 +399,10 @@ export default function ParliamentScene({ lab }: { lab?: LabPage } = {}) {
   useEffect(() => (isV2 ? announcePersonalOpen() : undefined), [isV2]);
   // an answer (SessionHud) leaves a seed head where the visitor stands (RoleField)
   const answers = useRef(0);
-  const onAnswer = useCallback(() => {
+  // …and the word it made (whom to, its seed): the seed head carries it (sound-logic §13d)
+  const answerWord = useRef<{ to: string; seed: number } | null>(null);
+  const onAnswer = useCallback((to?: string, seed?: number) => {
+    answerWord.current = to && seed !== undefined ? { to, seed } : null;
     answers.current++;
   }, []);
   const v2 = () => isV2;
@@ -609,6 +612,7 @@ export default function ParliamentScene({ lab }: { lab?: LabPage } = {}) {
           grass={isV2 ? visuals.grass : undefined}
           marks={isV2 ? visuals.marks : undefined}
           answers={answers}
+          answerWord={answerWord}
           future={isV2 ? future : undefined}
         />
         {/* 길거리 (2026-11-22, a trial): the others as walking point silhouettes, read from the record's far list */}

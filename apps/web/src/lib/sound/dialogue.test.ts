@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { apartShift, callsOn, endClosed, endOpen, interlock, octaveToward, shiftNotes } from "./dialogue";
+import { apartShift, bassUnder, callsOn, endClosed, endOpen, interlock, landWith, octaveToward, placeApart, rotate, shiftNotes } from "./dialogue";
 import { worldKey } from "./harmony";
 import { makeMotif, midiToHz, realize, type MotifNote } from "./motif";
 
@@ -80,5 +80,42 @@ describe("dialogue: asking and answering as counterpoint (sound-logic §13d)", (
 
   it("a question's bars: call, empty, call, empty", () => {
     expect([0, 1, 2, 3].map(callsOn)).toEqual([true, false, true, false]);
+  });
+});
+
+describe("the ensemble: several lines, each its own place (sound-logic §13e)", () => {
+  it("rotate: a canon's entry half a bar late, the tail wrapped to the head, held to the next onset", () => {
+    const l = [note(0, 60), note(2, 62), note(5, 64)];
+    const r = rotate(l);
+    expect(r.map((n) => Math.round(n.at * 8))).toEqual([1, 4, 6]);
+    expect(r.map((n) => n.pitch)).toEqual([64, 60, 62]);
+    expect(r[2].len).toBeCloseTo((2 / 8) * 0.85, 9);
+  });
+
+  it("placeApart: a new line goes where no placed line is within the gap", () => {
+    const me = [note(0, 60), note(4, 62)];
+    const theirs = [note(0, 62), note(3, 64)];
+    expect(placeApart([me], theirs)).toBe(12);
+    const above = shiftNotes(theirs, 12);
+    // a third line: neither near me nor near the one above
+    expect(placeApart([me, above], [note(0, 61), note(2, 63)])).toBe(-12);
+    // already apart: stays
+    expect(placeApart([me], [note(0, 74), note(1, 76)])).toBe(0);
+  });
+
+  it("bassUnder: two notes on the downbeat and the half bar, under every placed note", () => {
+    const lines = [[note(0, 60), note(4, 64)], [note(1, 72)]];
+    const b = bassUnder(lines, [note(0, 62), note(3, 65)]);
+    expect(b.map((n) => n.at)).toEqual([0, 0.5]);
+    for (const n of b) expect(n.pitch).toBeLessThanOrEqual(60 - 7);
+    expect(b.map((n) => n.pitch)).toEqual([50, 53]);
+    // never below the floor of the range
+    expect(Math.min(...bassUnder([[note(0, 40)]], [note(0, 50)], 36).map((n) => n.pitch))).toBeGreaterThanOrEqual(36);
+  });
+
+  it("landWith: the first note lands on the downbeat with everyone's, the rest meshed around the others", () => {
+    const placed = [note(0, 60), note(2, 62)];
+    const l = landWith(placed, [note(1, 72), note(2, 74), note(5, 76)]);
+    expect(l.map((n) => Math.round(n.at * 8))).toEqual([0, 3, 5]);
   });
 });

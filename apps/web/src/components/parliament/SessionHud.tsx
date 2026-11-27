@@ -37,6 +37,7 @@ import {
   formatEntry,
   formatStatus,
   glyphOf,
+  birthGlyphOf,
   individualNo,
   ledgerSummary,
   plateCells,
@@ -242,8 +243,8 @@ export function SessionHud({
   /** Sends the life's recording up (it goes by itself at the end; this joins that upload), giving its URL: for a post or
    * a print when the recording page was not known yet. */
   uploadRecording?: () => Promise<string | null>;
-  /** The visitor answered someone: it leaves a seed head (RoleField). */
-  onAnswer?: () => void;
+  /** The visitor answered someone (whom, and the new word's seed): it leaves a seed head carrying that word (RoleField). */
+  onAnswer?: (to?: string, seed?: number) => void;
   /** A word another left was found (the record's `word.found`): whose it is — the headset plays their melody once. */
   onFound?: (o: string) => void;
 }) {
@@ -320,8 +321,10 @@ export function SessionHud({
   // someone asked: SPACE answers
   const answer = useCallback(() => {
     const me = witnessRef.current?.me;
-    if (!me || !log.answer(session.lifeRef.current.t, me)) return;
-    onAnswer?.();
+    const said = me ? log.answer(session.lifeRef.current.t, me) : null;
+    if (!said) return;
+    // whom to and the word's seed (the line's own time, as the sound's answer takes it — RoleField answerDue)
+    onAnswer?.(said.args.who?.o, Math.floor(said.t));
     setRec((r) => ({ ...r, entries: [...log.entries], ...log.summary(), asking: false }));
   }, [log, session.lifeRef, witnessRef, onAnswer]);
   useEffect(() => {
@@ -741,7 +744,8 @@ export function SessionHud({
                     {S.ended.life} {fmtClock(endedBy === "self" ? rec.t : lifeSec)}
                   </span>
                 </div>
-                <CardRow label={S.ended.own}>{rec.me && <Glyph dots={glyphOf(rec.me)} cell={5} />}</CardRow>
+                {/* (고유 어휘 = the melody born with; what it became is the next row's — glyphOf follows the newest word) */}
+                <CardRow label={S.ended.own}>{rec.me && <Glyph dots={birthGlyphOf(rec.me)} cell={5} />}</CardRow>
                 <CardRow label={S.ended.group}>{S.ended.groupRow(rec.group.length, rec.ensembleSec)}</CardRow>
                 <CardRow label={S.ended.word}>
                   <span>{S.ended.wordRow(rec.newWords.length, rec.asked)}</span>

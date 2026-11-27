@@ -72,7 +72,7 @@ import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
 import { blockFrameFor, botServerOn, livingBotsNear, useVisitorLink, watchCentre } from "./useBotServer";
 import { onLifeEvent } from "./lifeEvents";
-import { newWordMotifOf } from "@/lib/parliament/glyph";
+import { learnWords, newWordMotifOf } from "@/lib/parliament/glyph";
 import { blockSeatOffset, herdSeatOffset } from "@/lib/parliament/rise";
 import type { SoundSetup } from "./useSound";
 import { useFoldState, useStressState, useWorld } from "./useWorld";
@@ -156,6 +156,7 @@ export function RoleField({
   grass,
   marks,
   answers,
+  answerWord,
   sessionNo = 0,
   visitorRef,
   future,
@@ -200,6 +201,8 @@ export function RoleField({
   visitorRef?: React.MutableRefObject<Visitor | null>;
   /** How many answers the visitor has given (SessionHud): each leaves a seed head where they stand. */
   answers?: React.MutableRefObject<number>;
+  /** The last answer's word — whom it was to and its seed (SessionHud): the seed head carries it (sound-logic §13d). */
+  answerWord?: React.MutableRefObject<{ to: string; seed: number } | null>;
 }) {
   const pending = useRef<PEvent[]>([]);
   /** The epoch changed under this life: the history window is set again on the next frame, in the new epoch's time. */
@@ -277,9 +280,13 @@ export function RoleField({
   // plays it when the ask is heard as counterpoint, sound-logic §13d)
   const askerNow = useRef<{ o: string; until: number; word: Motif | null } | null>(null);
   const answerDue = useRef<{ other: string; seed: number } | null>(null);
+  // the record's 합주 (witness ensemble.start … end): the sound plays it as an ensemble (sound-logic §13e)
+  const ensembleNow = useRef(false);
   useEffect(
     () =>
       onLifeEvent((e) => {
+        if (e.kind === "ensemble.start") ensembleNow.current = true;
+        else if (e.kind === "ensemble.end" || e.kind === "life.begin" || e.kind === "ended") ensembleNow.current = false;
         if ((e.kind === "word.new" || e.kind === "word.asked") && e.who)
           askerNow.current = {
             o: e.who,
@@ -350,9 +357,9 @@ export function RoleField({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const emit = (o: string, r: RoleId, k: PEvent["k"], x: number, z: number, s: number) => {
+  const emit = (o: string, r: RoleId, k: PEvent["k"], x: number, z: number, s: number, word?: { to: string; seed: number }) => {
     // the world is finite and wraps (world.ts): every stored coordinate is canonical
-    const e: PEvent = { id: `${o}:${me.current.tag}:${seq.current++}`, o, r, k, x: wrapCoord(x), z: wrapCoord(z), s };
+    const e: PEvent = { id: `${o}:${me.current.tag}:${seq.current++}`, o, r, k, x: wrapCoord(x), z: wrapCoord(z), s, ...(word ? { to: word.to, seed: word.seed } : {}) };
     log.add(e);
     pending.current.push(e);
     if (o === me.current.id && k === "p") {
@@ -490,7 +497,10 @@ export function RoleField({
     if (answers && answers.current > answered.current) {
       answered.current = answers.current;
       const { x, z } = playerPosRef.current;
-      emit(me.current.id, "tree", "s", x, z, sMe);
+      // the seed head carries the word the answer made (whom to, its seed) when the answer is heard as counterpoint
+      // (the redesigned view): from it every page that reads the log learns this visitor's new melody (glyph.ts)
+      const word = sound?.params.askCounterpoint ? answerWord?.current ?? undefined : undefined;
+      emit(me.current.id, "tree", "s", x, z, sMe, word);
       burst.current = { id: `${me.current.id}:${answers.current}`, x, y: BURST_Y, z, atMs: performance.now() };
     }
     const p = playerPosRef.current;
@@ -530,6 +540,8 @@ export function RoleField({
       const readR = Math.max(VIEW_RADIUS, marks?.concrete.on ? marks.concrete.radius : 0);
       // who is here now: everyone within the assignment window, whatever time slot they live in
       heads.current = dandelionsIn(events);
+      // each answerer's newest word, from the seed heads (glyph.ts): every melody drawn or sung follows it
+      learnWords(events);
       const alive = aliveOwners(events, me.current.id, seenOwners.current, performance.now(), ALIVE_HOLD_MS, sMe, Math.max(offsetWindow, DEFAULT_WITNESS.recentSec));
       aliveN.current = alive.size;
       snap.current = fold.at(sMe, { x: p.x, z: p.z, r: readR });
@@ -615,7 +627,7 @@ export function RoleField({
         const asked = askerNow.current && performance.now() < askerNow.current.until ? askerNow.current : null;
         sound.engine.update(
           present ? me.current.id : "",
-          present ? { ...sig, asker: asked?.o ?? null, askerWord: asked?.word ?? null } : { ...sig, neighbours: [] },
+          present ? { ...sig, asker: asked?.o ?? null, askerWord: asked?.word ?? null, ensemble: ensembleNow.current } : { ...sig, neighbours: [] },
           muffleSound(sound.params, lifeRef?.current),
           playerYawRef?.current ?? 0,
           epochMs.current,

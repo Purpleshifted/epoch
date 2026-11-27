@@ -86,6 +86,11 @@ export interface PersonalSignals {
    * in it (glyph.ts newWordMotifOf — the `word.asked` line's sign); null = their own melody (`word.new`).
    */
   askerWord?: Motif | null;
+  /**
+   * The record says 합주 — "합주 중… 함께 집을 짓습니다." (witness `ensemble.start` … `ensemble.end`): I stay and someone near
+   * stays too. The sound plays it as an ensemble (engine §13e) — the same moment the picture boxes the builders.
+   */
+  ensemble?: boolean;
 }
 
 /** A BUILDING: sealed slabs that touch, as one; its harmonic zone grows with its mass (tonality.ts). */
