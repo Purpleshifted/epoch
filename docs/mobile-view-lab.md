@@ -229,6 +229,19 @@ future 할 때 관찰자랑 연결 안 돼있지? 돼있다면 일단 디폴트�
 - Every kind's 떠오르는 정도 / 흩날리는 거리 / 소용돌이 default 0 (letting go = fading where they stand, with the bloom colour),
   plus a one-time SavedMigration (`scan-future-blow-still-2026-11-27`) over saves made before.
 
+**남는 시간 after the overlap; the dark rims (3be5e8d):** relayed, her words: "왜 현재 redesign 에서 남는 시간 늘려도
+금방금방 사라지지... 진짜 겹칠 때에만 잠깐 생기는 거 같고 (랩 말하는 거)" and "점이 부드럽게 번진다기보단 뭔가... 검정 모서리가
+간간이 보이는 요소가 있음" (her screenshot: the crowns at 부드러움 1.0 as heaps of bubbles with dark outlines).
+- `남는 시간` (key resLife kept): it had only capped how long a found part lived while the overlap lasted; the blowing
+  away fired the moment it ended, so raising it did nothing. Now (F and observer ways) it is how long everything found
+  stays after the overlap ends, then it blows away (0 = at once; default 3 s); a new overlap before then keeps it; not
+  listed with 늘. Her saved number now means seconds after the overlap.
+- Dark rims: each soft dot wrote depth over its whole disc, so a near dot's faint rim hid the dots behind and the black
+  showed through. Now a depth-only child pass (`CORE_FRAG`, opaque, no colour) writes only the cores (alpha ≥ 0.5) and
+  the colour pass writes no depth: rims only blend, cores still occlude, the photograph's pass still softens by real
+  distance. Earlier layers and smears write no depth. Headless at her saved values: no errors, but no tree came into
+  view from the headless spot — the crowns are for her to check.
+
 **Status (2026-11-23): PAUSED by the coordinator (machine overloaded) after the reference study; nothing built, no
 question put to the artist yet.** Code untouched (`FuturePresence.tsx`, `futurePresence.ts`, `labKnobsScanFuture.ts` =
 HEAD). Resume = put the three directions below to her and build her pick.
