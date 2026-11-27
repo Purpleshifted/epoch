@@ -79,7 +79,9 @@ export function useScanFutureKnobs(isV2: boolean) {
           resPressHold: { value: DEFAULT_RESIDUE.pressHold, min: 0.5, max: 30, step: 0.5, label: "F 한 번에 미래가 머무는 시간 (s)", render: (get) => get(`${PLACE_GROUP}.잔류 — 공통.resShowWhen`) === "press" },
           resGateR: { value: 12, min: 3, max: 40, step: 0.5, label: "관찰자가 있다고 보는 거리 (월드)", render: (get) => get(`${PLACE_GROUP}.잔류 — 공통.resShowWhen`) === "observer" },
           resFind: { value: 0.6, min: 0.1, max: 3, step: 0.05, label: "스캔이 부재를 찾는 거리 (월드)" },
-          resLife: { value: 0, min: 0, max: 120, step: 1, label: "남는 시간 (s, 0 = 계속 / 미래가 물러날 때까지)" },
+          // ("남는 시간 늘려도 금방금방 사라지지..." — it had only capped the time while the overlap lasted; now: how long it
+          // stays after the overlap ends; same key, so her saved value now means that)
+          resLife: { value: DEFAULT_RESIDUE.life, min: 0, max: 120, step: 0.5, label: "남는 시간 — 겹침이 끝난 뒤 (s, 0 = 바로 흩날림)", render: (get) => get(`${PLACE_GROUP}.잔류 — 공통.resShowWhen`) !== "always" },
           resReach: { value: 14, min: 4, max: 40, step: 0.5, label: "보이는 거리 (월드)" },
           everySec: { value: 2, min: 0.5, max: 10, step: 0.5, label: "미래를 다시 읽는 간격 (s)" },
           resLayerSec: { value: 0.5, min: 0.1, max: 4, step: 0.05, label: "다시 읽어 겹치는 간격 (s)" },

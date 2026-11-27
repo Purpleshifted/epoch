@@ -91,7 +91,8 @@ export interface ResidueLook {
   gateR: number;
   /** A reading within this (world) of a part finds it. */
   find: number;
-  /** Seconds a found part stays while the observer is near (0 = until it leaves). */
+  /** Seconds what was found stays AFTER the overlap ends (F, or an observer leaving) before it blows away (0 = at
+   *  once); with "always" nothing ends, so it is not read. */
   life: number;
   /** How far off the residue shows (world; it fades from about half of it, never past the lidar's reach). */
   reach: number;
@@ -150,7 +151,7 @@ export const DEFAULT_RESIDUE: ResidueLook = {
   pressHold: 6,
   gateR: 12,
   find: 0.6,
-  life: 0,
+  life: 3,
   reach: 14,
   layerSec: 0.5,
   stagger: 1.2,
@@ -486,6 +487,20 @@ void main() {
   gl_FragColor = vec4(vCol, a);
 }`;
 
+/** The cores only (the depth pass of the layer of now): the dense middle of a dot, nothing of its rim. */
+const CORE_FRAG = /* glsl */ `
+varying vec3 vCol;
+varying float vA;
+varying float vPx;
+varying float vSoft;
+void main() {
+  float r = length(gl_PointCoord * 2.0 - 1.0);
+  float crisp = clamp((1.0 - r) * vPx * 0.5 + 0.5, 0.0, 1.0);
+  float glow = exp(-r * r * 3.0) * (1.0 - smoothstep(0.8, 1.0, r));
+  if (vA * mix(crisp, glow, vSoft) < 0.5) discard;
+  gl_FragColor = vec4(0.0);
+}`;
+
 /** THE SMEAR: a blown point's way over the last uTail seconds, as a ribbon as wide as the dot along the very path it
  *  took (each cross-section where the point was at that moment, turned to the screen), strongest at the point and
  *  fading to nothing at the oldest end. In the world: the visitor's turning moves it as it moves the rest. */
@@ -609,12 +624,21 @@ function makePoints(): THREE.Points {
     vertexShader: VERT,
     fragmentShader: FRAG,
     transparent: true,
-    // (its depth written: the photograph's pass softens it by its real distance, not as the far ground)
-    depthWrite: true,
+    // (the colour writes no depth: a soft dot's faint rim must not cut the dots behind it — the artist saw the crowns
+    // as heaps of bubbles with dark rims, 2026-11-27: "검정 모서리가 간간이 보이는"; the cores' depth comes from the
+    // pass below)
+    depthWrite: false,
   });
   const pts = new THREE.Points(g, m);
   pts.frustumCulled = false;
   pts.renderOrder = 5;
+  // THE CORES' DEPTH, drawn first (opaque, no colour): only the dense middle of each dot writes depth, so the
+  // photograph's pass still softens the residue by its real distance and a near dot still hides what is behind its
+  // core — while the rims only ever blend
+  const depth = new THREE.Points(g, new THREE.ShaderMaterial({ uniforms: m.uniforms, vertexShader: VERT, fragmentShader: CORE_FRAG, colorWrite: false, depthWrite: true }));
+  depth.frustumCulled = false;
+  depth.renderOrder = 4;
+  pts.add(depth);
   return pts;
 }
 
@@ -635,7 +659,8 @@ function makeStreaks(): THREE.Mesh {
     vertexShader: STREAK_VERT,
     fragmentShader: STREAK_FRAG,
     transparent: true,
-    depthWrite: true,
+    // (no depth: soft edges blend, never cut what is behind)
+    depthWrite: false,
     side: THREE.DoubleSide,
   });
   const ms = new THREE.Mesh(g, m);
@@ -730,9 +755,9 @@ function makeGhost(): THREE.Points {
     vertexShader: GHOST_VERT,
     fragmentShader: FRAG,
     transparent: true,
-    // (its depth written, so the photograph's pass softens it by its real distance; drawn after the layer of now, so
-    // it never hides it where the two coincide)
-    depthWrite: true,
+    // (no depth: an earlier layer's soft rims must not cut the dots behind them — they only blend; drawn after the
+    // layer of now)
+    depthWrite: false,
   });
   const p = new THREE.Points(g, m);
   p.frustumCulled = false;
@@ -946,7 +971,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
   const streaks = useRef<THREE.Mesh | null>(null);
   const ghosts = useRef<THREE.Points[]>([]);
   const field = useRef<{ f: DensityField; dens: DensityConfig | null; version: unknown; fed: number; drops: number } | null>(null);
-  const st = useRef({ timer: 10, pool: null as Pool | null, states: new Map<string, PartState>(), tapFrame: -1, present: false, obs: null as Excavator | null, pass: null as null | { x: number; z: number; fx: number; fz: number; t0: number }, streakHead: 0, streakFilled: 0, streakUntil: 0, layerT: 0, ghostHead: 0, ghostBorn: new Array<number>(GHOSTS).fill(-1e9), ghostKill: 0, pressSeen: residuePress.count, pressUntil: 0 });
+  const st = useRef({ timer: 10, pool: null as Pool | null, states: new Map<string, PartState>(), tapFrame: -1, present: false, obs: null as Excavator | null, pass: null as null | { x: number; z: number; fx: number; fz: number; t0: number }, streakHead: 0, streakFilled: 0, streakUntil: 0, layerT: 0, ghostHead: 0, ghostBorn: new Array<number>(GHOSTS).fill(-1e9), ghostKill: 0, pressSeen: residuePress.count, pressUntil: 0, releaseAt: 0 });
   // F counts as an observer crossing the visitor (showWhen "press"; pressResidue checks the mode)
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -961,6 +986,8 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
         if (!o) continue;
         o.geometry.dispose();
         (o.material as THREE.Material).dispose();
+        // (the cores' depth pass, a child sharing the geometry)
+        for (const c of o.children) ((c as THREE.Points).material as THREE.Material).dispose();
       }
     },
     [],
@@ -1059,14 +1086,21 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     const wasPresent = s.present;
     s.present = L.showWhen === "always" ? live : L.showWhen === "press" ? pressing : near !== null && nearD <= (wasPresent ? L.gateR * 1.1 : L.gateR);
     if (near) s.obs = near;
-    // LET GO: the observer went — everything held blows away its way, the gust sweeping through from upwind (the
-    // earlier layers fade out at once)
-    if (wasPresent && !s.present) s.ghostKill = now;
-    if (!wasPresent && s.present) {
+    // LET GO — `life` seconds AFTER the overlap ends (the artist, 2026-11-27: "남는 시간 늘려도 금방금방 사라지지... 진짜
+    // 겹칠 때에만 잠깐 생기는 거 같고"; 0 = at once): then everything held blows away the observer's way, the gust
+    // sweeping through from upwind, and the earlier layers fade out. A new overlap before then keeps it all.
+    if (wasPresent && !s.present) s.releaseAt = now + Math.max(0, L.life);
+    if (s.present) s.releaseAt = 0;
+    if (!wasPresent && s.present && s.ghostKill > 0) {
       s.ghostKill = 0;
       s.ghostBorn.fill(-1e9);
     }
-    if (wasPresent && !s.present && s.pool) {
+    const letGo = !s.present && s.releaseAt > 0 && now >= s.releaseAt;
+    if (letGo) {
+      s.releaseAt = 0;
+      s.ghostKill = now;
+    }
+    if (letGo && s.pool) {
       const o = s.obs, pool = s.pool;
       let dx = o ? o.dx : 1, dz = o ? o.dz : 0;
       if (o && o.standing) {
@@ -1082,7 +1116,6 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       pool.parts.forEach((p) => {
         const ps = s.states.get(p.key);
         if (!ps || ps.found <= 0 || ps.rel > 0 || ps.died > 0) return;
-        if (L.life > 0 && now - ps.found > L.life) return;
         Object.assign(ps, { rel: now, dx, dz, ox: me.x, oz: me.z });
         for (let i = p.i0; i < p.i1; i++) {
           fRel[i] = blowAt(ps, fPos[i * 3], fPos[i * 3 + 2], pool.seed[i], L.stagger);
@@ -1131,7 +1164,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       let m = 0;
       for (const p of pool0.parts) {
         const ps = s.states.get(p.key);
-        if (!ps || ps.found <= 0 || ps.rel > 0 || ps.died > 0 || (L.life > 0 && now - ps.found > L.life)) continue;
+        if (!ps || ps.found <= 0 || ps.rel > 0 || ps.died > 0) continue;
         for (let i = p.i0; i < p.i1 && m < GHOST_CAP; i++) {
           if (ps.found + fDelay[i] > now) continue;
           for (let c = 0; c < 3; c++) {
@@ -1292,7 +1325,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
         for (const pi of list) {
           const p = pool.parts[pi];
           let ps = s.states.get(p.key);
-          if (ps && ps.found > 0 && ps.rel <= 0 && ps.died <= 0 && !(L.life > 0 && now - ps.found > L.life)) continue;
+          if (ps && ps.found > 0 && ps.rel <= 0 && ps.died <= 0) continue;
           if (ps && ps.died > 0) continue;
           const b = p.box;
           const ddx = Math.max(b[0] - x, 0, x - b[3]), ddy = Math.max(b[1] - y, 0, y - b[4]), ddz = Math.max(b[2] - z, 0, z - b[5]);
@@ -1370,7 +1403,8 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     // the plants' colours flowing through her palette (the layer of now and every earlier layer alike)
     const pal = paletteOf(L);
     setFlow(u, L, now, pal.leaves, pal.flowers);
-    u.uLife.value = L.life;
+    // (the found no longer fade while they are held: 남는 시간 is how long they stay after the overlap — above)
+    u.uLife.value = 0;
     (u.uC0.value as THREE.Color).set(lidarLook.c0);
     (u.uC1.value as THREE.Color).set(lidarLook.c1);
     (u.uC2.value as THREE.Color).set(lidarLook.c2);
