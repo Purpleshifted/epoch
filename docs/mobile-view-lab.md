@@ -277,6 +277,13 @@ look not judged by me.
   clumping defaults to 1. On the answer to her question: far = softer is the photograph's rule (the present's); a
   scan's own far readings are sparser, not softer — both are now hers to set, the same way for each.
 
+**The glitch only as it blows away (1947aba):** "글리치는 녹아내릴(흩날릴) 때만 적용되도록 해". While held, the earlier layers are a
+clean exposure that only fades. Once let go, the points glitch along their flight and the earlier layers melt over
+the flight (bleed, thin, blocks, tear, drip at their flight / melt share). In 늘 nothing lets go, so nothing glitches.
+Folders: `· 장노출 (이전 읽기) · 글리치 (흩날릴 때만)`. Also kept as she chose: the palette bleeding onto the parts through
+the softening ("근데 뭐 느낌이 엄청 이상하진 않네" → "지금대로 둬"). Too-near thinning (b22b822) answers "가까이 갔을 때
+버퍼링".
+
 **The present thinner while the future shows (c66e39a):** "미래가 나타났을 때 현재 렌더에 점 덜 쓰는 방식으로 성능
 조절". `LidarScan.lidarThin.scale` (the view's rays × it, the ring's directions skipped; life unchanged). The residue
 counts the future's points on the screen and brings the present down to `미래가 보일 때 현재 점 비율` (0.5) once
