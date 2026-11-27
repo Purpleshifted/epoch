@@ -19,7 +19,7 @@
  */
 
 import { chordName, magentaChordName, type PlaceChord, type WorldKey } from "./harmony";
-import { resolutionChord, stayingChord, tenseChord, TENSE_BARS, walkingChord } from "./colour";
+import { conduct, resolutionChord, TENSE_BARS, type PhraseLock } from "./colour";
 import { answerArc, ARC_IDLE, arrivalHold, stepArc, type ArcState, type ArcStep } from "./tensionArc";
 import { apartShift, bassUnder, callsOn, endClosed, endOpen, interlock, landWith, octaveToward, placeApart, rotate, shiftNotes } from "./dialogue";
 import { wordMotifOf } from "@/lib/parliament/glyph";
@@ -484,6 +484,10 @@ export class SoundEngine {
   /** The place's own chord on the last planned bar (before any colour): what a resolution lands on. */
   private placeNow: PlaceChord | null = null;
   private tensionLine = "";
+  /** THE ONE CONDUCTOR (colour.ts conduct, §13i): the progression under way, the last bar's upper voices, what it did last. */
+  private phraseLock: PhraseLock | null = null;
+  private lastVoicing: number[] | null = null;
+  private conductLine = "";
   /** Per planned bar, for the patch's knobs (§8e): how far its tense phrase has climbed (0..1), a chord change's pluck (0..1), whether it resolved. */
   private barShape = new Map<number, { tension: number; pluck: number; landed: boolean }>();
   /** When (context time) a found word's melody last began (§8e). */
@@ -552,7 +556,7 @@ export class SoundEngine {
     const p = this.lastPlan;
     return {
       bar: p?.bar ?? -1,
-      chord: p && this.key ? chordName(this.key, p.chord) : "",
+      chord: p && this.key ? chordName(this.key, p.chord) + (this.conductLine ? ` [${this.conductLine}]` : "") : "",
       lock: p?.lock ?? 0,
       density: p?.density ?? 1,
       answer: p?.answer ?? false,
@@ -852,25 +856,53 @@ export class SoundEngine {
     this.tensionNow = arc?.level ?? 0;
     const tension = this.tensionNow;
     let tenseHit = false;
+    // (an arrival's or a resolution's bars end the progression under way; the next begins at a phrase's edge)
+    if (arrival || release) this.phraseLock = null;
+    const prevChord = this.plans.get(bar - 1)?.chord ?? this.lastPlan?.chord ?? null;
     const plan = planBar({
       bar,
       sig,
       key,
       place: this.placeFor(sig),
-      // (more turns, §13f: staying, the place's own progression — the place = its building's key or the world's band and
-      // its chord; walking, a suspension or an added ninth now and then; read after placeFor has set the zone's key.
-      // Gathered, §13g: first the chance of a tense eight-bar phrase, staying or walking)
+      // ONE CONDUCTOR (§13i): the place = its building's key or the world's band and its chord (read after placeFor has
+      // set the zone's key); a progression — tense when gathered (§13g–h), a turn when staying alone (§13f) — is chosen
+      // only at a phrase's edge and kept to its end; walking, the ground's chords, coloured now and then (never on a
+      // band's change); whatever is not a progression's own step must connect to the last bar, or its dominant comes first
       colour: p.harmonyTurns
         ? (c: PlaceChord) => {
+            const prevPlace = this.placeNow;
             this.placeNow = c;
             // (a resolution's bar: home, the amen's iv, or the scattered deceptive turn — on the place's root)
-            if (release) return resolutionChord(c, release);
-            const tag = `${this.zoneKey ? keyName(this.zoneKey) : "w"}#${c.band}#${c.rootClass}`;
-            const tense = tenseChord(c, tag, bar, tension, holding);
-            if (tense) tenseHit = true;
-            return tense ?? (sig.stay > 0.5 ? stayingChord(c, tag, bar, p.turnAmount) : walkingChord(c, bar, p.colourAmount));
+            if (release) {
+              this.conductLine = release === "home" ? "풀림" : release === "plagal" ? "아멘" : "흩어짐";
+              return resolutionChord(c, release);
+            }
+            const keyId = this.zoneKey ? keyName(this.zoneKey) : "w";
+            const tag = `${keyId}#${c.band}#${c.rootClass}`;
+            const r = conduct(this.phraseLock, {
+              bar,
+              place: c,
+              tag,
+              keyId,
+              level: tension,
+              holding,
+              gathered: (arc?.gathered ?? 0) > 0,
+              staying: sig.stay > 0.5,
+              turnAmount: p.turnAmount,
+              colourAmount: p.colourAmount,
+              prev: prevChord,
+              prevPlace,
+            });
+            this.phraseLock = r.lock;
+            tenseHit = r.kind === "tense";
+            const at = r.lock ? ` ${bar - r.lock.from + 1}/${r.lock.len}` : "";
+            this.conductLine = `${r.kind === "tense" ? "긴장" : r.kind === "turn" ? "머묾" : r.kind === "walk" ? "걸음" : "제자리"}${at}${r.bridged ? " · 이음(V7)" : ""}`;
+            return r.chord;
           }
         : null,
+      // (functional, §13i: the arrival leans on the chord it lands on; the pad's voices led from the last bar's)
+      functional: p.harmonyTurns,
+      voicedFrom: p.harmonyTurns ? this.lastVoicing : null,
       // (the arrival after a stored tension: its pre-dominant and dominants altered for certain)
       tension: (this.arrivalState.hold ?? 0) > 0 ? 1 : tension,
       resolve: release === "home" ? { lock: 0.95, pad: 0.85 } : release === "plagal" ? { lock: 0.85, pad: 0.7 } : release === "deceptive" ? { lock: 0.8, pad: 0.6 } : null,
@@ -883,6 +915,9 @@ export class SoundEngine {
     });
     this.plans.set(bar, plan);
     for (const k of this.plans.keys()) if (k < bar - 4) this.plans.delete(k);
+    if (plan.voicing) this.lastVoicing = plan.voicing;
+    if (arrival) this.conductLine = arrival === "pre" ? "도착 버금딸림" : arrival === "dominant" ? "도착 딸림" : arrival === "deceptive" ? "도착 거짓 종지" : "도착 으뜸";
+    if (!p.harmonyTurns) this.conductLine = "";
     // (for the patch's knobs, §8e: how far a tense phrase has climbed — the arrival's bars lean too — and a pluck when
     // the chord changes, more for a tense one)
     // (holding, §13h: the store's level carries it, the phrase's climb on top; a resolution's bar lets it all go at once)
@@ -1839,7 +1874,8 @@ export class SoundEngine {
         gains[i].gain.setTargetAtTime(0, at, 0.4);
         continue;
       }
-      oscs[i].frequency.setTargetAtTime(midiToHz(p), at, 0.08);
+      // (functional, §13i: the voices are led by steps — they change at the bar, no swoop)
+      oscs[i].frequency.setTargetAtTime(midiToHz(p), at, this.params.harmonyTurns ? 0.012 : 0.08);
       gains[i].gain.setTargetAtTime(i === 0 ? 0.8 : 0.5, at, 0.4);
     }
   }

@@ -18,7 +18,7 @@
  *                   substitute — and home only at the next phrase; building together, the arrival's bars lean the same way.
  */
 
-import { diatonicChord, type PlaceChord, type WorldKey } from "./harmony";
+import { type PlaceChord } from "./harmony";
 import { hashString, rng } from "./motif";
 
 /** Chord qualities as semitones above the root, in the order root · third-slot · fifth · seventh-slot. */
@@ -128,10 +128,21 @@ export const TENSE_BARS = 8;
  */
 export function tenseChord(place: PlaceChord, tag: string, bar: number, level: number, holding = false): PlaceChord | null {
   if (level <= 0) return null;
+  // (holding, §13h: every phrase tense — no roll)
+  if (!holding && !tensePhraseRolls(tag, Math.floor(bar / TENSE_BARS), level)) return null;
+  return tenseStep(place, tag, bar, level, holding);
+}
+
+/** Whether the eight-bar phrase `phrase` at a place goes tense at `level` (the roll everyone there shares). */
+export function tensePhraseRolls(tag: string, phrase: number, level: number): boolean {
+  return rng(hashString(`tense#${tag}#${phrase}`))() < level;
+}
+
+/** The tense phrase's chord on bar `bar` (its step = bar % 8), relative to `place`, the progression picked by `tag` and the phrase. */
+export function tenseStep(place: PlaceChord, tag: string, bar: number, level: number, holding = false): PlaceChord {
   const phrase = Math.floor(bar / TENSE_BARS);
   const r = rng(hashString(`tense#${tag}#${phrase}`));
-  // (holding, §13h: every phrase tense — no roll)
-  if (r() >= level && !holding) return null;
+  r(); // (the roll's draw: the pick below stays the one the roll's phrase has always had)
   const k = ((bar % TENSE_BARS) + TENSE_BARS) % TENSE_BARS;
   // (holding: the phrase does not begin at home — home is kept for a resolution)
   if (k === 0) return holding ? withheldHome(place, phrase) : place;
@@ -148,11 +159,11 @@ export function tenseChord(place: PlaceChord, tag: string, bar: number, level: n
 }
 
 /**
- * HOME KEPT (§13h): while the tension holds, a phrase's first bar is not the place's chord but a stand-in — vi, bVI or
- * bIII (major), bVI, bIII or iv (minor) — so the dominant before it is answered sideways and the tonic waits.
+ * HOME KEPT (§13h): while the tension holds, a phrase's first bar is not the place's chord but a stand-in that a
+ * dominant goes to naturally (the deceptive cadence, §13i): vi or bVI (major), bVI or bVI(#11) (minor) — the tonic waits.
  */
 export function withheldHome(place: PlaceChord, phrase: number): PlaceChord {
-  const steps: Step[] = isMinor(place) ? [[8, "maj7"], [3, "maj7"], [5, "m7"]] : [[9, "m7"], [8, "maj7"], [3, "maj7"]];
+  const steps: Step[] = isMinor(place) ? [[8, "maj7"], [8, "maj7s11"]] : [[9, "m7"], [8, "maj7"]];
   const [off, q] = steps[((phrase % steps.length) + steps.length) % steps.length];
   return chordOn(place.rootClass + off, q, place.band);
 }
@@ -167,14 +178,18 @@ export function resolutionChord(place: PlaceChord, kind: "home" | "plagal" | "de
   return chordOn(place.rootClass + 8, "maj7", place.band);
 }
 
-/** The arrival's bars made tense (building together is a gathering too): ii ø or #iv°7 before, V7b9 · V7#9 · V7#5. */
-export function tenseArrival(key: WorldKey, phase: "pre" | "dominant", bar: number, band: number, level: number): PlaceChord | null {
+/**
+ * The arrival's bars made tense (building together is a gathering too): ii ø or #iv°7 before, V7b9 · V7#9 · V7#5 —
+ * all of THE CHORD IT LANDS ON (`target`, §13i), so the dominant is that chord's own.
+ */
+export function tenseArrival(target: PlaceChord, phase: "pre" | "dominant", bar: number, level: number): PlaceChord | null {
   if (level <= 0) return null;
   const r = rng(hashString(`tensearr#${phase}#${bar}`));
   if (r() >= level) return null;
   const pick = r();
-  if (phase === "pre") return pick < 0.5 ? chordOn(key.root + 2, "hdim", band) : chordOn(key.root + 6, "dim7", band);
-  return chordOn(key.root + 7, pick < 0.5 ? "dom7b9" : pick < 0.8 ? "dom7s9" : "aug7", band);
+  const t = target.rootClass;
+  if (phase === "pre") return pick < 0.5 ? chordOn(t + 2, "hdim", target.band) : chordOn(t + 6, "dim7", target.band);
+  return chordOn(t + 7, pick < 0.5 ? "dom7b9" : pick < 0.8 ? "dom7s9" : "aug7", target.band);
 }
 
 /** Whether a chord sounds minor (its third-slot a minor third). */
@@ -209,16 +224,128 @@ export function walkingChord(chord: PlaceChord, bar: number, amount: number): Pl
   return chordOn(chord.rootClass, q, chord.band);
 }
 
-/** THE ARRIVAL'S PRE-DOMINANT (sequencer "pre"): IV or ii of the key, or a borrowed bVI — by the bar. */
-export function predominantOf(key: WorldKey, bar: number, band = -1): PlaceChord {
+/** THE ARRIVAL'S PRE-DOMINANT (sequencer "pre") of the chord it lands on (§13i): IV, ii or a borrowed bVI (iv, iiø, bVI for a minor target) — by the bar. */
+export function predominantOf(target: PlaceChord, bar: number): PlaceChord {
   const pick = rng(hashString(`pre#${bar}`))();
-  if (pick < 0.35) return chordOn(key.root + 8, "maj7", band);
-  const degree = pick < 0.7 ? 3 : 1;
-  const classes = diatonicChord(key.mode, degree, 4).map((t) => (key.root + t) % 12);
-  return { band, degree, classes, rootClass: (key.root + key.mode.intervals[degree]) % 12 };
+  const t = target.rootClass;
+  if (pick < 0.35) return chordOn(t + 8, "maj7", target.band);
+  if (isMinor(target)) return pick < 0.7 ? chordOn(t + 5, "m7", target.band) : chordOn(t + 2, "hdim", target.band);
+  return pick < 0.7 ? chordOn(t + 5, "maj7", target.band) : chordOn(t + 2, "m7", target.band);
 }
 
-/** THE ARRIVAL'S DECEPTIVE TURN (sequencer "deceptive"): the dominant goes to bVI instead of home — home a bar later. */
-export function deceptiveOf(key: WorldKey, band = -1): PlaceChord {
-  return chordOn(key.root + 8, "maj7", band);
+/** THE ARRIVAL'S DOMINANT (§13i): the dominant seventh of the chord it lands on — a V that is that chord's own. */
+export function dominantTo(target: PlaceChord): PlaceChord {
+  return chordOn(target.rootClass + 7, "dom7", target.band);
+}
+
+/** THE ARRIVAL'S DECEPTIVE TURN (sequencer "deceptive"): the dominant goes to bVI of its target instead — home a bar later. */
+export function deceptiveOf(target: PlaceChord): PlaceChord {
+  return chordOn(target.rootClass + 8, "maj7", target.band);
+}
+
+// ── ONE CONDUCTOR (§13i — the artist, 2026-11-28: "화성에서 화성으로 이어질 때 영 어색한 경우가 있음 … 한 화성에서 다른
+// 화성으로 넘어갈 때 기능적으로 자연스러우면 어색하진 않을텐데" → "제안대로 고쳐") ──
+// Until now up to six things chose a bar's chord on their own, bar by bar: whenever the number of people, staying or
+// walking, or the band underfoot changed, a progression was swapped for another in its middle (step 5 of one, step 2
+// of another — no function between them). Now a progression is chosen only at a phrase's edge and kept to its end; a
+// bar that is not inside a designed progression must CONNECT to the one before, or a dominant of it comes first.
+
+/** Whether chord `b` follows chord `a` naturally: same root, down a fifth, two common tones, the bass by a step, or a tritone substitute. */
+export function connects(a: PlaceChord, b: PlaceChord): boolean {
+  const ra = a.classes[0];
+  const rb = b.classes[0];
+  if (ra === rb) return true;
+  const iv = (((rb - ra) % 12) + 12) % 12;
+  if (iv === 5) return true; // down a fifth: V → I, ii → V, vi → ii …
+  if (a.classes.filter((c) => b.classes.includes(c)).length >= 2) return true; // thirds, plagal, mediants that share
+  const bass = (((b.rootClass - a.rootClass) % 12) + 12) % 12;
+  if (bass === 1 || bass === 2 || bass === 10 || bass === 11) return true; // the bass by a step
+  const dominant = a.classes.includes((ra + 4) % 12) && a.classes.includes((ra + 10) % 12);
+  return dominant && iv === 11; // bII7 → I
+}
+
+/** The bridge: the dominant seventh of `next` (one bar before it, when nothing else leads there). */
+export function bridgeTo(next: PlaceChord): PlaceChord {
+  return chordOn(next.classes[0] + 7, "dom7", next.band);
+}
+
+/** A progression under way: chosen at a phrase's edge and kept to its end, on the place it began at. */
+export interface PhraseLock {
+  from: number;
+  len: 4 | 8;
+  kind: "tense" | "turn";
+  place: PlaceChord;
+  tag: string;
+  /** The key it began in (a new key ends it). */
+  keyId: string;
+  level: number;
+  holding: boolean;
+}
+
+export interface ConductInputs {
+  bar: number;
+  /** The place's own chord now (band or building) and its tag. */
+  place: PlaceChord;
+  tag: string;
+  keyId: string;
+  /** The tension now (§13h) and whether it holds. */
+  level: number;
+  holding: boolean;
+  /** Others within hearing. */
+  gathered: boolean;
+  staying: boolean;
+  turnAmount: number;
+  colourAmount: number;
+  /** The last bar's chord and the last bar's place (null at the start). */
+  prev: PlaceChord | null;
+  prevPlace: PlaceChord | null;
+}
+
+export interface Conducted {
+  lock: PhraseLock | null;
+  chord: PlaceChord;
+  kind: "tense" | "turn" | "walk" | "still";
+  /** Whether a bridge was laid this bar. */
+  bridged: boolean;
+}
+
+/**
+ * The bar's chord. A tense phrase may begin only on a multiple of eight, a staying turn on a multiple of four (everyone
+ * at a place stays in step); once begun it runs to its end on the place it began at, whatever happens meanwhile. FEWER
+ * LAYERS: gathered → the tense phrase or the place's chord; staying alone → the turn; walking → the ground's chords,
+ * coloured now and then but never on a bar where the band changes. Outside a progression's own steps (its first bar,
+ * a bar walking or still) the chord must connect to the last; if not, its dominant comes first.
+ */
+export function conduct(lock: PhraseLock | null, inp: ConductInputs): Conducted {
+  const { bar, place } = inp;
+  let l = lock;
+  if (l && (inp.keyId !== l.keyId || bar >= l.from + l.len || bar < l.from)) l = null;
+  if (!l) {
+    if (bar % TENSE_BARS === 0 && inp.level > 0 && (inp.holding || tensePhraseRolls(inp.tag, Math.floor(bar / TENSE_BARS), inp.level))) {
+      l = { from: bar, len: 8, kind: "tense", place, tag: inp.tag, keyId: inp.keyId, level: inp.level, holding: inp.holding };
+    } else if (bar % 4 === 0 && !inp.gathered && inp.staying && inp.turnAmount > 0) {
+      l = { from: bar, len: 4, kind: "turn", place, tag: inp.tag, keyId: inp.keyId, level: 0, holding: false };
+    }
+  }
+  let chord: PlaceChord;
+  let kind: Conducted["kind"];
+  if (l?.kind === "tense") {
+    chord = tenseStep(l.place, l.tag, bar, l.level, l.holding);
+    kind = "tense";
+  } else if (l?.kind === "turn") {
+    chord = stayingChord(l.place, l.tag, bar, inp.turnAmount);
+    kind = "turn";
+  } else {
+    const moved = !!inp.prevPlace && (inp.prevPlace.band !== place.band || inp.prevPlace.rootClass !== place.rootClass);
+    chord = !inp.staying && !moved ? walkingChord(place, bar, inp.colourAmount) : place;
+    kind = inp.staying ? "still" : "walk";
+  }
+  // (the connection: a progression's own steps are designed; anything else must follow the last bar naturally)
+  const fresh = !l || bar === l.from;
+  let bridged = false;
+  if (fresh && inp.prev && !connects(inp.prev, chord)) {
+    chord = bridgeTo(chord);
+    bridged = true;
+  }
+  return { lock: l, chord, kind, bridged };
 }

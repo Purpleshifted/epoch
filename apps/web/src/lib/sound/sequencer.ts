@@ -23,7 +23,8 @@ import { bassOf, placeChord, type PlaceChord, type WorldKey, DEFAULT_HARMONY, di
 import { midiToHz, realize, type Motif, type MotifNote, DEFAULT_MOTIF, hashString, rng } from "./motif";
 import type { PersonalSignals } from "./signals";
 import { CYCLES_PER_PHRASE, STEPS_PER_CYCLE, blend, stepsToCycle, type Phrase } from "./variation";
-import { deceptiveOf, predominantOf, tenseArrival } from "./colour";
+import { deceptiveOf, dominantTo, predominantOf, tenseArrival } from "./colour";
+import { voiceLead } from "./voicing";
 
 export interface SequencerParams {
   /** Seconds per bar (the grid). */
@@ -128,6 +129,8 @@ export interface BarPlan {
   pad: { pitches: number[]; level: number };
   /** The arrival cadence this bar, if any (the engine opens the hall, lifts the voices). */
   arrival: ArrivalPhase;
+  /** The chord's upper voices led from the last bar's (voicing.ts, §13i; the redesigned view only): the pad's and the patch's harmony. */
+  voicing?: number[];
 }
 
 export interface BarInputs {
@@ -154,6 +157,12 @@ export interface BarInputs {
   tension?: number;
   /** A RESOLUTION on this bar (tensionArc.ts, §13h; its chord comes through `colour`): the notes held on the chord, the pad brought in. */
   resolve?: { lock: number; pad: number } | null;
+  /**
+   * FUNCTIONAL (§13i, the redesigned view only): the arrival's pre-dominant and dominant are those of the chord it lands
+   * on, and the pad's voices are led from `voicedFrom` (the last bar's upper voices) instead of taking slot by slot.
+   */
+  functional?: boolean;
+  voicedFrom?: number[] | null;
 }
 
 /** Place a motif's cycle into a bar at the density: 0.5 = only even bars, 1 = once, 2 = twice (compressed). */
@@ -177,9 +186,11 @@ export function planBar(inp: BarInputs): BarPlan {
   if (inp.colour && !arrival) chord = inp.colour(chord);
   // the cadence: a bar of the dominant leaning in, then the tonic (the place's own chord) arriving — longer, a
   // pre-dominant first, now and then a deceptive turn before home (§13f)
-  if (arrival === "pre") chord = tenseArrival(key, "pre", bar, chord.band, inp.tension ?? 0) ?? predominantOf(key, bar, chord.band);
-  else if (arrival === "dominant") chord = tenseArrival(key, "dominant", bar, chord.band, inp.tension ?? 0) ?? dominantOf(key, chord);
-  else if (arrival === "deceptive") chord = deceptiveOf(key, chord.band);
+  // (functional, §13i: all of the chord it lands on — the place's chord, the tonic to come)
+  const target = chord;
+  if (arrival === "pre") chord = tenseArrival(target, "pre", bar, inp.tension ?? 0) ?? predominantOf(target, bar);
+  else if (arrival === "dominant") chord = inp.functional ? tenseArrival(target, "dominant", bar, inp.tension ?? 0) ?? dominantTo(target) : dominantOf(key, chord);
+  else if (arrival === "deceptive") chord = deceptiveOf(target);
   const lock0 = arrival === "tonic" ? 1 : arrival === "deceptive" ? Math.max(0.9, lockOf(sig)) : lockOf(sig);
   const resolve = !arrival ? inp.resolve ?? null : null;
   const lock = resolve ? Math.max(lock0, resolve.lock) : lock0;
@@ -257,9 +268,11 @@ export function planBar(inp: BarInputs): BarPlan {
   if (arrival === "deceptive") padLevel = Math.max(padLevel, 0.85);
   if (arrival === "tonic") padLevel = 1;
   if (resolve) padLevel = Math.max(padLevel, resolve.pad);
-  const pad = padLevel > 0.2 ? { pitches: [bassOf(chord), ...chord.classes.map((c) => 48 + c)], level: padLevel } : { pitches: [], level: 0 };
+  // (functional, §13i: the upper voices led from the last bar's — common tones held, the rest by the nearest step)
+  const voicing = inp.functional ? voiceLead(inp.voicedFrom ?? null, chord.classes) : undefined;
+  const pad = padLevel > 0.2 ? { pitches: [bassOf(chord), ...(voicing ?? chord.classes.map((c) => 48 + c))], level: padLevel } : { pitches: [], level: 0 };
 
-  return { bar, chord, lock, density: d, answer, me: mine, others, bass, pad, arrival };
+  return { bar, chord, lock, density: d, answer, me: mine, others, bass, pad, arrival, voicing };
 }
 
 /** The dominant seventh of `key` (degree 4), unless the chord is already it. */

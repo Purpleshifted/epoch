@@ -60,8 +60,9 @@ describe("more turns in the harmony (sound-logic §13f)", () => {
     }
     expect(phases.slice(0, arrivalBars(100, true).length)).toEqual(arrivalBars(100, true));
     expect(phases[phases.length - 1]).toBeNull();
-    expect(predominantOf(key, 7).classes.length).toBe(4);
-    expect(isMinor(deceptiveOf(key))).toBe(false);
+    expect(predominantOf(place, 7).classes.length).toBe(4);
+    expect(isMinor(deceptiveOf(place))).toBe(false);
+    expect(deceptiveOf(place).classes[0]).toBe((place.rootClass + 8) % 12); // bVI of the chord it was to land on
   });
 
   it("names: suspensions, added notes, a pedal; Magenta gets what it knows", () => {
@@ -109,11 +110,11 @@ describe("more turns in the harmony (sound-logic §13f)", () => {
   });
 
   it("the arrival made tense: ii ø or #iv°7, then V altered; names Magenta still knows", () => {
-    const dom = tenseArrival(key, "dominant", 12, 0, 1)!;
-    expect(dom.classes[0]).toBe((key.root + 7) % 12);
+    const dom = tenseArrival(place, "dominant", 12, 1)!;
+    expect(dom.classes[0]).toBe((place.rootClass + 7) % 12); // the V of the chord it lands on (§13i)
     expect(chordName(key, dom)).toMatch(/7b9|7#9|7#5/);
-    expect(tenseArrival(key, "pre", 12, 0, 0)).toBeNull();
-    expect(chordName(key, tenseArrival(key, "pre", 12, 0, 1)!)).toMatch(/m7b5|dim7/);
+    expect(tenseArrival(place, "pre", 12, 0)).toBeNull();
+    expect(chordName(key, tenseArrival(place, "pre", 12, 1)!)).toMatch(/m7b5|dim7/);
     expect(magentaChordName("G7b9")).toBe("G7");
     expect(magentaChordName("G7sus4b9/G")).toBe("G7");
     expect(magentaChordName("Am(maj7)")).toBe("Am");
