@@ -102,6 +102,30 @@ longer fits the black ground; its line idea lives on as direction C here.
   the preview only); a small hook in `LidarScan.tsx` (scan (present)'s file — to be agreed with it) for a second world to
   read or a "lasting" test per reading; a test future on the page (with `?botserver=0` alone it has no buildings).
 
+**Her pick (2026-11-27): B, "있을 때만" — and "미래 관찰자가 사라지면 이전 pointcloud 흩날려 사라지듯이".** Built as v1 (7f037f3),
+not yet seen on screen by her or by a capture (load average 250+ at the time):
+- `FutureResidue.tsx`: every `미래를 다시 읽는 간격` the future round the visitor (lidar range + 4) is read as before
+  (`futurePresence`, the 미래 읽기 knobs) and turned into one pool of points, part by part: the parts' faces (`surface`
+  density; `futurePresence` now says which part each point is on and whether it is steel or a pile), the trees, the
+  plant clouds (a low dome, `식생 점 밀도`), the mounds (a pale dome), the dark earth (grey, flat). Nothing is drawn
+  until FOUND.
+- Found: while an observer is within `관찰자가 있다고 보는 거리` (excavatorsAt with bot (future)'s 관찰자 knobs; on the
+  page `?futurepass=1` gives one that comes from 18 ahead to 3.5 (6 s), stands (12 s), walks off sideways (6 s) and is
+  gone (8 s)), a lidar reading within `스캔이 부재를 찾는 거리` of a part finds the WHOLE part: it develops from the touch
+  outwards (`번지는 속도`), first in the lidar's colour for its range, then over `하얗게 바래는 시간` to its own (white ×
+  `남은 부재의 색`; concrete × `콘크리트 밝기`; plants the 식생 색) — and stays (`남는 시간`, 0 = until the observer leaves).
+  The lidar's readings come through `LidarScan.lidarTap` (read only); 240 rays a frame of its own onto the ground find
+  what lies there whatever the ground radar draws (lines leave no readings).
+- Let go: when the observer leaves the reach (or is gone), every held part blows away the way it walked (standing: away
+  from me), each point after its own delay (`흩날림 엇갈림`), spread ±40°, rising (`위로 뜨는 정도`), swaying, smaller and
+  fainter over `흩날리는 시간` (`흩날리는 거리`).
+- A part that leaves the future's reading (the slot moved on) fades in a second where it was; one blowing away finishes.
+- Where: the scan (future) page (now with the lidar and its black ground, the 전시 세계 / 시험 장면 switch); the action
+  preview and the experiment when `개인뷰에 켜기` is on. The old overlay (lines on paper) shows only with the lidar off.
+- Known: the observer itself is still not drawn under the lidar (bot (future)'s, 107bc5c), so the residue comes and goes
+  without the observer being seen; on 시험 장면 the remains need buildings in this browser's stored world (the wild plants
+  round the visitor are there anyway); `__residue` in the console (parts, points, held, present, observer distance).
+
 **Status (2026-11-23): PAUSED by the coordinator (machine overloaded) after the reference study; nothing built, no
 question put to the artist yet.** Code untouched (`FuturePresence.tsx`, `futurePresence.ts`, `labKnobsScanFuture.ts` =
 HEAD). Resume = put the three directions below to her and build her pick.
