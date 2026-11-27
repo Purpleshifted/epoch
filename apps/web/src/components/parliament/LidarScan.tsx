@@ -83,9 +83,12 @@ export interface LidarLook {
   /** …the refresh term: what is read stays; standing still, only this share of the readings is made anew (moving or
    *  turning brings it back to all) … */
   idle: number;
-  /** …and far readings thinned into bigger dots past this distance (world; 0 = off): kept with the chance (lod/d)², drawn
-   *  d/lod times larger (at most 4×). */
+  /** …and far readings thinned into bigger dots past this distance (world; 0 = off): kept with the chance
+   *  (lod/d)^(2 lodThin), drawn (d/lod)^lodGrow times larger (at most 4×) — how much of each is the present's own (the
+   *  artist, 2026-11-27: "미래랑 현재는 거리 따라 lod/흐림/뭉침 적용하는 정도 따로"; 1 and 1 = as before, 0 = none). */
   lod: number;
+  lodThin: number;
+  lodGrow: number;
   /** …and readings TOO NEAR thinned (the artist, 2026-11-24: "건물 부재속에 있을 때 렉이 심해지는데 … 너무 가까운 건 점점
    *  성기게"): within this distance (world; 0 = off) a reading is kept with the chance (d / near)², at least 3 %. */
   near: number;
@@ -108,7 +111,7 @@ export interface LidarLook {
   eyeBack: number;
 }
 
-export const DEFAULT_LIDAR: LidarLook = { on: true, black: true, beams: 64, lowDeg: -60, highDeg: 85, azimuths: 720, hz: 5, decaySec: 1.5, range: 22, dot: 2, colour: "distance", axis: "view", coneDeg: 8, rate: 120_000, margin: 0.15, slant: 1, c0: "#5ff0c8", c1: "#c6f06a", c2: "#ffb86b", c3: "#ff7eb0", fovea: 1, budgetMs: 4, idle: 0.3, lod: 12, near: 2, groundRings: 10, groundAz: 360, g0: "#5ff0c8", g1: "#c6f06a", g2: "#ffb86b", g3: "#ff7eb0", groundStyle: "points", eyeH: 0.64, eyeBack: 0 };
+export const DEFAULT_LIDAR: LidarLook = { on: true, black: true, beams: 64, lowDeg: -60, highDeg: 85, azimuths: 720, hz: 5, decaySec: 1.5, range: 22, dot: 2, colour: "distance", axis: "view", coneDeg: 8, rate: 120_000, margin: 0.15, slant: 1, c0: "#5ff0c8", c1: "#c6f06a", c2: "#ffb86b", c3: "#ff7eb0", fovea: 1, budgetMs: 4, idle: 0.3, lod: 12, lodThin: 1, lodGrow: 1, near: 2, groundRings: 10, groundAz: 360, g0: "#5ff0c8", g1: "#c6f06a", g2: "#ffb86b", g3: "#ff7eb0", groundStyle: "points", eyeH: 0.64, eyeBack: 0 };
 const fwd = new THREE.Vector3();
 
 /** Set by the scan (present) knobs (labKnobsScanPresent.ts), read per frame here and at render by ParliamentScene. */
@@ -132,6 +135,10 @@ export function lidarActive(): boolean {
  *  arrays and the range written in the last frame that read anything (`start`, `n`; it may wrap at `cap`); `frame` counts
  *  those frames. Read only. */
 export const lidarTap: { pos: Float32Array | null; kind: Float32Array | null; start: number; n: number; cap: number; frame: number } = { pos: null, kind: null, start: 0, n: 0, cap: 0, frame: 0 };
+/** THE SHARE OF THE READINGS MADE (0.02 … 1; 1 = all), set from outside: scan (future)'s residue lowers it while the
+ *  future shows (the artist, 2026-11-27: "미래가 나타났을 때 현재 렌더에 점 덜 쓰는 방식으로 성능 조절" —
+ *  FutureResidue.tsx) and puts it back to 1. Fewer rays a frame, the same life: the present thinner by as much. */
+export const lidarThin = { scale: 1 };
 /** …and whether the frame is on the photo's black ground. */
 export function lidarBlack(): boolean {
   return lidarActive() && lidarLook.black;
@@ -396,12 +403,17 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
     /** How many of this frame's turn were done (the time budget may stop the heading axis early). */
     let done = n;
     const budget = Math.max(0.5, L.budgetMs);
+    // (the share of the readings made — lidarThin: the view's rays fewer, the ring's directions skipped, the heading's
+    // circles thinned)
+    const thin = Math.min(1, Math.max(0.02, Number.isFinite(lidarThin.scale) ? lidarThin.scale : 1));
+    const thinHeading = thin < 1 && L.axis === "heading";
     /** Far readings: dropped (−1) or the size to draw them at (LOD). */
     const lodSize = (d: number): number => {
+      if (thinHeading && Math.random() > thin) return -1;
       if (L.near > 0 && d < L.near && Math.random() > Math.max(0.03, (d / L.near) * (d / L.near))) return -1;
       if (L.lod <= 0 || d <= L.lod) return 1;
-      const q = (L.lod / d) * (L.lod / d);
-      return Math.random() < q ? Math.min(4, d / L.lod) : -1;
+      const q = Math.pow(L.lod / d, 2 * Math.max(0, Number.isFinite(L.lodThin) ? L.lodThin : 1));
+      return Math.random() < q ? Math.min(4, Math.pow(d / L.lod, Math.max(0, Number.isFinite(L.lodGrow) ? L.lodGrow : 1))) : -1;
     };
     const put = (x: number, y: number, z: number, d: number, size = 1, kind = 0) => {
       const j = s.head;
@@ -506,7 +518,7 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
         const target = L.decaySec / share;
         s.decay = s.decay > 0 ? s.decay + (target - s.decay) * Math.min(1, dt) : target;
         u.uDecay.value = s.decay;
-        const k = Math.min(30_000, Math.round(L.rate * share * Math.min(0.1, dt)));
+        const k = Math.min(30_000, Math.round(L.rate * share * Math.min(0.1, dt) * thin));
         const fov = Math.max(0, L.fovea);
         for (let i = 0; i < k; i++) {
           // (the time budget, looked at every 64 rays)
@@ -608,6 +620,8 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
     if (L.axis === "vertical" || view) {
     const groundOnly = view;
     for (let i = 0; i < n; i++) {
+      // (lidarThin: a direction of the turn skipped, march and all)
+      if (thin < 1 && Math.random() > thin) continue;
       const a = ((s.az + i) % A) / A;
       const th = a * Math.PI * 2 + 0.37;
       const cx = Math.cos(th), cz = Math.sin(th);

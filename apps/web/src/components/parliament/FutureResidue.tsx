@@ -34,7 +34,7 @@ import { futurePresence, type PresenceConfig, type PresenceResult } from "@/lib/
 import { excavatorsAt, type Excavator } from "@/lib/parliament/excavators";
 import { wrapDelta } from "@/lib/parliament/world";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { lidarActive, lidarLook, lidarTap } from "./LidarScan";
+import { lidarActive, lidarLook, lidarTap, lidarThin } from "./LidarScan";
 import { mobileLab, runsEveryAsset } from "./mobileLab";
 import { visitorWorld } from "./useBotServer";
 import { markSpan } from "./usePerfMeter";
@@ -64,17 +64,6 @@ export interface KindLook {
    *  (1 = as before; under 1 a steady share of them is left out, over 1 more are made the same way — more points on a
    *  part's faces, more leaf clumps in a crown and points in a meadow, more along a stem). */
   density: number;
-  /** FAR AND NEAR, ITS OWN (the artist, 2026-11-27: "미래랑 현재는 거리 따라 lod/흐림/뭉침 적용하는 정도 따로 조절"):
-   *  past `far` (world; 0 = off) thinned — kept with the chance (far/d)^(2 thinD), 1 = as the present's far readings,
-   *  0 = all kept — and grown × (d/far)^clump (1 = as the present's, at most 4×); out of focus — sharp at `focus`
-   *  (world), softer, larger and fainter nearer by blurN and towards the reach by blurF. Drawn over the photograph,
-   *  never softened by it (futureLayer.ts). */
-  far: number;
-  thinD: number;
-  clump: number;
-  focus: number;
-  blurN: number;
-  blurF: number;
   /** Found: how fast it develops from the touch outwards (world/s), seconds from the scan's colour to its own. */
   spread: number;
   develop: number;
@@ -124,6 +113,23 @@ export interface ResidueLook {
   adapt: boolean;
   everyMax: number;
   layerMax: number;
+  /** THE PRESENT THINNER WHILE THE FUTURE SHOWS (the artist, 2026-11-27: "미래가 나타났을 때 현재 렌더에 점 덜 쓰는
+   *  방식으로 성능 조절"): the lidar makes this share of its readings (LidarScan.tsx lidarThin; 1 = all) once
+   *  `presentFull` of the future's points are on the screen — fewer, less of the way there — and all again as it goes. */
+  presentShare: number;
+  presentFull: number;
+  /** THE FUTURE'S FAR AND NEAR, ITS OWN — one for all of it (the artist, 2026-11-27: "미래랑 현재는 거리 따라 lod/흐림/
+   *  뭉침 적용하는 정도 따로", then "부재나 종류마다 정하지 말고 그냥 미래/현재만 따로"): past `far` (world; 0 = off)
+   *  thinned — kept with the chance (far/d)^(2 thinD), 1 = as the present's far readings, 0 = all kept — and grown
+   *  × (d/far)^clump (1 = as the present's, at most 4×); out of focus — sharp at `focus` (world), softer, larger and
+   *  fainter nearer by blurN and towards the reach by blurF. Drawn over the photograph, never softened by it
+   *  (futureLayer.ts); the present's are scan (present)'s 먼 점 knobs and the base's 가까운/먼 흐림. */
+  far: number;
+  thinD: number;
+  clump: number;
+  focus: number;
+  blurN: number;
+  blurF: number;
   stagger: number;
   /** What is left: its colour, and concrete's share of it (steel and piles full); the stems' colour. */
   colour: string;
@@ -169,7 +175,7 @@ export const COLOUR_PROFILES: readonly { label: string; leaves: string[]; flower
   { label: "청록 엉겅퀴 (IMG_1976)", leaves: ["#4ec8c0", "#2c9ab0", "#6ae0c0", "#3a7ab8", "#8ad8d0", "#2aa0a0"], flowers: ["#ff2a2a", "#e0201f", "#ff5a3a", "#c0306a", "#ff8a6a"], part: "#e8eef0", stem: "#8a5a5a" },
 ];
 
-const KIND_BASE: Omit<KindLook, "blow"> = { dot: 2, sizeVar: 0.6, soft: 0.6, density: 1, far: 12, thinD: 1, clump: 0, focus: 4, blurN: 0, blurF: 0.6, spread: 5, develop: 1.2, jitter: 0.04, ghostAlpha: 0.45, ghostLife: 3, bleed: 0.5, tear: 0.3, drip: 0.4, block: 0.35, thin: 0.4, smear: 0, smearAlpha: 0.45 };
+const KIND_BASE: Omit<KindLook, "blow"> = { dot: 2, sizeVar: 0.6, soft: 0.6, density: 1, spread: 5, develop: 1.2, jitter: 0.04, ghostAlpha: 0.45, ghostLife: 3, bleed: 0.5, tear: 0.3, drip: 0.4, block: 0.35, thin: 0.4, smear: 0, smearAlpha: 0.45 };
 
 export const DEFAULT_RESIDUE: ResidueLook = {
   on: false,
@@ -183,6 +189,14 @@ export const DEFAULT_RESIDUE: ResidueLook = {
   adapt: true,
   everyMax: 6,
   layerMax: 1.5,
+  presentShare: 0.5,
+  presentFull: 3000,
+  far: 12,
+  thinD: 1,
+  clump: 0,
+  focus: 4,
+  blurN: 0,
+  blurF: 0.6,
   stagger: 1.2,
   colour: "#ffffff",
   concrete: 0.7,
@@ -227,7 +241,7 @@ export function setResidueLook(v: Partial<ResidueLook>): void {
 /** THE TWO INTERVALS AS THEY RUN NOW (ResidueLook.adapt): the reading's and the layers' (s), how slow the frames are
  *  (0 = as fast as this screen lately did … 1 = twice as slow), what one reading and one layer cost (ms) — the knobs'
  *  readout. */
-export const residueTiming = { every: 2, layer: 0.5, load: 0, readMs: 0, layerMs: 0 };
+export const residueTiming = { every: 2, layer: 0.5, load: 0, readMs: 0, layerMs: 0, present: 1, shown: 0 };
 
 /** F (a phone: FutureResiduePressButton) pressed: each press counts once, read by the residue's frame. */
 export const residuePress = { count: 0 };
@@ -675,12 +689,14 @@ function paletteOf(L: ResidueLook): { leaves: THREE.Color[]; flowers: THREE.Colo
 /** Far and near (DIST_GLSL), per kind; set each frame by setDist. */
 const DIST_UNIFORMS = () => Object.fromEntries(["uFar3", "uThinD3", "uClump3", "uFocus3", "uBlurN3", "uBlurF3"].map((n) => [n, { value: new THREE.Vector3() }]));
 function setDist(w: Record<string, THREE.IUniform>, L: ResidueLook): void {
-  per(L, (k) => k.far, w.uFar3.value as THREE.Vector3);
-  per(L, (k) => k.thinD, w.uThinD3.value as THREE.Vector3);
-  per(L, (k) => k.clump, w.uClump3.value as THREE.Vector3);
-  per(L, (k) => k.focus, w.uFocus3.value as THREE.Vector3);
-  per(L, (k) => k.blurN, w.uBlurN3.value as THREE.Vector3);
-  per(L, (k) => k.blurF, w.uBlurF3.value as THREE.Vector3);
+  // (one for all of the future — the shaders keep a slot a kind, all three the same)
+  const all = (v: number, d: number, u: THREE.IUniform) => (u.value as THREE.Vector3).setScalar(Number.isFinite(v) ? v : d);
+  all(L.far, 12, w.uFar3);
+  all(L.thinD, 1, w.uThinD3);
+  all(L.clump, 0, w.uClump3);
+  all(L.focus, 4, w.uFocus3);
+  all(L.blurN, 0, w.uBlurN3);
+  all(L.blurF, 0.6, w.uBlurF3);
 }
 
 const BLOW_UNIFORMS = () => ({ uDist3: { value: new THREE.Vector3(4, 5, 2.5) }, uRise3: { value: new THREE.Vector3(0.4, 1.2, 0.3) }, uTurb3: { value: new THREE.Vector3(0.8, 1, 0.6) }, uScatter3: { value: new THREE.Vector3(2.2, 2.5, 3) }, uBloom3: { value: new THREE.Vector3(0.6, 0.8, 0.4) }, uSize3: { value: new THREE.Vector3(2, 2, 2) }, uSizeVar3: { value: new THREE.Vector3(0.6, 0.6, 0.6) }, uSoft3: { value: new THREE.Vector3(0.6, 0.6, 0.6) } });
@@ -1077,7 +1093,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
   const streaks = useRef<THREE.Mesh | null>(null);
   const ghosts = useRef<THREE.Points[]>([]);
   const field = useRef<{ f: DensityField; dens: DensityConfig | null; version: unknown; fed: number; drops: number } | null>(null);
-  const st = useRef({ timer: 10, pool: null as Pool | null, states: new Map<string, PartState>(), tapFrame: -1, present: false, obs: null as Excavator | null, pass: null as null | { x: number; z: number; fx: number; fz: number; t0: number }, streakHead: 0, streakFilled: 0, streakUntil: 0, layerT: 0, ghostHead: 0, ghostBorn: new Array<number>(GHOSTS).fill(-1e9), ghostKill: 0, pressSeen: residuePress.count, pressUntil: 0, releaseAt: 0, dtAvg: 0, dtBest: 0, readMs: 0, layerMs: 0, every: NaN, layer: NaN });
+  const st = useRef({ timer: 10, pool: null as Pool | null, states: new Map<string, PartState>(), tapFrame: -1, present: false, obs: null as Excavator | null, pass: null as null | { x: number; z: number; fx: number; fz: number; t0: number }, streakHead: 0, streakFilled: 0, streakUntil: 0, layerT: 0, ghostHead: 0, ghostBorn: new Array<number>(GHOSTS).fill(-1e9), ghostKill: 0, pressSeen: residuePress.count, pressUntil: 0, releaseAt: 0, dtAvg: 0, dtBest: 0, readMs: 0, layerMs: 0, every: NaN, layer: NaN, thin: 1 });
   // F counts as an observer crossing the visitor (showWhen "press"; pressResidue checks the mode)
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -1088,6 +1104,8 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
   }, []);
   useEffect(
     () => () => {
+      // (the present makes all its readings again)
+      lidarThin.scale = 1;
       for (const o of [pts.current, streaks.current, ...ghosts.current]) {
         if (!o) continue;
         o.geometry.dispose();
@@ -1105,7 +1123,12 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     const K3 = residueLook.kinds, anySmear = [K3.part, K3.leaf, K3.stem].some((k) => k.smear > 0 && k.smearAlpha > 0), anyGhost = [K3.part, K3.leaf, K3.stem].some((k) => k.ghostAlpha > 0);
     if (streaks.current) streaks.current.visible = on && anySmear;
     for (const gh of ghosts.current) gh.visible = on && anyGhost;
-    if (!on) return;
+    if (!on) {
+      // (no future here: the present makes all its readings)
+      lidarThin.scale = 1;
+      st.current.thin = 1;
+      return;
+    }
     if (!pts.current && group.current) {
       pts.current = makePoints();
       streaks.current = makeStreaks();
@@ -1463,6 +1486,27 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       const layerMs = performance.now() - tLayer;
       s.layerMs = s.layerMs > 0 ? s.layerMs * 0.7 + layerMs * 0.3 : layerMs;
     }
+
+    // THE PRESENT THINNER WHILE THE FUTURE SHOWS ("미래가 나타났을 때 현재 렌더에 점 덜 쓰는 방식으로 성능 조절"): the
+    // future's points on the screen now (found and come, not yet blown far nor faded) against `presentFull`; the lidar
+    // makes down to `presentShare` of its readings as they grow — fewer within ~1 s, all again over ~2 s as it goes
+    let shown = 0;
+    if (s.pool) {
+      const flight = longestFlight(L) + L.stagger;
+      for (const p of s.pool.parts) {
+        const ps = s.states.get(p.key);
+        if (!ps || ps.found <= 0 || ps.found > now) continue;
+        if (ps.rel > 0 && now - ps.rel > flight) continue;
+        if (ps.died > 0 && now - ps.died > 1) continue;
+        shown += p.i1 - p.i0;
+      }
+    }
+    const share = Math.min(1, Math.max(0.02, Number.isFinite(L.presentShare) ? L.presentShare : 1));
+    const thinWant = 1 - (1 - share) * Math.min(1, shown / Math.max(1, Number.isFinite(L.presentFull) ? L.presentFull : 3000));
+    s.thin += (thinWant - s.thin) * Math.min(1, dt / (thinWant < s.thin ? 1 : 2));
+    lidarThin.scale = s.thin;
+    residueTiming.present = s.thin;
+    residueTiming.shown = shown;
 
     // FINDING: the scan's readings near a part find it — only while an observer is near
     const pool = s.pool;
