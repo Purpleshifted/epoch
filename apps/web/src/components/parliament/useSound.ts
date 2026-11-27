@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { folder, levaStore, useControls } from "leva";
 import { savable } from "./levaSave";
 import { useParliamentVersion } from "./version";
+import { newLook } from "./mobileLab";
 import { DEFAULT_MOTIF_PRESET, DEFAULT_SIGNALS, DEFAULT_SOUND, MOTIF_PRESETS, MOTIF_PRESET_NAMES, SoundEngine, type SignalConfig, type SoundParams } from "@/lib/sound";
 
 export interface SoundSetup {
@@ -90,6 +91,9 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       afterlifeTail: { value: DEFAULT_SOUND.afterlifeTail, min: 1, max: 30, step: 0.5, label: "죽음의 잔향 (s) — 끝난 뒤 들리는 유일한 것; 뒤 절반에 페이드가 겹침", render: v2 },
       // a word another left, found underfoot (witness word.found): the leaver's melody once, on the next bar, in the name's voice
       foundLevel: { value: DEFAULT_SOUND.foundLevel, min: 0, max: 1.5, step: 0.05, label: "찾은 말의 멜로디 크기 — 남긴 이의 이름 멜로디가 다음 마디에 한 번 (1 = 이름과 같은 크기, 0 = 안 들림)", render: v2 },
+      // asking and answering as counterpoint (sound-logic §13d) — the redesigned personal view only (lab pages,
+      // /rehearsal/experiment): the exhibition's view keeps its sound whatever is saved here
+      askCounterpoint: { value: DEFAULT_SOUND.askCounterpoint, label: "묻고 답하기를 대위로 (개편 개인뷰만) — 묻는 이는 한 마디 부르고 한 마디 비움 · 대답은 두 선이 벌어져 맞물렸다가 새 어휘로 하나 · 그 뒤 내 멜로디 = 새 어휘 (끄면 전처럼)", render: () => isV2 && newLook() },
       // the life's recording (useLifeRecording.ts, docs/recording.md): the headset's mix from the name's melody to the
       // end of the reverb, kept here and sent up; the specimen card's QR opens it
       record: { value: true, label: "녹음 — 이름의 멜로디부터 죽음의 잔향 끝까지, 헤드셋 믹스만 (표본 카드의 QR)", render: v2 },
@@ -229,7 +233,7 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
     master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, sealRadius, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, bassSpread, bassDub, bassDuck, bassDrop,
     motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb,
     motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb,
-    bassFrom, pathRadius, afterlifeTail, afterglow, foundLevel,
+    bassFrom, pathRadius, afterlifeTail, afterglow, foundLevel, askCounterpoint,
   } = c;
   const params = useMemo<SoundParams>(
     () => ({
@@ -237,8 +241,10 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb,
       motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb,
       bassFrom, afterlifeTail, afterglow, foundLevel, dead: false,
+      // (the URL decides newLook — the experiment address — so it is read once per change of the switch)
+      askCounterpoint: askCounterpoint && newLook(),
     }),
-    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, bassSpread, bassDub, bassDuck, bassDrop, motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb, motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb, bassFrom, afterlifeTail, afterglow, foundLevel],
+    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, bassSpread, bassDub, bassDuck, bassDrop, motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb, motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb, bassFrom, afterlifeTail, afterglow, foundLevel, askCounterpoint],
   );
   const sigCfg = useMemo<SignalConfig>(() => ({ ...DEFAULT_SIGNALS, hearRadius, sealRadius, pathRadius }), [hearRadius, sealRadius, pathRadius]);
   const { record: recordOn, recordKbps } = c;
