@@ -21,6 +21,12 @@ export const presentDepth = {
   uOcclude: { value: 0 },
 };
 
+/** THE FUTURE SOFTENED AS THE PRESENT IS (the artist, 2026-11-27: "'현재' 점의 거리 효과랑은 너무 다르게 적용되는 것
+ *  같아서", "이것봐, 너무 또렷하잖아"): InkPaper draws the layer into a frame of its own and softens it by its own depth
+ *  with the photograph's rule — a narrow blur everywhere, a wide one by distance — at the future's own radii (px; 0 and
+ *  0 = drawn straight over the frame, sharp). Set each frame by FutureResidue while it runs (`active`). */
+export const futureInk = { active: false, narrow: 1.2, wide: 6 };
+
 /** The GLSL half of it (a fragment shader's): the uniforms, and the test, first thing in main(). */
 export const PRESENT_DEPTH_GLSL = /* glsl */ `
 uniform sampler2D uPresentDepth;

@@ -22,8 +22,8 @@
  * (the action preview, the experiment). `?futurepass=1` (the scan (future) page's test scene): one observer that walks
  * in, stands, walks away and is gone, every 32 s.
  *
- * Drawn on a layer of its own (futureLayer.ts): its far and near — thinned, grown, out of focus — are its own, per kind,
- * never the photograph's softening by depth nor the present's far readings.
+ * Drawn on a layer of its own (futureLayer.ts): its far and near — thinned, grown, too near thinned — and its softening
+ * by depth (the photograph's rule, in a frame of its own) are its own, set as the present's are.
  */
 
 import { useEffect, useRef } from "react";
@@ -39,7 +39,7 @@ import { mobileLab, runsEveryAsset } from "./mobileLab";
 import { visitorWorld } from "./useBotServer";
 import { markSpan } from "./usePerfMeter";
 import type { FuturePresenceVisual } from "./FuturePresence";
-import { FUTURE_LAYER, PRESENT_DEPTH_GLSL, presentDepth } from "./futureLayer";
+import { FUTURE_LAYER, PRESENT_DEPTH_GLSL, futureInk, presentDepth } from "./futureLayer";
 
 /** How one kind blows away: its flight (s), how far (world), how much it rises (world; below 0 it falls), how much the
  *  flow swirls it (0 = straight), and how much it takes its bloom colour as it goes (C; 0 = none … 1). */
@@ -118,18 +118,19 @@ export interface ResidueLook {
    *  `presentFull` of the future's points are on the screen — fewer, less of the way there — and all again as it goes. */
   presentShare: number;
   presentFull: number;
-  /** THE FUTURE'S FAR AND NEAR, ITS OWN — one for all of it (the artist, 2026-11-27: "미래랑 현재는 거리 따라 lod/흐림/
-   *  뭉침 적용하는 정도 따로", then "부재나 종류마다 정하지 말고 그냥 미래/현재만 따로"): past `far` (world; 0 = off)
-   *  thinned — kept with the chance (far/d)^(2 thinD), 1 = as the present's far readings, 0 = all kept — and grown
-   *  × (d/far)^clump (1 = as the present's, at most 4×); out of focus — sharp at `focus` (world), softer, larger and
-   *  fainter nearer by blurN and towards the reach by blurF. Drawn over the photograph, never softened by it
-   *  (futureLayer.ts); the present's are scan (present)'s 먼 점 knobs and the base's 가까운/먼 흐림. */
+  /** THE FUTURE'S FAR AND NEAR, ITS OWN, BY THE PRESENT'S RULES — one for all of it (the artist, 2026-11-27: "미래랑
+   *  현재는 거리 따라 lod/흐림/뭉침 적용하는 정도 따로", "부재나 종류마다 정하지 말고 그냥 미래/현재만 따로", then
+   *  "또렷한 거리는 없어야", "'현재' 점의 거리 효과랑은 너무 다르게 적용되는 것 같아서", "너무 또렷하잖아"): past `far`
+   *  (world; 0 = off) thinned — kept with the chance (far/d)^(2 thinD) — and grown × (d/far)^clump, at most 4× (1 and 1 =
+   *  the present's rule); within `near` (world; 0 = off) thinned as the present's too-near readings, (d/near)², at least
+   *  3 %; softened as the photograph softens the present — a narrow blur everywhere, a wide one by distance — at its
+   *  own radii (inkNear / inkFar, px: the base's 가까운 / 먼 흐림 are the present's), in a frame of its own (InkPaper). */
   far: number;
   thinD: number;
   clump: number;
-  focus: number;
-  blurN: number;
-  blurF: number;
+  near: number;
+  inkNear: number;
+  inkFar: number;
   stagger: number;
   /** What is left: its colour, and concrete's share of it (steel and piles full); the stems' colour. */
   colour: string;
@@ -193,10 +194,10 @@ export const DEFAULT_RESIDUE: ResidueLook = {
   presentFull: 3000,
   far: 12,
   thinD: 1,
-  clump: 0,
-  focus: 4,
-  blurN: 0,
-  blurF: 0.6,
+  clump: 1,
+  near: 2,
+  inkNear: 1.2,
+  inkFar: 6,
   stagger: 1.2,
   colour: "#ffffff",
   concrete: 0.7,
@@ -454,17 +455,18 @@ vec3 flowColour(vec3 p, vec3 base) {
   return mix(base, own, uFlow);
 }`;
 
-/** FAR AND NEAR, ITS OWN (KindLook.far … blurF; needs byKind): thinned and grown past `far`, softer and larger out of
- *  focus — the present's far readings and the photograph's softening by depth are the present's (futureLayer.ts). */
+/** FAR AND NEAR, ITS OWN (ResidueLook.far … near; needs byKind): thinned and grown past `far`, thinned too near — as
+ *  the present's readings are (LidarScan lodSize), at the future's own numbers. */
 const DIST_GLSL = /* glsl */ `
 uniform vec3 uFar3;
 uniform vec3 uThinD3;
 uniform vec3 uClump3;
-uniform vec3 uFocus3;
-uniform vec3 uBlurN3;
-uniform vec3 uBlurF3;
-// (kept past far with the chance (far/d)^(2 thinD): 1 = as the present's far readings, 0 = all kept)
+uniform vec3 uNear3;
+// (kept past far with the chance (far/d)^(2 thinD): 1 = as the present's far readings, 0 = all kept; within near with
+// the chance (d/near)², at least 3 %, as the present's too-near readings)
 float farKeep(float d, float seed) {
+  float nr = byKind(uNear3);
+  if (nr > 0.0 && d < nr && fract(seed * 47.3) > max(0.03, (d / nr) * (d / nr))) return 0.0;
   float f = byKind(uFar3);
   if (f <= 0.0 || d <= f) return 1.0;
   return fract(seed * 91.7) > pow(f / d, 2.0 * byKind(uThinD3)) ? 0.0 : 1.0;
@@ -474,11 +476,7 @@ float farGrow(float d) {
   float f = byKind(uFar3);
   return f <= 0.0 || d <= f ? 1.0 : min(4.0, pow(d / f, byKind(uClump3)));
 }
-// (how far out of focus: 0 sharp at focus; nearer up to blurN at the eye, farther up to blurF at the reach)
-float outOfFocus(float d, float reach) {
-  float f = max(0.1, byKind(uFocus3));
-  return d < f ? byKind(uBlurN3) * (1.0 - d / f) : byKind(uBlurF3) * smoothstep(f, max(f + 0.1, reach), d);
-}`;
+`;
 
 const VERT = /* glsl */ `
 attribute vec3 aCol;
@@ -523,7 +521,7 @@ void main() {
     vec3 seen = ramp(clamp(dEye / uRange, 0.0, 1.0) * 3.0);
     float dev = byKind(uDevelop3);
     col = mix(seen, flowColour(position, aCol), dev > 0.0 ? smoothstep(0.0, dev, age) : 1.0);
-    // gone at the scanner's reach (far off thinned and grown, out of focus softened: below, its own)
+    // gone at the scanner's reach (far off thinned and grown, too near thinned: below, its own)
     a *= 1.0 - smoothstep(uReach * 0.55, uReach, dEye);
     if (uLife > 0.0) a *= 1.0 - smoothstep(uLife * 0.7, uLife, age);
     // (gone from the future's reading: it fades in a second rather than popping)
@@ -545,11 +543,11 @@ void main() {
     }
   }
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
-  // FAR AND NEAR, its own: thinned and grown far off; out of focus softer and larger, and fainter (spread over more)
-  float dE = -mv.z, bl = outOfFocus(dE, uReach);
-  a *= farKeep(dE, aSeed) / (1.0 + 1.5 * bl);
-  px *= farGrow(dE) * (1.0 + 1.5 * bl);
-  vSoft = min(1.0, vSoft + bl);
+  // FAR AND NEAR, its own, by the present's rules: thinned and grown far off, thinned too near (its softening by depth
+  // is the photograph's, in a frame of its own — InkPaper)
+  float dE = -mv.z;
+  a *= farKeep(dE, aSeed);
+  px *= farGrow(dE);
   vA = a;
   vCol = col;
   gl_Position = projectionMatrix * mv;
@@ -629,15 +627,14 @@ void main() {
   float kh = flightOf(rtH), k = flightOf(rc);
   float a = rtH > 0.0 && rt > 0.0 ? byKind(uStreak3) * (1.0 - along) * (1.0 - smoothstep(0.45, 1.0, kh)) : 0.0;
   float dEye = c0.w;
-  float bl = outOfFocus(dEye, uReach);
-  a *= farKeep(dEye, aSeed) / (1.0 + 1.5 * bl);
+  a *= farKeep(dEye, aSeed);
   a *= 1.0 - smoothstep(uReach * 0.55, uReach, dEye);
   // (a little wider than the dot was then — a blur, not a thread — narrowing towards the oldest)
   float sv = fract(aSeed * 53.1);
-  float px = 1.4 * byKind(uSize3) * mix(1.0, 0.55 + 1.5 * sv * sv, byKind(uSizeVar3)) * (1.0 - 0.55 * k) * (1.0 - 0.4 * along) * farGrow(dEye) * (1.0 + 1.5 * bl);
+  float px = 1.4 * byKind(uSize3) * mix(1.0, 0.55 + 1.5 * sv * sv, byKind(uSizeVar3)) * (1.0 - 0.55 * k) * (1.0 - 0.4 * along) * farGrow(dEye);
   vA = a;
   vSide = side;
-  vSoft = min(1.0, byKind(uSoft3) + bl);
+  vSoft = byKind(uSoft3);
   float bloom = byKind(uBloom3);
   vCol = mix(aCol, aBloom * (1.0 + 0.4 * bloom), bloom * smoothstep(0.0, 0.3, k));
   gl_Position = c0 + vec4(perp * side * px / uRes * c0.w, 0.0, 0.0);
@@ -694,16 +691,14 @@ function paletteOf(L: ResidueLook): { leaves: THREE.Color[]; flowers: THREE.Colo
 }
 
 /** Far and near (DIST_GLSL), per kind; set each frame by setDist. */
-const DIST_UNIFORMS = () => Object.fromEntries(["uFar3", "uThinD3", "uClump3", "uFocus3", "uBlurN3", "uBlurF3"].map((n) => [n, { value: new THREE.Vector3() }]));
+const DIST_UNIFORMS = () => Object.fromEntries(["uFar3", "uThinD3", "uClump3", "uNear3"].map((n) => [n, { value: new THREE.Vector3() }]));
 function setDist(w: Record<string, THREE.IUniform>, L: ResidueLook): void {
   // (one for all of the future — the shaders keep a slot a kind, all three the same)
   const all = (v: number, d: number, u: THREE.IUniform) => (u.value as THREE.Vector3).setScalar(Number.isFinite(v) ? v : d);
   all(L.far, 12, w.uFar3);
   all(L.thinD, 1, w.uThinD3);
-  all(L.clump, 0, w.uClump3);
-  all(L.focus, 4, w.uFocus3);
-  all(L.blurN, 0, w.uBlurN3);
-  all(L.blurF, 0.6, w.uBlurF3);
+  all(L.clump, 1, w.uClump3);
+  all(L.near, 2, w.uNear3);
 }
 
 const BLOW_UNIFORMS = () => ({ uDist3: { value: new THREE.Vector3(4, 5, 2.5) }, uRise3: { value: new THREE.Vector3(0.4, 1.2, 0.3) }, uTurb3: { value: new THREE.Vector3(0.8, 1, 0.6) }, uScatter3: { value: new THREE.Vector3(2.2, 2.5, 3) }, uBloom3: { value: new THREE.Vector3(0.6, 0.8, 0.4) }, uSize3: { value: new THREE.Vector3(2, 2, 2) }, uSizeVar3: { value: new THREE.Vector3(0.6, 0.6, 0.6) }, uSoft3: { value: new THREE.Vector3(0.6, 0.6, 0.6) } });
@@ -842,11 +837,9 @@ void main() {
   float hc = h1(colm * 1.7 + 101.0);
   ndc.y -= step(1.0 - 0.5 * drip, hc) * o * o * drip * 0.45 * (0.4 + hc);
   clip.xy = ndc * clip.w;
-  // FAR AND NEAR, as the layer of now's (its own, by kind)
-  float bl = outOfFocus(dEye, uReach);
-  a *= farKeep(dEye, aSeed) / (1.0 + 1.5 * bl);
-  px *= farGrow(dEye) * (1.0 + 1.5 * bl);
-  vSoft = min(1.0, vSoft + bl);
+  // FAR AND NEAR, as the layer of now's (softened with it, in its frame)
+  a *= farKeep(dEye, aSeed);
+  px *= farGrow(dEye);
   vA = a;
   // (an earlier layer flows on with the rest: it is the same plants, a moment ago)
   vCol = flowColour(position, aCol);
@@ -1173,8 +1166,9 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
   }, []);
   useEffect(
     () => () => {
-      // (the present makes all its readings again)
+      // (the present makes all its readings again; no future frame)
       lidarThin.scale = 1;
+      futureInk.active = false;
       for (const o of [pts.current, streaks.current, ...ghosts.current]) {
         if (!o) continue;
         o.geometry.dispose();
@@ -1193,9 +1187,10 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     if (streaks.current) streaks.current.visible = on && anySmear;
     for (const gh of ghosts.current) gh.visible = on && anyGhost;
     if (!on) {
-      // (no future here: the present makes all its readings)
+      // (no future here: the present makes all its readings; the photograph has no future frame to soften)
       lidarThin.scale = 1;
       st.current.thin = 1;
+      futureInk.active = false;
       return;
     }
     if (!pts.current && group.current) {
@@ -1206,8 +1201,12 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     }
     const P = pts.current, SM = streaks.current;
     if (!P || !SM) return;
-    // (its own layer: seen with the rest without the photograph; InkPaper sets the camera's layers for its passes)
+    // (its own layer: seen with the rest without the photograph; InkPaper sets the camera's layers for its passes and
+    // softens it in a frame of its own at these radii)
     state.camera.layers.enable(FUTURE_LAYER);
+    futureInk.active = true;
+    futureInk.narrow = Number.isFinite(residueLook.inkNear) ? residueLook.inkNear : 1.2;
+    futureInk.wide = Number.isFinite(residueLook.inkFar) ? residueLook.inkFar : 6;
     const L = residueLook, s = st.current, now = state.clock.elapsedTime, me = playerPosRef.current;
     const t0 = performance.now();
 

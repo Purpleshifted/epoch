@@ -100,16 +100,18 @@ export function useScanFutureKnobs(isV2: boolean) {
         { collapsed: false },
       ),
       // (the artist, 2026-11-27: "미래랑 현재는 거리 따라 lod/흐림/뭉침 적용하는 정도 따로", then "부재나 종류마다 정하지
-      // 말고 그냥 미래/현재만 따로": one set for the whole future; the present's are scan (present)'s 먼 점 knobs and the
-      // base's 가까운/먼 흐림, which now soften the present only)
+      // 말고 그냥 미래/현재만 따로": one set for the whole future, by the present's rules at its own numbers; the present's
+      // are scan (present)'s 먼 점 / 너무 가까운 점 knobs and the base's 가까운/먼 흐림)
       "거리 효과 — 미래 (멀리 성김 · 뭉침 · 흐림)": folder(
         {
           resFar: { value: DEFAULT_RESIDUE.far, min: 0, max: 40, step: 0.5, label: "멀리 — 시작 거리 (월드; 0 = 끔)" },
           resThinD: { value: DEFAULT_RESIDUE.thinD, min: 0, max: 3, step: 0.05, label: "멀리 성기게 — 정도 (0 = 그대로, 1 = 현재처럼)" },
           resClump: { value: DEFAULT_RESIDUE.clump, min: 0, max: 2, step: 0.05, label: "멀리 뭉치기 (점 커짐) — 정도 (0 = 그대로, 1 = 현재처럼)" },
-          resFocus: { value: DEFAULT_RESIDUE.focus, min: 0.5, max: 30, step: 0.5, label: "흐림 — 또렷한 거리 (월드)" },
-          resBlurN: { value: DEFAULT_RESIDUE.blurN, min: 0, max: 2, step: 0.05, label: "흐림 — 가까이 (눈앞에서; 0 = 없음)" },
-          resBlurF: { value: DEFAULT_RESIDUE.blurF, min: 0, max: 2, step: 0.05, label: "흐림 — 멀리 (보이는 거리 끝에서; 0 = 없음)" },
+          resNear: { value: DEFAULT_RESIDUE.near, min: 0, max: 8, step: 0.25, label: "너무 가까운 점 성기게 (월드; 현재처럼, 0 = 끔)" },
+          // ("또렷한 거리는 없어야", "'현재' 점의 거리 효과랑은 너무 다르게", "너무 또렷하잖아": the photograph's own rule,
+          // as the base's 가까운 / 먼 흐림 soften the present, at the future's own radii)
+          resInkNear: { value: DEFAULT_RESIDUE.inkNear, min: 0, max: 8, step: 0.1, label: "가까운 흐림 (px — 현재의 '가까운 흐림'과 같은 방식)" },
+          resInkFar: { value: DEFAULT_RESIDUE.inkFar, min: 0, max: 24, step: 0.5, label: "먼 흐림 (px — 현재의 '먼 흐림'과 같은 방식)" },
         },
         { collapsed: false },
       ),
@@ -359,9 +361,9 @@ export function useScanFutureKnobs(isV2: boolean) {
     far: v.resFar,
     thinD: v.resThinD,
     clump: v.resClump,
-    focus: v.resFocus,
-    blurN: v.resBlurN,
-    blurF: v.resBlurF,
+    near: v.resNear,
+    inkNear: v.resInkNear,
+    inkFar: v.resInkFar,
     stagger: v.resStagger,
     colour: v.resColour,
     concrete: v.resConcrete,
