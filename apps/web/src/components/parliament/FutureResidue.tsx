@@ -292,6 +292,13 @@ const GHOSTS = 8;
 const GHOST_CAP = 40_000;
 /** Readings looked at in one frame (more are sampled evenly). */
 const READ_PER_FRAME = 4000;
+/** A READING SPREAD OVER FRAMES (the coordinator, 2026-11-27: the redesign's preview lagged — one reading built its
+ *  ~200k points in one frame, 240–610 ms): at most this many ms of a frame go to it (one slice may run over a little),
+ *  and the pool's points are made READ_STEP at a time. */
+const READ_BUDGET_MS = 3;
+const READ_STEP = 512;
+// (the phases of the last reading — latest, presence, pool, carry, stage, swap, its worst frame (ms) and the frames it
+// took — are in window.__residue)
 /** The parts' grid (world): a reading looks in its own bucket only, each part in every bucket it reaches into. */
 const GRID = 2.4;
 /** Rays of the residue's own onto the ground a frame (finding only, never drawn). */
@@ -877,9 +884,48 @@ function makeGhost(): THREE.Points {
   return p;
 }
 
-/** The pool from one reading of the future: the parts' faces, the trees, the plant clouds, the mounds, the dark earth. */
-function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
-  const pos = new Float32Array(CAP * 3), col = new Float32Array(CAP * 3), bloom = new Float32Array(CAP * 3), seed = new Float32Array(CAP), kind = new Float32Array(CAP);
+/** The pool's arrays: two sets, made once — the one shown, and the one the next reading fills. */
+interface PoolBuf {
+  pos: Float32Array;
+  col: Float32Array;
+  bloom: Float32Array;
+  seed: Float32Array;
+  kind: Float32Array;
+}
+const poolBuf = (): PoolBuf => ({ pos: new Float32Array(CAP * 3), col: new Float32Array(CAP * 3), bloom: new Float32Array(CAP * 3), seed: new Float32Array(CAP), kind: new Float32Array(CAP) });
+/** What the GPU's arrays will hold once a reading is swapped in, staged a part at a time (made once). */
+interface Staged {
+  pos: Float32Array;
+  found: Float32Array;
+  delay: Float32Array;
+  rel: Float32Array;
+  dir: Float32Array;
+  die: Float32Array;
+}
+/** A reading under way (FutureResidue's frame): the pool being made, then carried, staged, and swapped in. */
+interface ReadingJob {
+  gen: Generator<void, Pool, void>;
+  pool: Pool | null;
+  keys: Set<string> | null;
+  carried: boolean;
+  partI: number;
+  snap: Float32Array | null;
+  ready: boolean;
+  frames: number;
+  spent: number;
+  K: number;
+  kMe: number;
+  ms: number;
+  phases: { latest: number; presence: number; pool: number; carry: number; stage: number; swap: number; worstFrame: number };
+}
+const staged = (): Staged => ({ pos: new Float32Array(CAP * 3), found: new Float32Array(CAP), delay: new Float32Array(CAP), rel: new Float32Array(CAP), dir: new Float32Array(CAP * 2), die: new Float32Array(CAP) });
+
+/** The pool from one reading of the future: the parts' faces, the trees, the plant clouds, the mounds, the dark earth —
+ *  made into `buf`, READ_STEP points at a time (it yields between: the frame runs it within its budget). */
+function* buildPoolSteps(r: PresenceResult, unit: number, look: ResidueLook, buf: PoolBuf): Generator<void, Pool, void> {
+  const { pos, col, bloom, seed, kind } = buf;
+  // (a slice done: back to the frame)
+  let mark = 0;
   const parts: Pool["parts"] = [];
   let n = 0;
   const white = new THREE.Color(look.colour), stem = new THREE.Color(look.stemColour);
@@ -944,6 +990,10 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
     }
     const k = (r.partSteel[cur] ? 1 : look.concrete) * (0.82 + 0.36 * hash(i, cur, 31));
     add(S[o], S[o + 1], S[o + 2], white, k, hash(i, cur, 37), pick(pollen, hash(i, cur, 41)), 0);
+    if (n - mark >= READ_STEP) {
+      mark = n;
+      yield;
+    }
   }
   close();
   // THE TREES, one part a cell — fuller ("나무는 더 풍성해보여야"): the crown filled with leaf clumps round its own
@@ -1025,6 +1075,10 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
       }
     }
     close();
+    if (n - mark >= READ_STEP) {
+      mark = n;
+      yield;
+    }
   }
   // THE PLANT CLOUDS (grass and scrub: x, z, foot, radius, height …): points in a low dome over their ground
   const PC = r.plantClouds;
@@ -1045,6 +1099,10 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
       add(x + Math.cos(a) * rr, y, z + Math.sin(a) * rr, c, flowering ? 1.1 : 0.75 + 0.5 * hash(sz, sx, i), hash(sx, i, sz), pick(petals, hash(i, sz, 109)), flowering ? 1.25 : 1);
     }
     close();
+    if (n - mark >= READ_STEP) {
+      mark = n;
+      yield;
+    }
   }
   // THE MOUNDS: a dome of pale points, fuller the higher their score; THE DARK EARTH: a few grey points flat
   // (× 부재 점 수, as the parts' faces — FutureResidue's futurePresence call)
@@ -1059,6 +1117,10 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
       add(x + Math.cos(th) * rr, 0.02 + H * (1 - u1), z + Math.sin(th) * rr, white, 0.75 + 0.2 * hash(sd, i, 3), hash(sd, i, 4), pick(pollen, hash(sd, i, 8)), 0);
     }
     close();
+    if (n - mark >= READ_STEP) {
+      mark = n;
+      yield;
+    }
   }
   const E = r.stains;
   for (let o = 0; o + 3 < E.length; o += 4) {
@@ -1070,6 +1132,10 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
       add(x + Math.cos(th) * rr, 0.02, z + Math.sin(th) * rr, white, 0.4, hash(sd, i, 7), pick(pollen, hash(sd, i, 9)), 0);
     }
     close();
+    if (n - mark >= READ_STEP) {
+      mark = n;
+      yield;
+    }
   }
   // (the parts' buckets: each part in every bucket its box, grown by the finding distance, reaches into)
   const grid = new Map<number, number[]>();
@@ -1093,7 +1159,10 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
   const streaks = useRef<THREE.Mesh | null>(null);
   const ghosts = useRef<THREE.Points[]>([]);
   const field = useRef<{ f: DensityField; dens: DensityConfig | null; version: unknown; fed: number; drops: number } | null>(null);
-  const st = useRef({ timer: 10, pool: null as Pool | null, states: new Map<string, PartState>(), tapFrame: -1, present: false, obs: null as Excavator | null, pass: null as null | { x: number; z: number; fx: number; fz: number; t0: number }, streakHead: 0, streakFilled: 0, streakUntil: 0, layerT: 0, ghostHead: 0, ghostBorn: new Array<number>(GHOSTS).fill(-1e9), ghostKill: 0, pressSeen: residuePress.count, pressUntil: 0, releaseAt: 0, dtAvg: 0, dtBest: 0, readMs: 0, layerMs: 0, every: NaN, layer: NaN, thin: 1 });
+  const st = useRef({ timer: 10, pool: null as Pool | null, states: new Map<string, PartState>(), tapFrame: -1, present: false, obs: null as Excavator | null, pass: null as null | { x: number; z: number; fx: number; fz: number; t0: number }, streakHead: 0, streakFilled: 0, streakUntil: 0, layerT: 0, ghostHead: 0, ghostBorn: new Array<number>(GHOSTS).fill(-1e9), ghostKill: 0, pressSeen: residuePress.count, pressUntil: 0, releaseAt: 0, dtAvg: 0, dtBest: 0, readMs: 0, layerMs: 0, every: NaN, layer: NaN, thin: 1, job: null as ReadingJob | null });
+  // (the pool's two sets of arrays, and the staged GPU arrays: made the first time a reading runs)
+  const bufs = useRef<[PoolBuf, PoolBuf] | null>(null);
+  const stage = useRef<Staged | null>(null);
   // F counts as an observer crossing the visitor (showWhen "press"; pressResidue checks the mode)
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -1366,7 +1435,12 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     // its key; a part gone from the reading fades out where it was (or finishes blowing away)
     s.timer += dt;
     const sNow = getS();
-    if (s.timer >= s.every && h.fed >= all.length && sNow > 0) {
+    // THE READING SPREAD OVER FRAMES (READ_BUDGET_MS): the future read (futurePresence, a few ms), its points made a
+    // slice a frame (buildPoolSteps), what has left carried, the GPU's arrays staged a part at a time — and the next
+    // frame swaps them in (copies); what changed meanwhile (found, let go) is staged again then. The pool shown runs on
+    // untouched until the swap.
+    const budgetEnd = performance.now() + READ_BUDGET_MS;
+    if (!s.job && s.timer >= s.every && h.fed >= all.length && sNow > 0) {
       s.timer = 0;
       const tRead = performance.now();
       const kMe = Math.floor(sNow / Math.max(1, dcfg.slotSec));
@@ -1376,103 +1450,177 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
         for (const sd of h.f.seeds()) if (sd.levels) for (const [k, lv] of sd.levels) if (lv >= 1 && k > kk && k <= K) kk = k;
         if (kk !== -Infinity) K = kk;
       }
+      const tLatest = performance.now();
       const box: BoxConfig = { ...DEFAULT_BOXES, secPerUnit: Math.max(1, dcfg.slotSec), unit: cfg.unit, width: 0.8, density: 1.4, variety: DEFAULT_VARIETY, buildSlots: 0 };
       // (the parts' faces × 부재 점 수: the points a face's area gives, the most on one part and on all of them, scaled)
       const dPart = Math.max(0, L.kinds.part.density), dUp = Math.max(1, dPart);
-      const pcfg: PresenceConfig = { band: cfg.band, ruin: cfg.ruin, unit: cfg.unit, radius: lidarLook.range + 4, maxBuildings: cfg.maxBuildings, strip: cfg.strip, lastSteel: cfg.lastSteel, lastPile: cfg.lastPile, traces: false, surface: cfg.surface * dPart, surfaceCap: Math.round(160 * dUp), surfaceMax: Math.round(Math.min(CAP * 0.75, 60000 * dUp)), wild: cfg.wild };
+      // (read as far as it can show — 보이는 거리, never past the scanner's reach — and a margin to be found in: what lies
+      // beyond is never drawn, and the next reading takes it in as one walks closer)
+      const pcfg: PresenceConfig = { band: cfg.band, ruin: cfg.ruin, unit: cfg.unit, radius: Math.min(lidarLook.range, Math.max(1, L.reach)) + 4, maxBuildings: cfg.maxBuildings, strip: cfg.strip, lastSteel: cfg.lastSteel, lastPile: cfg.lastPile, traces: false, surface: cfg.surface * dPart, surfaceCap: Math.round(160 * dUp), surfaceMax: Math.round(Math.min(CAP * 0.75, 60000 * dUp)), wild: cfg.wild };
       const r = futurePresence(h.f, meRef.current.id, K, kMe, me, pcfg, box);
-      const pool = buildPool(r, cfg.unit, L);
-      // (what is shown until now stays as an earlier layer: where the new reading moves something, both are seen)
-      layGhost();
-      s.layerT = 0;
-      // (what was found and has left the reading: carried over to fade, or to finish blowing away)
-      const old = s.pool;
-      const keys = new Set(pool.parts.map((p) => p.key));
-      // (one that had faded out and is back in the reading is new: it waits to be found again)
-      for (const k of keys) if ((s.states.get(k)?.died ?? 0) > 0) s.states.delete(k);
-      // (a part of the same kind where a found one stood a moment ago: the future changed it — it stays found, and the
-      // old one fades beside it)
-      if (old)
-        for (const p of pool.parts) {
-          if (s.states.has(p.key)) continue;
-          const b = p.box, list = old.grid.get((Math.floor((b[0] + b[3]) / 2 / GRID) + 32768) * 65536 + (Math.floor((b[2] + b[5]) / 2 / GRID) + 32768));
-          if (!list) continue;
-          for (const oi of list) {
-            const op = old.parts[oi];
-            if (keys.has(op.key) || op.key[0] !== p.key[0]) continue;
-            const os = s.states.get(op.key);
-            if (!os || os.found <= 0 || os.rel > 0 || os.died > 0) continue;
-            const ob = op.box;
-            if (ob[0] > b[3] || ob[3] < b[0] || ob[2] > b[5] || ob[5] < b[2] || ob[1] > b[4] + 0.3 || ob[4] < b[1] - 0.3) continue;
-            s.states.set(p.key, { ...os });
-            break;
-          }
-        }
-      const gone = longestFlight(L) * 1.25 + L.stagger + 0.5;
-      if (old)
-        for (const p of old.parts) {
-          if (keys.has(p.key)) continue;
-          const ps = s.states.get(p.key);
-          if (!ps || ps.found <= 0) continue;
-          if (ps.rel > 0 ? now - ps.rel > gone : ps.died > 0 && now - ps.died > 1.2) continue;
-          if (ps.rel <= 0 && ps.died <= 0) ps.died = now;
-          if (pool.n + (p.i1 - p.i0) > CAP) continue;
-          const i0 = pool.n;
-          pool.pos.set(old.pos.subarray(p.i0 * 3, p.i1 * 3), i0 * 3);
-          pool.col.set(old.col.subarray(p.i0 * 3, p.i1 * 3), i0 * 3);
-          pool.bloom.set(old.bloom.subarray(p.i0 * 3, p.i1 * 3), i0 * 3);
-          pool.seed.set(old.seed.subarray(p.i0, p.i1), i0);
-          pool.kind.set(old.kind.subarray(p.i0, p.i1), i0);
-          pool.n += p.i1 - p.i0;
-          pool.parts.push({ key: p.key, i0, i1: pool.n, box: p.box });
-          keys.add(p.key);
-        }
-      // (the states of parts long gone or long blown away are forgotten: they may be found again)
-      for (const [k, ps] of s.states) {
-        if (!keys.has(k) || (ps.rel > 0 && now - ps.rel > gone)) s.states.delete(k);
-      }
-      // the GPU side anew: positions, colours, seeds, kinds, and what each part has been through
-      const fPos = A("position").array as Float32Array, fDie = A("aDie").array as Float32Array;
-      layNew(pool);
-      (A("aCol").array as Float32Array).set(pool.col.subarray(0, pool.n * 3));
-      (A("aBloom").array as Float32Array).set(pool.bloom.subarray(0, pool.n * 3));
-      (A("aSeed").array as Float32Array).set(pool.seed.subarray(0, pool.n));
-      (A("aKind").array as Float32Array).set(pool.kind.subarray(0, pool.n));
-      for (const p of pool.parts) {
-        const ps = s.states.get(p.key);
+      const tFp = performance.now();
+      if (!bufs.current) bufs.current = [poolBuf(), poolBuf()];
+      const B2 = bufs.current;
+      const buf = s.pool && s.pool.pos === B2[0].pos ? B2[1] : B2[0];
+      s.job = { gen: buildPoolSteps(r, cfg.unit, L, buf), pool: null, keys: null, carried: false, partI: 0, snap: null, ready: false, frames: 0, spent: tFp - tRead, K, kMe, ms: r.ms, phases: { latest: tLatest - tRead, presence: tFp - tLatest, pool: 0, carry: 0, stage: 0, swap: 0, worstFrame: tFp - tRead } };
+    }
+    const job = s.job;
+    if (job) {
+      const tj = performance.now();
+      job.frames++;
+      if (!stage.current) stage.current = staged();
+      const ST = stage.current;
+      // (a part's state into the staged arrays: when it was found and how far each point is from the touch, when its
+      // gust comes, which way, when it faded; what was staged is noted, to stage again what changes before the swap)
+      const stageState = (pool: Pool, pi: number, snap: Float32Array) => {
+        const p = pool.parts[pi], ps = s.states.get(p.key);
+        snap[pi * 3] = ps?.found ?? 0;
+        snap[pi * 3 + 1] = ps?.rel ?? 0;
+        snap[pi * 3 + 2] = ps?.died ?? 0;
         for (let i = p.i0; i < p.i1; i++) {
           if (!ps || ps.found <= 0) {
-            fFound[i] = 0;
-            fDelay[i] = 0;
-            fRel[i] = 0;
-            fDie[i] = 0;
+            ST.found[i] = 0;
+            ST.delay[i] = 0;
+            ST.rel[i] = 0;
+            ST.die[i] = 0;
             continue;
           }
-          fFound[i] = ps.found;
-          fDelay[i] = Math.hypot(fPos[i * 3] - ps.hx, fPos[i * 3 + 1] - ps.hy, fPos[i * 3 + 2] - ps.hz) / Math.max(0.1, kindOf(L, pool.kind[i]).spread) + 0.08 * pool.seed[i];
-          fRel[i] = ps.rel > 0 ? blowAt(ps, fPos[i * 3], fPos[i * 3 + 2], pool.seed[i], L.stagger) : 0;
-          fDir[i * 2] = ps.dx;
-          fDir[i * 2 + 1] = ps.dz;
-          fDie[i] = ps.died;
+          ST.found[i] = ps.found;
+          ST.delay[i] = Math.hypot(ST.pos[i * 3] - ps.hx, ST.pos[i * 3 + 1] - ps.hy, ST.pos[i * 3 + 2] - ps.hz) / Math.max(0.1, kindOf(L, pool.kind[i]).spread) + 0.08 * pool.seed[i];
+          ST.rel[i] = ps.rel > 0 ? blowAt(ps, ST.pos[i * 3], ST.pos[i * 3 + 2], pool.seed[i], L.stagger) : 0;
+          ST.dir[i * 2] = ps.dx;
+          ST.dir[i * 2 + 1] = ps.dz;
+          ST.die[i] = ps.died;
         }
+      };
+      if (job.ready && job.pool && job.snap && job.keys) {
+        // 4. THE SWAP, a frame of its own: what is shown now stays as an earlier layer; the states of parts long gone
+        // forgotten; what changed since its part was staged staged again; then the arrays copied in
+        const pool = job.pool, snap = job.snap, keys = job.keys;
+        layGhost();
+        s.layerT = 0;
+        const gone = longestFlight(L) * 1.25 + L.stagger + 0.5;
+        for (const [k, ps] of s.states) {
+          if (!keys.has(k) || (ps.rel > 0 && now - ps.rel > gone)) s.states.delete(k);
+        }
+        for (let pi = 0; pi < pool.parts.length; pi++) {
+          const ps = s.states.get(pool.parts[pi].key);
+          if (snap[pi * 3] !== (ps?.found ?? 0) || snap[pi * 3 + 1] !== (ps?.rel ?? 0) || snap[pi * 3 + 2] !== (ps?.died ?? 0)) stageState(pool, pi, snap);
+        }
+        const n = pool.n;
+        (A("position").array as Float32Array).set(ST.pos.subarray(0, n * 3));
+        (A("aCol").array as Float32Array).set(pool.col.subarray(0, n * 3));
+        (A("aBloom").array as Float32Array).set(pool.bloom.subarray(0, n * 3));
+        (A("aSeed").array as Float32Array).set(pool.seed.subarray(0, n));
+        (A("aKind").array as Float32Array).set(pool.kind.subarray(0, n));
+        (A("aFound").array as Float32Array).set(ST.found.subarray(0, n));
+        (A("aDelay").array as Float32Array).set(ST.delay.subarray(0, n));
+        (A("aRel").array as Float32Array).set(ST.rel.subarray(0, n));
+        (A("aDir").array as Float32Array).set(ST.dir.subarray(0, n * 2));
+        (A("aDie").array as Float32Array).set(ST.die.subarray(0, n));
+        // (the buckets were made from the new parts only; the carried ones cannot be found again)
+        s.pool = pool;
+        for (const at of ["position", "aCol", "aBloom", "aSeed", "aKind", "aDie", "aFound", "aDelay", "aRel", "aDir"]) {
+          const a = A(at);
+          a.clearUpdateRanges();
+          a.addUpdateRange(0, n * a.itemSize);
+          a.needsUpdate = true;
+        }
+        dirty0 = Infinity;
+        dirty1 = -1;
+        g.setDrawRange(0, n);
+        s.job = null;
+        const tEnd = performance.now();
+        job.phases.swap = tEnd - tj;
+        job.phases.worstFrame = Math.max(job.phases.worstFrame, tEnd - tj);
+        job.spent += tEnd - tj;
+        let k0 = 0, k1 = 0, k2 = 0;
+        for (let i = 0; i < n; i++) {
+          const kk = pool.kind[i];
+          if (kk < 0.5) k0++;
+          else if (kk < 1.5) k1++;
+          else k2++;
+        }
+        (window as unknown as { __residue?: unknown }).__residue = { phases: Object.fromEntries(Object.entries(job.phases).map(([k, v]) => [k, Math.round(v * 10) / 10])), frames: job.frames, k: job.K, kMe: job.kMe, parts: pool.parts.length, points: n, part: k0, leaf: k1, stem: k2, present: s.present, observer: Math.round(nearD * 10) / 10, ms: job.ms, every: Math.round(s.every * 100) / 100, layer: Math.round(s.layer * 100) / 100, load: Math.round(load * 100) / 100 };
+        // (what this reading cost, all of it over its frames — the next intervals weigh it)
+        s.readMs = s.readMs > 0 ? s.readMs * 0.5 + job.spent * 0.5 : job.spent;
+      } else {
+        // 1. the points, a slice at a time
+        while (!job.pool && performance.now() < budgetEnd) {
+          const it = job.gen.next();
+          if (it.done) job.pool = it.value;
+        }
+        const tP = performance.now();
+        job.phases.pool += tP - tj;
+        // 2. what was found and has left the reading, carried over to fade or to finish blowing away (nothing is
+        // forgotten yet: the pool shown still runs on these states)
+        if (job.pool && !job.carried && performance.now() < budgetEnd) {
+          const pool = job.pool, old = s.pool;
+          const keys = new Set(pool.parts.map((p) => p.key));
+          // (one that had faded out and is back in the reading is new: it waits to be found again)
+          for (const k of keys) if ((s.states.get(k)?.died ?? 0) > 0) s.states.delete(k);
+          // (a part of the same kind where a found one stood a moment ago: the future changed it — it stays found, and
+          // the old one fades beside it)
+          if (old)
+            for (const p of pool.parts) {
+              if (s.states.has(p.key)) continue;
+              const b = p.box, list = old.grid.get((Math.floor((b[0] + b[3]) / 2 / GRID) + 32768) * 65536 + (Math.floor((b[2] + b[5]) / 2 / GRID) + 32768));
+              if (!list) continue;
+              for (const oi of list) {
+                const op = old.parts[oi];
+                if (keys.has(op.key) || op.key[0] !== p.key[0]) continue;
+                const os = s.states.get(op.key);
+                if (!os || os.found <= 0 || os.rel > 0 || os.died > 0) continue;
+                const ob = op.box;
+                if (ob[0] > b[3] || ob[3] < b[0] || ob[2] > b[5] || ob[5] < b[2] || ob[1] > b[4] + 0.3 || ob[4] < b[1] - 0.3) continue;
+                s.states.set(p.key, { ...os });
+                break;
+              }
+            }
+          const gone = longestFlight(L) * 1.25 + L.stagger + 0.5;
+          if (old)
+            for (const p of old.parts) {
+              if (keys.has(p.key)) continue;
+              const ps = s.states.get(p.key);
+              if (!ps || ps.found <= 0) continue;
+              if (ps.rel > 0 ? now - ps.rel > gone : ps.died > 0 && now - ps.died > 1.2) continue;
+              if (ps.rel <= 0 && ps.died <= 0) ps.died = now;
+              if (pool.n + (p.i1 - p.i0) > CAP) continue;
+              const i0 = pool.n;
+              pool.pos.set(old.pos.subarray(p.i0 * 3, p.i1 * 3), i0 * 3);
+              pool.col.set(old.col.subarray(p.i0 * 3, p.i1 * 3), i0 * 3);
+              pool.bloom.set(old.bloom.subarray(p.i0 * 3, p.i1 * 3), i0 * 3);
+              pool.seed.set(old.seed.subarray(p.i0, p.i1), i0);
+              pool.kind.set(old.kind.subarray(p.i0, p.i1), i0);
+              pool.n += p.i1 - p.i0;
+              pool.parts.push({ key: p.key, i0, i1: pool.n, box: p.box });
+              keys.add(p.key);
+            }
+          job.keys = keys;
+          job.snap = new Float32Array(pool.parts.length * 3);
+          job.carried = true;
+        }
+        const tC = performance.now();
+        job.phases.carry += tC - tP;
+        // 3. the GPU's arrays staged, a part at a time: each point where this layer puts it (off by a scan's error),
+        // and its part's state
+        if (job.carried && job.pool && job.snap) {
+          const pool = job.pool, snap = job.snap, J = [L.kinds.part.jitter, L.kinds.leaf.jitter, L.kinds.stem.jitter];
+          while (job.partI < pool.parts.length && performance.now() < budgetEnd) {
+            const p = pool.parts[job.partI];
+            for (let i = p.i0; i < p.i1; i++) {
+              const jj = Math.max(0, J[Math.round(pool.kind[i])] ?? 0);
+              for (let c = 0; c < 3; c++) ST.pos[i * 3 + c] = pool.pos[i * 3 + c] + (jj > 0 ? (Math.random() * 2 - 1) * jj : 0);
+            }
+            stageState(pool, job.partI, snap);
+            job.partI++;
+          }
+          if (job.partI >= pool.parts.length) job.ready = true;
+        }
+        job.phases.stage += performance.now() - tC;
+        job.phases.worstFrame = Math.max(job.phases.worstFrame, performance.now() - tj);
+        job.spent += performance.now() - tj;
       }
-      // (the buckets were made from the new parts only; the carried ones cannot be found again)
-      s.pool = pool;
-      for (const at of ["position", "aCol", "aBloom", "aSeed", "aKind", "aDie", "aFound", "aDelay", "aRel", "aDir"]) {
-        const a = A(at);
-        a.clearUpdateRanges();
-        a.addUpdateRange(0, pool.n * a.itemSize);
-        a.needsUpdate = true;
-      }
-      dirty0 = Infinity;
-      dirty1 = -1;
-      g.setDrawRange(0, pool.n);
-      const byKind = [0, 0, 0];
-      for (let i = 0; i < pool.n; i++) byKind[Math.min(2, Math.round(pool.kind[i]))]++;
-      (window as unknown as { __residue?: unknown }).__residue = { k: K, kMe, parts: pool.parts.length, points: pool.n, part: byKind[0], leaf: byKind[1], stem: byKind[2], held: [...s.states.values()].filter((q) => q.found > 0 && q.rel <= 0).length, present: s.present, observer: Math.round(nearD * 10) / 10, ms: r.ms, every: Math.round(s.every * 100) / 100, layer: Math.round(s.layer * 100) / 100, load: Math.round(load * 100) / 100 };
-      // (what this reading cost, all of it — the next intervals weigh it)
-      const readMs = performance.now() - tRead;
-      s.readMs = s.readMs > 0 ? s.readMs * 0.5 + readMs * 0.5 : readMs;
     }
 
     // BETWEEN READINGS, a layer every `layer` seconds (layerSec … layerMax): the one shown stays behind as an earlier
