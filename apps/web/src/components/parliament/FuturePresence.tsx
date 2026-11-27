@@ -162,7 +162,10 @@ export interface FuturePresenceVisual extends PresenceConfig {
   /** A window's height (world), its shape, how far the observer walks between two it leaves (world), how long one
    *  stays (s), how many at once (≤ 12). */
   winH: number;
-  winShape: "body" | "sheet" | "person";
+  winShape: "body" | "sheet" | "person" | "clip";
+  /** The cut-out (winShape "clip"): "auto" = each observer its own of the few clips (futureWindows OBSERVER_CLIPS), or
+   *  one clip's id for all. */
+  winClip: string;
   /** THE OBSERVER AS A PERSON IN A LONG EXPOSURE (winShape "person"): how much of the future shows through them
    *  (0 = clothes only … 1 = a window only), the exposure's length (s), the view's up-and-down shake while it is open
    *  (of the screen's height), clothes in colour or in black and white. */
@@ -281,7 +284,8 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
       winR: k.winR,
       winSeeR: k.winSeeR,
       winH: k.winH,
-      winShape: (bodyUrl === "person" || bodyUrl === "body" || bodyUrl === "sheet" ? bodyUrl : k.winShape) as FuturePresenceVisual["winShape"],
+      winShape: (bodyUrl === "person" || bodyUrl === "body" || bodyUrl === "sheet" || bodyUrl === "clip" ? bodyUrl : k.winShape) as FuturePresenceVisual["winShape"],
+      winClip: k.winClip,
       winSee: k.winSee,
       winExposure: k.winExposure,
       winShake: k.winShake,
@@ -327,7 +331,7 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
       frameCurve: k.frameCurve,
       frameReread: k.frameReread,
     };
-  }, [url, p.overlayOn, p.overlayMode, k.on, k.look, p.radius, p.everySec, p.readLatest, p.unit, p.band, p.ruin, p.maxBuildings, p.strip, p.lastSteel, p.lastPile, p.showTraces, p.showRemains, p.showPlants, p.showDeposits, p.edgeColor, p.plantColor, k.excCount, k.excRoam, k.excLegSec, k.meetR, k.cloudR, k.pointSize, p.surface, p.wild, k.inSec, k.holdSec, k.outSec, k.cooldownSec, k.darkPresent, k.fxLevel, k.dreamR, k.dreamPx, k.scanR, k.scanPix, k.scanFrames, k.scanTurn, k.scanStill, k.scanBase, k.scanGain, k.scanNew, k.scanPx, k.scanGlow, k.scanSplat, k.scanHold, k.scanDark, k.scanArrive, k.scanArriveDist, k.scanArriveSec, k.scanFlow, k.frameR, k.frameEvery, k.frameTurn, k.frameMove, k.frameMax, k.frameHold, k.frameLife, k.frameH, k.frameAlpha, k.frameFilm, k.frameInk, k.frameSplat, k.frameSmear, k.frameJitter, k.frameArriveSec, k.frameRest, k.framePass, k.frameRevealSec, k.frameBody, k.frameOut, k.framePaper, k.frameTone, k.frameDistort, k.frameDistortAmt, k.frameEdge, k.frameCurve, k.frameReread, k.winR, k.winSeeR, k.winH, k.winShape, bodyUrl, k.winSee, k.winExposure, k.winShake, k.winDrag, k.winBoost, k.winPersonH, k.winAberr, k.winTear, k.winGlitch, k.winStreak, k.winGap, k.winStay, k.winMax, k.winFillR, k.winFillFull, k.winFillAlpha, k.winFillHow]);
+  }, [url, p.overlayOn, p.overlayMode, k.on, k.look, p.radius, p.everySec, p.readLatest, p.unit, p.band, p.ruin, p.maxBuildings, p.strip, p.lastSteel, p.lastPile, p.showTraces, p.showRemains, p.showPlants, p.showDeposits, p.edgeColor, p.plantColor, k.excCount, k.excRoam, k.excLegSec, k.meetR, k.cloudR, k.pointSize, p.surface, p.wild, k.inSec, k.holdSec, k.outSec, k.cooldownSec, k.darkPresent, k.fxLevel, k.dreamR, k.dreamPx, k.scanR, k.scanPix, k.scanFrames, k.scanTurn, k.scanStill, k.scanBase, k.scanGain, k.scanNew, k.scanPx, k.scanGlow, k.scanSplat, k.scanHold, k.scanDark, k.scanArrive, k.scanArriveDist, k.scanArriveSec, k.scanFlow, k.frameR, k.frameEvery, k.frameTurn, k.frameMove, k.frameMax, k.frameHold, k.frameLife, k.frameH, k.frameAlpha, k.frameFilm, k.frameInk, k.frameSplat, k.frameSmear, k.frameJitter, k.frameArriveSec, k.frameRest, k.framePass, k.frameRevealSec, k.frameBody, k.frameOut, k.framePaper, k.frameTone, k.frameDistort, k.frameDistortAmt, k.frameEdge, k.frameCurve, k.frameReread, k.winR, k.winSeeR, k.winH, k.winShape, k.winClip, bodyUrl, k.winSee, k.winExposure, k.winShake, k.winDrag, k.winBoost, k.winPersonH, k.winAberr, k.winTear, k.winGlitch, k.winStreak, k.winGap, k.winStay, k.winMax, k.winFillR, k.winFillFull, k.winFillAlpha, k.winFillHow]);
 }
 
 const MAX_EDGE_VERTS = 120000;

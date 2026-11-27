@@ -404,3 +404,58 @@ is the edge softness (metres) in the vertex stage's box — 0 keeps the box as b
 `bodyArchetypes.shapePose(pose, standPose, archetype, moving)` — bot-future may dress its observers in them too.
 
 ### bot (future)
+
+Page `http://localhost:3029/lab/mobile/bot-future` (`?botserver=0&futurefix=1`: one observer pacing 3.2 ahead). Group
+`bot (future) · 미래 발굴자` (`labKnobsBotFuture.ts`). History of the observer before the lab: `docs/future-presence.md`
+§7.2–7.13. Captures: `docs/img/mobile-view-lab/bot-future/`.
+
+#### Reference study (2026-11-23)
+
+| still | what it says for the observer |
+|---|---|
+| GIF `EDEFE77C` (silhouette window) | Two bodies are **holes** in the grass. Through them the sky that would be behind continues the sky around them, registered: another layer shown only in a body's shape, not a picture stuck on a body. **No outline**: a soft edge dusted with tiny white glints; above the shoulders the body is only glints, rising and thinning. The body is simple; it reads as a person by its size and walk. Outside the holes the present is untouched. |
+| `IMG_1575` (long-exposure walkers) | White is **light that overflowed**, never a grey film. Colour comes in garment blocks dragged vertically; faces, hands and feet are eaten by the light; between bodies, pure white. |
+| `IMG_1401 2` (Claire Harvey, *Overlaps*) | A sheet of acetate is barely darker than the wall. It is read by its **straight edge**, the **one step darker** where two overlap, the tape — not by a tint over everything. |
+| `IMG_1585` (Claire Harvey, *When what was when*) | Projected sheets in layers, each told by a **thin dark frame line**, with another time inside each. Grey comes only where sheets pile up. |
+
+Shared rule: **the other time shows through a shape, and the shape is told by its edge** (glints, a thin line, a straight
+edge), never by a grey laid over the whole picture. White stays white.
+
+Where it stood when the lab opened:
+- The default drawn body (`winShape: body`) was on the scene layer, so InkPaper gave it the far blur: grey blobs.
+- The near-fill (`FILL_FRAG`) lays a film of `paper × 0.84` plus the grey-toned future at 0.85 over the whole present:
+  the grey cast (her 누르죽죽). Still to do.
+
+#### While the lidar scan runs (2026-11-24)
+
+The artist: "현재의 '선' 레이더 돌릴 때는 가려줘", then, asked which lines, "미래의 선". While `lidarActive()`, the
+future is not drawn at all — neither its place nor its observers (`ParliamentScene`, 107bc5c). On the scan (present)
+page it was already off, so nothing there changed; it holds wherever the scan runs later.
+
+#### The observer as a real person, cut out (2026-11-27)
+
+The artist: "미래 관찰자 모양은 이전에 frame 에서 쓰던 실제 프레임 누끼딴 걸로" (after 11/24, relayed by bot-present: "원래
+있던 클립은 소수만 추려서 미래관찰자 봇에 쓰면 되겠다").
+
+- `창 › 창의 모양` has a new option, now the default: `실제 사람 — frames의 누끼 클립` (`winShape: "clip"`; `?body=clip` on
+  the address does the same). The window's shape is the alpha of one frame of a cut-out clip (`people/clips`, packed by
+  `spritePeople.loadSpriteSheet` — only these clips). Through it the future shows as through the other shapes: the
+  captured picture, each pixel where it belongs on the screen.
+- The few clips (`futureWindows.ts OBSERVER_CLIPS`) are the ones she set to "이동 중" in the frames study on 11/24:
+  - from the front: `vecteezy-33199516#8`, `gemini-D839B006_front`;
+  - from the side: `vecteezy-33199516#9 #11 #12 #15 #16`.
+  Each observer keeps one front clip and one side clip, chosen by its number. `누끼 클립` pins one clip for all.
+- Which view: an observer coming at me or going away shows its front clip. One walking across (more than 45° off)
+  shows its side clip, mirrored to the way it walks (people.json `faces`).
+- Which frame: the stride's phase at the clip's own pace (`strideSec`). Standing, it shows the frame where both feet
+  are down (`ds[0]`). A window left behind keeps the frame it had.
+- Height: `사람의 키` (`winPersonH`, now shown for the cut-out too) is the body's own height (the cell's height ÷ `fill`).
+- It is drawn on the pictograms' layer (`PICTO_LAYER`), which InkPaper lays over the finished frame. So it is not
+  far-blurred into a grey blob, as the drawn body was.
+- Capture `clip-v1.jpg` (phone 430 × 932, headless Chrome for Testing; beside the GIF and IMG_1575): the silhouette
+  reads as a real person walking, crisp. Inside, above the horizon it is a flat light grey (the window's back,
+  `paper × 0.86`); only the legs carry the future's ink. That is not yet the GIF's registered other time with a glinting
+  edge, nor 1575's colour.
+- Not changed yet:
+  - the near-fill (the grey film over the whole screen when I am near a window);
+  - what shows inside: still the frames' ink picture on a grey back, not yet scan-future's line language.

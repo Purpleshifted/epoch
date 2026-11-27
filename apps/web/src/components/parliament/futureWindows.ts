@@ -23,8 +23,31 @@ import { BODY_BOX, BODY_GLSL, BodyPoses, cycleOf, makeBodyGeometry, personCode, 
 import { LongExposure, exposureRate } from "./longExposure";
 import { EXPOSE_GLSL, EXPOSURE_LAYER, paperLook } from "./paperLook";
 import { markSpan } from "./usePerfMeter";
+import { ATLAS_GLSL, loadSpriteSheet, type SpriteIndex } from "./spritePeople";
+import { PICTO_LAYER } from "./framePeople";
 
 export const WINDOWS_MAX = 12;
+
+/**
+ * THE OBSERVER AS A REAL PERSON CUT OUT (winShape "clip" — the artist, 2026-11-24: "원래 있던 클립은 소수만 추려서
+ * 미래관찰자 봇에 쓰면 되겠다"; 2026-11-27: "미래 관찰자 모양은 이전에 frame 에서 쓰던 실제 프레임 누끼딴 걸로"): the
+ * window's shape is the silhouette of one of the frames study's cut-out clips (people/clips, the frame of its stride),
+ * and through it the future shows, as through the other shapes. The few clips: the ones she set to "이동 중" in the
+ * frames study (2026-11-24) — two seen from the front, five from the side. Each observer keeps one of each (by its
+ * number); a knob pins one for all.
+ */
+export const OBSERVER_CLIPS: readonly string[] = [
+  "vecteezy-33199516#8",
+  "gemini-D839B006_front",
+  "vecteezy-33199516#9",
+  "vecteezy-33199516#11",
+  "vecteezy-33199516#12",
+  "vecteezy-33199516#15",
+  "vecteezy-33199516#16",
+];
+/** What people.json says of a clip beyond the sprite list's own type: the share of the cell its body fills, which way a
+ *  profile walks in the picture (+1 right), the frames where both feet are down. */
+type SpriteRowMeta = SpriteIndex["sheet"]["rows"][number] & { fill?: number; faces?: number; ds?: number[] };
 
 /** How a pixel reads the picture (the frames' tone and bend, the same knobs) and turns its ink into a colour. */
 const INK = `
@@ -78,19 +101,27 @@ void main() {
   vUv = uv;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }`;
-/** ② A window: a walking body's shape (uShape 0) or a soft-edged sheet (1); in it the picture, each pixel at its own
- *  place on the screen. */
+/** ② A window: a walking body's shape (uShape 0), a soft-edged sheet (1) or a real person's cut-out (2: the clip's
+ *  frame, its alpha the window); in it the picture, each pixel at its own place on the screen. */
 const WINDOW_FRAG = `
 ${INK}
 float ign(vec2 f) { return fract(52.9829189 * fract(dot(f, vec2(0.06711056, 0.00583715)))) - 0.5; }
 uniform vec2 uRes;
 uniform float uA, uPose, uWalk, uShape;
 uniform vec3 uBack;
+uniform sampler2D uClip;
+uniform float uCols, uPer, uAtlasRows, uSlot, uFrame, uMirror;
+${ATLAS_GLSL}
 varying vec2 vUv;
 float cap(vec2 p, vec2 a, vec2 b, float r) { vec2 pa = p - a, ba = b - a; return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0)) - r; }
 void main() {
   float m;
-  if (uShape < 0.5) {
+  if (uShape > 1.5) {
+    // (the cut-out's own edge, as the matte has it; mirrored when it walks the other way)
+    vec2 cu = vec2(uMirror < 0.0 ? 1.0 - vUv.x : vUv.x, vUv.y);
+    cu.x = clamp(cu.x, 0.004, 0.996);
+    m = smoothstep(0.15, 0.65, texture2D(uClip, atlasUv(uSlot, uFrame, cu)).a);
+  } else if (uShape < 0.5) {
     vec2 p = vec2((vUv.x - 0.5) * 0.6, vUv.y);
     float sw = sin(uPose * 6.0) * uWalk;
     float d = length(p - vec2(0.0, 0.905)) - 0.075;
@@ -383,7 +414,10 @@ export class FutureWindows {
   private readonly plant = new THREE.Color("#2f8f3f");
   private readonly tones = { ink: new THREE.Color(), plant: new THREE.Color(), own: new THREE.Color(), film: new THREE.Color(), line: new THREE.Color(1, 1, 1), back: new THREE.Color() };
   /** The uniforms every window and the sheet share (one object each: set once a frame). */
-  private readonly shared = { uTex: { value: null as THREE.Texture | null }, uDens: { value: 0.06 }, uMono: { value: 1 }, uDistort: { value: 0 }, uDistAmt: { value: 0.5 }, uTime: { value: 0 }, uInk: { value: this.tones.ink }, uPlant: { value: this.tones.plant }, uOwn: { value: this.tones.own }, uSmear: { value: 0.004 }, uRich: { value: 0 }, uOnWhite: { value: 0 }, uRes: { value: new THREE.Vector2(1, 1) }, uBack: { value: this.tones.back } };
+  private readonly shared = { uTex: { value: null as THREE.Texture | null }, uDens: { value: 0.06 }, uMono: { value: 1 }, uDistort: { value: 0 }, uDistAmt: { value: 0.5 }, uTime: { value: 0 }, uInk: { value: this.tones.ink }, uPlant: { value: this.tones.plant }, uOwn: { value: this.tones.own }, uSmear: { value: 0.004 }, uRich: { value: 0 }, uOnWhite: { value: 0 }, uRes: { value: new THREE.Vector2(1, 1) }, uBack: { value: this.tones.back }, uClip: { value: null as THREE.Texture | null }, uCols: { value: 16 }, uPer: { value: 1 }, uAtlasRows: { value: 1 } };
+  // (the cut-out clips, packed once they are asked for: OBSERVER_CLIPS)
+  private clips: { index: SpriteIndex; texture: THREE.Texture } | null = null;
+  private clipsAsked = false;
 
   /** `cloud`: the encounter's sampling of the future (position, color, aSeed.y = what a point is). */
   constructor(cloud: THREE.BufferGeometry) {
@@ -491,7 +525,7 @@ export class FutureWindows {
           transparent: true,
           depthWrite: false,
           side: THREE.DoubleSide,
-          uniforms: { uTex: S.uTex, uDens: S.uDens, uMono: S.uMono, uDistort: S.uDistort, uDistAmt: S.uDistAmt, uTime: S.uTime, uSeed: { value: i * 0.37 + 0.11 }, uInk: S.uInk, uPlant: S.uPlant, uOwn: S.uOwn, uSmear: S.uSmear, uRich: S.uRich, uOnWhite: S.uOnWhite, uRes: S.uRes, uBack: S.uBack, uA: { value: 0 }, uPose: { value: 0 }, uWalk: { value: 0 }, uShape: { value: 0 } },
+          uniforms: { uTex: S.uTex, uDens: S.uDens, uMono: S.uMono, uDistort: S.uDistort, uDistAmt: S.uDistAmt, uTime: S.uTime, uSeed: { value: i * 0.37 + 0.11 }, uInk: S.uInk, uPlant: S.uPlant, uOwn: S.uOwn, uSmear: S.uSmear, uRich: S.uRich, uOnWhite: S.uOnWhite, uRes: S.uRes, uBack: S.uBack, uA: { value: 0 }, uPose: { value: 0 }, uWalk: { value: 0 }, uShape: { value: 0 }, uClip: S.uClip, uCols: S.uCols, uPer: S.uPer, uAtlasRows: S.uAtlasRows, uSlot: { value: 0 }, uFrame: { value: 0 }, uMirror: { value: 1 } },
         });
         const mesh = new THREE.Mesh(this.winGeom, mat);
         mesh.frustumCulled = false;
@@ -610,6 +644,26 @@ export class FutureWindows {
     const stay = Math.max(1, cfg.winStay), h = cfg.winH, shape = cfg.winShape === "sheet" ? 1 : 0, person = cfg.winShape === "person" && !!this.acc;
     // (as a person it is a person's size)
     const tall = person ? cfg.winPersonH : h, wide = shape ? h * 0.75 : person ? tall * 0.8 : h;
+    // THE CUT-OUT (winShape "clip"): the few clips packed the first time they are asked for; until they are there, the
+    // drawn body stands in. Drawn on the pictograms' layer — InkPaper lays it over the finished frame, out of its
+    // softening by depth (the drawn body was taken for far ground and blurred to a grey blob)
+    const clipMode = cfg.winShape === "clip";
+    if (clipMode && !this.clipsAsked) {
+      this.clipsAsked = true;
+      const want = new Set(OBSERVER_CLIPS);
+      loadSpriteSheet(gl, (r) => want.has(r.id)).then(
+        (c) => {
+          this.clips = c;
+          S.uClip.value = c.texture;
+          S.uCols.value = c.index.sheet.cols;
+          S.uPer.value = c.index.per;
+          S.uAtlasRows.value = c.index.atlasRows;
+        },
+        (e) => console.warn("[future] the observer's clips did not load", e),
+      );
+    }
+    const clip = clipMode ? this.observerClips(cfg.winClip) : null;
+    if (clip) cam.layers.enable(PICTO_LAYER);
     // THE GROUND'S FUTURE FROM ABOVE, in colour — what a person's body shows: taken when the place has been read
     if (person && (this.mapStale || !this.map)) {
       this.mapStale = false;
@@ -659,7 +713,9 @@ export class FutureWindows {
     this.stepAt = now;
     {
       const w0 = this.wins[0];
-      w0.phase = (w0.phase + (sdt / (cycle?.cycleSec ?? 1.1)) * this.walk) % 1;
+      // (a cut-out walks at its clip's own pace: one stride the strip's sixteen frames)
+      const strideSec = clip && this.clips ? Math.max(0.3, this.clips.index.sheet.rows[clip.front].strideSec) : cycle?.cycleSec ?? 1.1;
+      w0.phase = (w0.phase + (sdt / strideSec) * this.walk) % 1;
       w0.walking = this.walk;
       const dl = o.ex ? Math.hypot(o.ex.dx, o.ex.dz) : 0;
       if (o.ex && dl > 1e-4) {
@@ -723,7 +779,24 @@ export class FutureWindows {
       w.mesh.rotation.set(0, Math.atan2(eye.x - w.mesh.position.x, eye.z - w.mesh.position.z), 0);
       w.mesh.scale.set(wide, tall, 1);
       U.uA.value = a;
-      U.uShape.value = shape;
+      U.uShape.value = clip ? 2 : shape;
+      w.mesh.layers.set(clip ? PICTO_LAYER : 0);
+      if (clip && this.clips) {
+        // THE CUT-OUT: coming at me or going away → the front clip; across → the side clip, turned the way it goes; the
+        // frame its stride's (standing: the frame where both feet are down); a person's height for the body itself
+        const sheet = this.clips.index.sheet;
+        const tx = eye.x - w.mesh.position.x, tz = eye.z - w.mesh.position.z, tl = Math.hypot(tx, tz) || 1;
+        const along = (w.fx * tx + w.fz * tz) / tl, right = (w.fx * tz - w.fz * tx) / tl;
+        const across = Math.abs(along) < Math.SQRT1_2;
+        const row = across ? clip.side : clip.front;
+        const R = sheet.rows[row] as SpriteRowMeta;
+        const faces = R.view === "side" ? R.faces || 1 : 1;
+        U.uMirror.value = across && (right >= 0 ? 1 : -1) * faces < 0 ? -1 : 1;
+        U.uSlot.value = this.clips.index.slot[row];
+        U.uFrame.value = w.walking > 0.5 ? Math.floor(w.phase * sheet.cols) % sheet.cols : R.ds?.[0] ?? 0;
+        const tallC = cfg.winPersonH / Math.max(0.3, R.fill ?? 1);
+        w.mesh.scale.set((tallC * sheet.cellW) / sheet.cellH, tallC, 1);
+      }
       if (person) {
         // (the shared body: this window's pose in row `bodies`, its place and heading in the instance)
         this.poses.write(bodies, poseOf(cycle, w.phase, 1 - w.walking), build, code);
@@ -818,8 +891,25 @@ export class FutureWindows {
     this.exposedMat.uniforms.uCols.value = this.accW / 2.5;
     this.exposedMat.uniforms.uPaper.value = inStreet ? 2 : paper ? 1 : 0;
     this.exposedMesh.layers.set(inStreet ? EXPOSURE_LAYER : 0);
-    (window as unknown as { __futureWindows?: unknown }).__futureWindows = { alive, seen, fill: Math.round(this.fill * 100) / 100, near: Math.round(near * 100) / 100, W: this.rt.width, H: this.rt.height, ms: Math.round(this.ms * 100) / 100, t: Math.round(t * 10) / 10, paper };
+    (window as unknown as { __futureWindows?: unknown }).__futureWindows = { alive, seen, fill: Math.round(this.fill * 100) / 100, near: Math.round(near * 100) / 100, W: this.rt.width, H: this.rt.height, ms: Math.round(this.ms * 100) / 100, t: Math.round(t * 10) / 10, paper, clip: clip && this.clips ? [this.clips.index.sheet.rows[clip.front].id, this.clips.index.sheet.rows[clip.side].id] : clipMode ? "loading" : null };
     return alive;
+  }
+
+  /** The sheet rows this observer wears as a cut-out: one seen from the front, one from the side (by its number), or
+   *  the pinned clip for both; null until the clips are packed. */
+  private observerClips(pin: string): { front: number; side: number } | null {
+    const C = this.clips;
+    if (!C) return null;
+    const rows = C.index.sheet.rows;
+    const at = (id: string) => rows.findIndex((r) => r.id === id);
+    const ok = (i: number) => i >= 0 && C.index.slot[i] >= 0;
+    if (pin && pin !== "auto" && ok(at(pin))) return { front: at(pin), side: at(pin) };
+    const list = OBSERVER_CLIPS.map(at).filter(ok);
+    const fronts = list.filter((i) => rows[i].view !== "side"), sides = list.filter((i) => rows[i].view === "side");
+    const n = Math.abs(this.who);
+    const front = fronts.length ? fronts[n % fronts.length] : sides.length ? sides[n % sides.length] : -1;
+    const side = sides.length ? sides[(n * 3 + 1) % sides.length] : front;
+    return front >= 0 ? { front, side } : null;
   }
 
   dispose(): void {

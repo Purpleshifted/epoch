@@ -10,8 +10,14 @@ import { folder, useControls } from "leva";
 import { savable } from "./levaSave";
 import { LAB_GROUP, labLists } from "./mobileLab";
 import type { PresenceMode } from "./FuturePresence";
+import { OBSERVER_CLIPS } from "./futureWindows";
 
 const GROUP = LAB_GROUP["bot-future"];
+/** The cut-out's clip: each observer its own of the few (one from the front, one from the side), or one for all. */
+const CLIP_OPTIONS: Record<string, string> = {
+  "관찰자마다 하나씩 (frames에서 '이동 중'으로 고른 7개)": "auto",
+  ...Object.fromEntries(OBSERVER_CLIPS.map((id) => [id, id])),
+};
 const MODES: Record<string, PresenceMode> = {
   "마주침 — 미래의 발굴자가 내 자리를 지날 때만, 둘레의 미래가 점구름으로 모였다 흩어짐": "encounter",
   "겹침 — 현재의 땅 위에 미래의 남은 것이 함께 선다": "overlay",
@@ -56,9 +62,11 @@ export function useBotFutureKnobs(isV2: boolean, bodyUrl: string | null) {
       "창": folder(
         {
           winH: { value: 2.4, min: 0.3, max: 8, step: 0.05, label: "창의 키" },
-          winShape: { options: { "걷는 몸 모양": "body", "사각 창": "sheet", "장노출 사람 (시험 · 주소 ?body=person)": "person" }, value: "body", label: "창의 모양" },
+          // (the cut-out by default — the artist, 2026-11-27: "미래 관찰자 모양은 이전에 frame 에서 쓰던 실제 프레임 누끼딴 걸로")
+          winShape: { options: { "실제 사람 — frames의 누끼 클립": "clip", "걷는 몸 모양": "body", "사각 창": "sheet", "장노출 사람 (시험 · 주소 ?body=person)": "person" }, value: "clip", label: "창의 모양" },
+          winClip: { options: CLIP_OPTIONS, value: "auto", label: "누끼 클립", render: (get) => get(`${GROUP}.창.winShape`) === "clip" || bodyUrl === "clip" },
           winSee: { value: 1, min: 0, max: 1, step: 0.05, label: "몸의 진하기 (몸으로 비치는 미래)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
-          winPersonH: { value: 0.8, min: 0.3, max: 4, step: 0.05, label: "사람의 키 (월드 · 0.7 ≈ 1.7 m)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
+          winPersonH: { value: 0.8, min: 0.3, max: 4, step: 0.05, label: "사람의 키 (월드 · 0.7 ≈ 1.7 m)", render: (get) => ["person", "clip"].includes(get(`${GROUP}.창.winShape`) as string) || bodyUrl === "person" || bodyUrl === "clip" },
           winBoost: { value: 12, min: 0.5, max: 40, step: 0.5, label: "몸 안의 색 진하기", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
           winAberr: { value: 0.006, min: 0, max: 0.04, step: 0.001, label: "색수차 (세 색이 갈라지는 폭 · 화면 대비)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
           winTear: { value: 0.5, min: 0, max: 1, step: 0.05, label: "찢김 (가로 띠가 밀려남)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
