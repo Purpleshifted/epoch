@@ -40,6 +40,10 @@ import { visitorWorld } from "./useBotServer";
 import { markSpan } from "./usePerfMeter";
 import type { FuturePresenceVisual } from "./FuturePresence";
 import { FUTURE_LAYER, PRESENT_DEPTH_GLSL, futureInk, presentDepth } from "./futureLayer";
+import { futureFrame, noteFind } from "@/lib/sound/futureCue";
+
+/** (futureCue: where I look, reused each frame) */
+const CUE_FWD = new THREE.Vector3();
 
 /** How one kind blows away: its flight (s), how far (world), how much it rises (world; below 0 it falls), how much the
  *  flow swirls it (0 = straight), and how much it takes its bloom colour as it goes (C; 0 = none … 1). */
@@ -1324,6 +1328,9 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       // (where this going's bands, columns and blocks fall)
       (P.material as THREE.ShaderMaterial).uniforms.uGlitchSeed.value = Math.random() * 100;
     }
+    // (the sound's daydream — the future coming to me, and let go: futureCue.ts, sound-logic §13k)
+    state.camera.getWorldDirection(CUE_FWD);
+    futureFrame({ now, showWhen: L.showWhen, present: s.present, letGo, me: { x: me.x, z: me.z }, fwd: { x: CUE_FWD.x, z: CUE_FWD.z }, obs: s.obs ? { x: s.obs.x, z: s.obs.z } : null, blow: s.obs ? { x: s.obs.dx, z: s.obs.dz } : null });
     if (letGo && s.pool) {
       const o = s.obs, pool = s.pool;
       let dx = o ? o.dx : 1, dz = o ? o.dz : 0;
@@ -1702,6 +1709,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
             s.states.set(p.key, ps);
           }
           Object.assign(ps, { found: now, rel: 0, hx: x, hy: y, hz: z, died: 0 });
+          noteFind(now, x, z); // (the sound's daydream, futureCue.ts)
           for (let i = p.i0; i < p.i1; i++) {
             fFound[i] = now;
             fDelay[i] = Math.hypot(fPos[i * 3] - x, fPos[i * 3 + 1] - y, fPos[i * 3 + 2] - z) / Math.max(0.1, kindOf(L, pool.kind[i]).spread) + 0.08 * fSeed[i];

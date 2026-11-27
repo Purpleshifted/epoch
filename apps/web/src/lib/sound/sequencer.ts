@@ -19,11 +19,12 @@
  *   PAD         staying among others holds the chord tones (the building being born) — a sustained pad.
  */
 
-import { placeChord, type PlaceChord, type WorldKey, DEFAULT_HARMONY, diatonicChord } from "./harmony";
+import { bassOf, placeChord, type PlaceChord, type WorldKey, DEFAULT_HARMONY, diatonicChord } from "./harmony";
 import { midiToHz, realize, type Motif, type MotifNote, DEFAULT_MOTIF, hashString, rng } from "./motif";
 import type { PersonalSignals } from "./signals";
 import { CYCLES_PER_PHRASE, STEPS_PER_CYCLE, blend, stepsToCycle, type Phrase } from "./variation";
-import { deceptiveOf, predominantOf } from "./colour";
+import { deceptiveOf, dominantTo, predominantOf, tenseArrival } from "./colour";
+import { voiceLead } from "./voicing";
 
 export interface SequencerParams {
   /** Seconds per bar (the grid). */
@@ -57,6 +58,8 @@ export interface ArrivalState {
   together: boolean;
   /** The last bar a cadence began (a breath between cadences). */
   last: number;
+  /** Bars the dominant is held beyond its one (a stored tension, §13h). */
+  hold?: number;
 }
 
 export const ARRIVAL_IDLE: ArrivalState = { since: -1, together: false, last: -1e9 };
@@ -70,18 +73,20 @@ export const ARRIVAL_COOLDOWN = 8;
 export type ArrivalPhase = "pre" | "dominant" | "deceptive" | "tonic" | null;
 
 /** A long cadence's bars from its first (the deceptive turn drawn from the bar it began on: about one in three). */
-export function arrivalBars(since: number, long: boolean): Exclude<ArrivalPhase, null>[] {
+export function arrivalBars(since: number, long: boolean, hold = 0): Exclude<ArrivalPhase, null>[] {
   if (!long) return ["dominant", "tonic"];
+  // (a stored tension, §13h: the dominant held `hold` bars longer, and no deceptive turn — the payoff lands)
+  if (hold > 0) return ["pre", ...new Array<"dominant">(1 + hold).fill("dominant"), "tonic"];
   return rng(hashString(`deceive#${since}`))() < 0.35 ? ["pre", "dominant", "deceptive", "tonic"] : ["pre", "dominant", "tonic"];
 }
 
 /** Moves the arrival state one bar on; `together` = staying among others now, `born` = a building appeared beside me. */
-export function nextArrival(prev: ArrivalState, bar: number, together: boolean, born: boolean, cooldown = ARRIVAL_COOLDOWN, long = false): { state: ArrivalState; phase: ArrivalPhase } {
+export function nextArrival(prev: ArrivalState, bar: number, together: boolean, born: boolean, cooldown = ARRIVAL_COOLDOWN, long = false, hold = 0): { state: ArrivalState; phase: ArrivalPhase } {
   const rising = together && !prev.together;
   const canStart = bar - prev.last >= cooldown && prev.since < 0;
-  if ((rising || (born && together)) && canStart) return { state: { since: bar, together, last: bar }, phase: arrivalBars(bar, long)[0] };
+  if ((rising || (born && together)) && canStart) return { state: { since: bar, together, last: bar, hold }, phase: arrivalBars(bar, long, hold)[0] };
   if (prev.since >= 0) {
-    const seq = arrivalBars(prev.since, long);
+    const seq = arrivalBars(prev.since, long, prev.hold ?? 0);
     const k = bar - prev.since;
     if (k >= 1 && k < seq.length) return { state: { ...prev, together }, phase: seq[k] };
   }
@@ -124,6 +129,8 @@ export interface BarPlan {
   pad: { pitches: number[]; level: number };
   /** The arrival cadence this bar, if any (the engine opens the hall, lifts the voices). */
   arrival: ArrivalPhase;
+  /** The chord's upper voices led from the last bar's (voicing.ts, §13i; the redesigned view only): the pad's and the patch's harmony. */
+  voicing?: number[];
 }
 
 export interface BarInputs {
@@ -146,6 +153,16 @@ export interface BarInputs {
    * ninth now and then while walking. Applied to the place's chord outside an arrival; absent = the chord as it was.
    */
   colour?: ((chord: PlaceChord) => PlaceChord) | null;
+  /** TENSION WHEN GATHERED (colour.ts, §13g): 0..1 — how often the arrival's pre-dominant and dominant are made tense. */
+  tension?: number;
+  /** A RESOLUTION on this bar (tensionArc.ts, §13h; its chord comes through `colour`): the notes held on the chord, the pad brought in. */
+  resolve?: { lock: number; pad: number } | null;
+  /**
+   * FUNCTIONAL (§13i, the redesigned view only): the arrival's pre-dominant and dominant are those of the chord it lands
+   * on, and the pad's voices are led from `voicedFrom` (the last bar's upper voices) instead of taking slot by slot.
+   */
+  functional?: boolean;
+  voicedFrom?: number[] | null;
 }
 
 /** Place a motif's cycle into a bar at the density: 0.5 = only even bars, 1 = once, 2 = twice (compressed). */
@@ -169,10 +186,14 @@ export function planBar(inp: BarInputs): BarPlan {
   if (inp.colour && !arrival) chord = inp.colour(chord);
   // the cadence: a bar of the dominant leaning in, then the tonic (the place's own chord) arriving — longer, a
   // pre-dominant first, now and then a deceptive turn before home (§13f)
-  if (arrival === "pre") chord = predominantOf(key, bar, chord.band);
-  else if (arrival === "dominant") chord = dominantOf(key, chord);
-  else if (arrival === "deceptive") chord = deceptiveOf(key, chord.band);
-  const lock = arrival === "tonic" ? 1 : arrival === "deceptive" ? Math.max(0.9, lockOf(sig)) : lockOf(sig);
+  // (functional, §13i: all of the chord it lands on — the place's chord, the tonic to come)
+  const target = chord;
+  if (arrival === "pre") chord = tenseArrival(target, "pre", bar, inp.tension ?? 0) ?? predominantOf(target, bar);
+  else if (arrival === "dominant") chord = inp.functional ? tenseArrival(target, "dominant", bar, inp.tension ?? 0) ?? dominantTo(target) : dominantOf(key, chord);
+  else if (arrival === "deceptive") chord = deceptiveOf(target);
+  const lock0 = arrival === "tonic" ? 1 : arrival === "deceptive" ? Math.max(0.9, lockOf(sig)) : lockOf(sig);
+  const resolve = !arrival ? inp.resolve ?? null : null;
+  const lock = resolve ? Math.max(lock0, resolve.lock) : lock0;
   const d = density(sig.speed, p.speedMax);
   const company = Math.min(1, sig.neighbours.length / 2);
   const staying = sig.stay > 0.5 && sig.neighbours.length > 0;
@@ -234,10 +255,11 @@ export function planBar(inp: BarInputs): BarPlan {
   const bass: BarPlan["bass"] = [];
   if (sig.pathP >= p.bassFrom) {
     const level = Math.min(1, (sig.pathP - p.bassFrom) / (1 - p.bassFrom) + 0.25);
-    const pitch = 36 + chord.rootClass; // C2 … B2
+    const pitch = bassOf(chord); // C2 … B2, or the chord's own line (§13g)
     bass.push({ at: 0, pitch, level });
     if (d === 2) bass.push({ at: 0.5, pitch, level: level * 0.7 });
-  } else if (arrival === "tonic") bass.push({ at: 0, pitch: 36 + chord.rootClass, level: 1 });
+  } else if (arrival === "tonic") bass.push({ at: 0, pitch: bassOf(chord), level: 1 });
+  else if (resolve && resolve.pad >= 0.8) bass.push({ at: 0, pitch: bassOf(chord), level: 0.8 });
 
   // pad: the chord held while building; the cadence brings it in at once (the dominant leaning, the tonic full)
   let padLevel = sig.stay * company;
@@ -245,9 +267,12 @@ export function planBar(inp: BarInputs): BarPlan {
   if (arrival === "dominant") padLevel = Math.max(padLevel, 0.7);
   if (arrival === "deceptive") padLevel = Math.max(padLevel, 0.85);
   if (arrival === "tonic") padLevel = 1;
-  const pad = padLevel > 0.2 ? { pitches: [36 + chord.rootClass, ...chord.classes.map((c) => 48 + c)], level: padLevel } : { pitches: [], level: 0 };
+  if (resolve) padLevel = Math.max(padLevel, resolve.pad);
+  // (functional, §13i: the upper voices led from the last bar's — common tones held, the rest by the nearest step)
+  const voicing = inp.functional ? voiceLead(inp.voicedFrom ?? null, chord.classes) : undefined;
+  const pad = padLevel > 0.2 ? { pitches: [bassOf(chord), ...(voicing ?? chord.classes.map((c) => 48 + c))], level: padLevel } : { pitches: [], level: 0 };
 
-  return { bar, chord, lock, density: d, answer, me: mine, others, bass, pad, arrival };
+  return { bar, chord, lock, density: d, answer, me: mine, others, bass, pad, arrival, voicing };
 }
 
 /** The dominant seventh of `key` (degree 4), unless the chord is already it. */

@@ -18,8 +18,9 @@
  * models (magenta.ts) are loaded a few seconds after that and only used when they have answered.
  */
 
-import { chordName, magentaChordName, type PlaceChord, type WorldKey } from "./harmony";
-import { stayingChord, walkingChord } from "./colour";
+import { chordName, magentaChordName, MODES, type PlaceChord, type WorldKey } from "./harmony";
+import { conduct, resolutionChord, TENSE_BARS, type PhraseLock } from "./colour";
+import { answerArc, ARC_IDLE, arrivalHold, stepArc, type ArcState, type ArcStep } from "./tensionArc";
 import { apartShift, bassUnder, callsOn, endClosed, endOpen, interlock, landWith, octaveToward, placeApart, rotate, shiftNotes } from "./dialogue";
 import { wordMotifOf } from "@/lib/parliament/glyph";
 import { Magenta } from "./magenta";
@@ -178,6 +179,22 @@ export interface SoundParams {
   turnAmount: number;
   /** Which share of the walking bars is suspended or opened (sus4 · sus2 · add9). */
   colourAmount: number;
+  /**
+   * TENSION WHEN PEOPLE GATHER (colour.ts tenseChord, §13g — the artist, 2026-11-27: "더 텐스한 화성진행도 듣고싶음, 사람이
+   * 모였을 떄 특히"; with harmonyTurns, the redesigned view only): 0..1 at its fullest — × how gathered (others within
+   * hearing / crowdFull) = the share of eight-bar phrases that go tense, and how dark they may get. 0 = off.
+   */
+  tension: number;
+  /** How many others within hearing make it fully gathered. */
+  crowdFull: number;
+  /**
+   * TENSION THAT BUILDS AND IS RESOLVED (tensionArc.ts, §13h — the artist, 2026-11-27: "쌓여서 한 번에 혹은 서서히 '해결'이
+   * 돼야"): bars fully gathered to fill the store; seconds with the same people until familiarity has resolved it;
+   * bars of holding without any resolution before it closes by itself (the amen).
+   */
+  buildBars: number;
+  bondSec: number;
+  patienceBars: number;
   /** How much of my motif goes into the long open space (0..1): the signal sent out, its tail. */
   motifVerb: number;
   /** How much of the building's dullness the patch gets (0 = none, 1 = as everything else). */
@@ -185,6 +202,46 @@ export interface SoundParams {
   /** The patch's real-time knobs follow the interaction (noisecraftKnobs.ts, v4 A5a) and how far they depart from the artist's saved values (0..1). */
   ncMap: boolean;
   ncMapDepth: number;
+  /**
+   * THE PATCH REACTS TO CHANGES (noisecraftKnobs.ts §8e — the artist, 2026-11-27: "noisecraft 패치 노브도 변화에 반응하는
+   * 식으로 좀 더 개입 … 껐다 켤 수 있게 해서 한 번 보자"; the redesigned view only): the whole switch, then each part —
+   * the tension as timbre, a pluck on each chord change, the dialogue's and the ensemble's gestures.
+   */
+  ncReact: boolean;
+  /**
+   * WHILE SOMEONE ASKS ME (§13j — the artist, 2026-11-28: "말 걸 때는 말 거는 애 멜로디 말고 다른 건 좀 죽여도 될 듯, 근데
+   * 그 정도를 내가 레바로 조절할 수 있게"; the redesigned view only): how far everything but the asker's voice goes down
+   * while the question is open — the pad, the bass, the vegetation's noise, the patch, the others (0 = nothing, 1 = silent).
+   */
+  askDuck: number;
+  /**
+   * THE FUTURE PASSING AS A DAYDREAM (§13k — the artist, 2026-11-28: "'미래' 찾아왔을 때 … 소리 효과가 없음. 음색이나 화성을
+   * 퓨처리스틱 + 원래 하던 꽃 효과 + 뭔가 전파스러운 … 백일몽이 나를 스쳐가는 느낌"; the redesigned view only): on, its level
+   * and length (s), and each part's share — the radio (a band of static tuning in, a whistle), the chord (a quintal
+   * stack shimmering), my own melody as if broadcast from the future, the old meadow's glitter (futureSound.ts), the
+   * patch's bloom.
+   */
+  futureSound: boolean;
+  futureLevel: number;
+  futureDur: number;
+  futureRadio: number;
+  futureChord: number;
+  futureEcho: number;
+  futureGlitter: number;
+  futureBloom: number;
+  /**
+   * …and how wide each reaction swings (0 = off, 1 = as designed, 2 = twice — the artist, 2026-11-27: "이런 요소들 더
+   * 찾아서 레바 슬라이더로 그 부분의 폭 조절 가능하게"): the tension as timbre, a chord change's pluck, a question's
+   * echo, my answer's pluck, the ensemble's room, a resolution's bloom, clarity on a path, a found word's shimmer.
+   */
+  reactTension: number;
+  reactChange: number;
+  reactAsk: number;
+  reactAnswer: number;
+  reactEnsemble: number;
+  reactBloom: number;
+  reactPath: number;
+  reactFound: number;
   /** The path's heartbeat: how far it spreads into the rooms (0..1) and the second beat's strength (0..1). */
   bassSpread: number;
   bassDub: number;
@@ -264,9 +321,32 @@ export const DEFAULT_SOUND: SoundParams = {
   harmonyTurns: true,
   turnAmount: 0.8,
   colourAmount: 0.3,
+  tension: 0.8,
+  crowdFull: 2,
+  buildBars: 12,
+  bondSec: 60,
+  patienceBars: 32,
   ncDull: 0.7,
   ncMap: true,
   ncMapDepth: 0.8,
+  ncReact: true,
+  askDuck: 0.6,
+  futureSound: true,
+  futureLevel: 0.8,
+  futureDur: 7,
+  futureRadio: 1,
+  futureChord: 1,
+  futureEcho: 1,
+  futureGlitter: 1,
+  futureBloom: 1,
+  reactTension: 1,
+  reactChange: 1,
+  reactAsk: 1,
+  reactAnswer: 1,
+  reactEnsemble: 1,
+  reactBloom: 1,
+  reactPath: 1,
+  reactFound: 1,
   bassSpread: 0.8, // v4 A2e: its own long dark room
   bassDub: 0.75,
   bassDuck: 0.3,
@@ -351,6 +431,10 @@ export interface SoundDebug {
   found: { played: number; last: string; waiting: string | null };
   /** Asking and answering as counterpoint (§13d): the last bar it shaped — "부름 v_x @12", "빈 마디 v_x @13", "대답 v_x @14 → 새 어휘"; empty when none. */
   dialogue: string;
+  /** How tense the harmony may get now (§13g), 0 = not gathered or off. */
+  tension: number;
+  /** The tension's build-up and its last resolution, for the status line (§13h); "" when off. */
+  tensionLine: string;
 }
 
 export class SoundEngine {
@@ -421,6 +505,34 @@ export class SoundEngine {
   private planned = -1;
   private lastPlan: BarPlan | null = null;
   private lockedBars = 0;
+  /** How tense the harmony may get now (§13h: the knob × stored × (1 − bond)). */
+  private tensionNow = 0;
+  /** The tension's build-up and resolutions (§13h), its last step, and the bar my answer lands home on. */
+  private arc: ArcState = ARC_IDLE;
+  private arcStep: ArcStep | null = null;
+  private answerHomeBar = -1;
+  /** The place's own chord on the last planned bar (before any colour): what a resolution lands on. */
+  private placeNow: PlaceChord | null = null;
+  private tensionLine = "";
+  /** THE ONE CONDUCTOR (colour.ts conduct, §13i): the progression under way, the last bar's upper voices, what it did last. */
+  private phraseLock: PhraseLock | null = null;
+  private lastVoicing: number[] | null = null;
+  private conductLine = "";
+  /** Per planned bar, for the patch's knobs (§8e): how far its tense phrase has climbed (0..1), a chord change's pluck (0..1), whether it resolved. */
+  private barShape = new Map<number, { tension: number; pluck: number; landed: boolean }>();
+  /** When (context time) a found word's melody last began (§8e). */
+  private foundAt = -1e9;
+  /** When the future's daydream last cued the patch's bloom (§13k). */
+  private cueBloomAt = -1e9;
+  /** The ask's duck (§13j): the gains it moves (pad, vegetation, bass, patch) and where it stands. */
+  private ducks: GainNode[] = [];
+  private ncDuck: GainNode | null = null;
+  private duckNow = 1;
+  /** My answer under way (§13d), for the picture's response (answerPhaseOf): whom to, from when (context s), a bar's length. */
+  private answerSpan: { id: string; from: number; cycle: number } | null = null;
+  /** When (context time) the last question was called and my last answer began (§8e). */
+  private askAt = -1e9;
+  private answerAt = -1e9;
   private phrase: { phrase: Phrase; from: number; kind: string } | null = null;
   private magenta = new Magenta();
   private magentaState: SoundDebug["magenta"] = "off";
@@ -482,7 +594,7 @@ export class SoundEngine {
     const p = this.lastPlan;
     return {
       bar: p?.bar ?? -1,
-      chord: p && this.key ? chordName(this.key, p.chord) : "",
+      chord: p && this.key ? chordName(this.key, p.chord) + (this.conductLine ? ` [${this.conductLine}]` : "") : "",
       lock: p?.lock ?? 0,
       density: p?.density ?? 1,
       answer: p?.answer ?? false,
@@ -493,6 +605,8 @@ export class SoundEngine {
       place: this.placeLine + (this.lastPlan?.arrival ? ` · 도착 ${this.lastPlan.arrival}` : ""),
       found: { played: this.foundPlayed, last: this.foundLast, waiting: this.foundWaiting?.id ?? null },
       dialogue: this.dialogueLine,
+      tension: this.tensionNow,
+      tensionLine: this.tensionLine,
     };
   }
 
@@ -557,8 +671,49 @@ export class SoundEngine {
       sealed: sig.sealed,
       speed: Math.min(1, sig.speed / Math.max(0.1, p.speedMax)),
       together: (sig.coBuilders?.length ?? 0) > 0 ? 1 : 0,
+      ...this.reactSources(t),
     };
   }
+
+  /**
+   * THE PATCH REACTS TO CHANGES (§8e): from the bar being heard now — its tense phrase's climb, a pluck when its chord
+   * changed — and from the dialogue (a question just called, my answer just begun) and the ensemble. All 0 when off.
+   */
+  private reactSources(t: number): Pick<KnobSources, "tension" | "hang" | "pluck" | "ensemble" | "bloom" | "path" | "found"> {
+    const p = this.params;
+    const off = { tension: 0, hang: 0, pluck: 0, ensemble: 0, bloom: 0, path: 0, found: 0 };
+    if (!p.ncReact || !this.running || !this.epochMs) return off;
+    // (each reaction's width, 0 … 2)
+    const w = (v: number) => Math.max(0, Math.min(2, v));
+    const barSec = this.musicBarSec();
+    const pos = (Date.now() - this.gridEpochMs(barSec)) / 1000 / barSec;
+    const bar = Math.floor(pos);
+    const into = (pos - bar) * barSec;
+    const shape = this.barShape.get(bar);
+    const tension = (shape?.tension ?? 0) * w(p.reactTension);
+    const change = (shape?.pluck ?? 0) * Math.exp(-into / 0.6) * w(p.reactChange);
+    const ask = t >= this.askAt ? Math.exp(-(t - this.askAt) / 1.5) * w(p.reactAsk) : 0;
+    const answer = t >= this.answerAt ? Math.exp(-(t - this.answerAt) / 0.8) * w(p.reactAnswer) : 0;
+    // (the bloom: from the start of the bar that resolved, up to two bars back)
+    // (…and the future's daydream cues one, §13k)
+    let bloom = t >= this.cueBloomAt ? Math.exp(-(t - this.cueBloomAt) / 3) * w(p.futureBloom) : 0;
+    for (let j = 0; j <= 2; j++) {
+      if (this.barShape.get(bar - j)?.landed) {
+        bloom = Math.max(bloom, Math.exp(-(into + j * barSec) / 2.5) * w(p.reactBloom));
+        break;
+      }
+    }
+    return {
+      tension,
+      hang: Math.max(ask, 0.6 * tension),
+      pluck: Math.max(change, answer),
+      ensemble: this.ensembleIds.length ? w(p.reactEnsemble) : 0,
+      bloom,
+      path: (this.sig?.pathP ?? 0) * w(p.reactPath),
+      found: t >= this.foundAt ? Math.exp(-(t - this.foundAt) / 3) * w(p.reactFound) : 0,
+    };
+  }
+
 
   /**
    * THE MUSIC CLOCK (v4 A2, the artist): seconds a bar, decided here from the Leva bar length and the interaction —
@@ -593,6 +748,16 @@ export class SoundEngine {
     const theirs = this.motifOf(other);
     const cycleSec = (word.steps * stepMs) / 1000;
     const at0 = ctx.currentTime + Math.max(0, startPerfMs - performance.now()) / 1000;
+    this.answerAt = at0; // (the patch plucks with my answer, §8e)
+    this.answerSpan = { id: other, from: at0, cycle: cycleSec }; // (the picture's response, answerPhaseOf)
+    // (a held tension, §13h: my answer resolves my share — the word's bar lands home, half the store let go)
+    const resolving = !!this.arcStep?.holding && !!this.placeNow;
+    const homeChord = resolving ? resolutionChord(this.placeNow!, "home") : null;
+    if (resolving) {
+      this.answerHomeBar = this.planned + 1;
+      this.arc = answerArc(this.arc, this.answerHomeBar);
+      this.plans.delete(this.answerHomeBar);
+    }
     const their = this.voices.get(other);
     if (this.params.askCounterpoint) {
       // AS COUNTERPOINT (§13d): bar 1 — my line, closing on the tonic, and theirs an octave or more away, meshed into
@@ -615,7 +780,7 @@ export class SoundEngine {
         this.note(theirDest, n.freq, at0 + n.at * cycleSec, n.len * cycleSec, ANSWER_VEL, theirs.timbre, 0, viaMe);
         this.feature(other, at0 + n.at * cycleSec);
       }
-      const wordLine = realize(word, key, chord, 1, this.planned + 1);
+      const wordLine = realize(word, key, homeChord ?? chord, 1, this.planned + 1);
       const heard = (ns: readonly { pitch: number }[], k: number) => (ns.length ? ns.reduce((s, n) => s + n.pitch, 0) / ns.length + k : 60 + T);
       const s = octaveToward(shiftNotes(wordLine, T), heard(theirLine, viaMe ? T : 0));
       const octave = shiftNotes(wordLine, viaMe ? s : T + s);
@@ -678,7 +843,7 @@ export class SoundEngine {
     filter.Q.value = 0.5;
     const gain = ctx.createGain();
     gain.gain.value = 1;
-    source.connect(filter).connect(gain).connect(this.master);
+    source.connect(filter).connect(gain).connect(this.ncDuck ?? this.master);
     this.nc = { source, filter, gain };
   }
 
@@ -706,7 +871,10 @@ export class SoundEngine {
     this.seenSlabs = new Set(near);
     const together = this.forceTogether || (sig.coBuilders?.length ?? 0) > 0;
     // (longer with more turns: a pre-dominant, the dominant, sometimes a deceptive turn, then home — §13f)
-    const step = nextArrival(this.arrivalState, bar, together, born && sig.stay > 0.5 && sig.neighbours.length > 0, ARRIVAL_COOLDOWN, p.harmonyTurns);
+    // (a stored tension holds the dominant longer and the payoff lands — §13h)
+    const arcOn = p.harmonyTurns && p.tension > 0;
+    const hold = arcOn ? arrivalHold(this.arcStep?.level ?? 0) : 0;
+    const step = nextArrival(this.arrivalState, bar, together, born && sig.stay > 0.5 && sig.neighbours.length > 0, ARRIVAL_COOLDOWN, p.harmonyTurns, hold);
     if (this.forceTogether && step.phase === "dominant") this.forceTogether = false;
     this.arrivalState = step.state;
     const arrival = p.arrival ? step.phase : null;
@@ -714,17 +882,70 @@ export class SoundEngine {
       this.arrivalGlow = 1;
       this.arrivalAt = this.ctx.currentTime;
     }
+    // TENSION THAT BUILDS AND IS RESOLVED (§13h): stored while others are within hearing, resolved by building together
+    // (the arrival's tonic), my answer (half), familiarity (slowly), patience (the amen) — or scattered
+    if (!arcOn) this.arcStep = null;
+    else if (bar > this.arc.bar) {
+      const heard = sig.neighbours.filter((n) => n.dist <= p.hearRadius).map((n) => n.o);
+      this.arcStep = stepArc(this.arc, { bar, barSec: this.musicBarSec(), heard, building: arrival === "tonic" }, { tension: p.tension, crowdFull: p.crowdFull, buildBars: p.buildBars, bondSec: p.bondSec, patienceBars: p.patienceBars });
+      this.arc = this.arcStep.state;
+    }
+    const arc = this.arcStep;
+    const release = bar === this.answerHomeBar && arcOn ? "home" : arc?.release ?? null;
+    const holding = !release && !!arc?.holding;
+    this.tensionNow = arc?.level ?? 0;
+    const tension = this.tensionNow;
+    let tenseHit = false;
+    // (an arrival's or a resolution's bars end the progression under way; the next begins at a phrase's edge)
+    if (arrival || release) this.phraseLock = null;
+    const prevChord = this.plans.get(bar - 1)?.chord ?? this.lastPlan?.chord ?? null;
     const plan = planBar({
       bar,
       sig,
       key,
       place: this.placeFor(sig),
-      // (more turns, §13f: staying, the place's own progression — the place = its building's key or the world's band and
-      // its chord; walking, a suspension or an added ninth now and then; read after placeFor has set the zone's key)
+      // ONE CONDUCTOR (§13i): the place = its building's key or the world's band and its chord (read after placeFor has
+      // set the zone's key); a progression — tense when gathered (§13g–h), a turn when staying alone (§13f) — is chosen
+      // only at a phrase's edge and kept to its end; walking, the ground's chords, coloured now and then (never on a
+      // band's change); whatever is not a progression's own step must connect to the last bar, or its dominant comes first
       colour: p.harmonyTurns
-        ? (c: PlaceChord) =>
-            sig.stay > 0.5 ? stayingChord(c, `${this.zoneKey ? keyName(this.zoneKey) : "w"}#${c.band}#${c.rootClass}`, bar, p.turnAmount) : walkingChord(c, bar, p.colourAmount)
+        ? (c: PlaceChord) => {
+            const prevPlace = this.placeNow;
+            this.placeNow = c;
+            // (a resolution's bar: home, the amen's iv, or the scattered deceptive turn — on the place's root)
+            if (release) {
+              this.conductLine = release === "home" ? "풀림" : release === "plagal" ? "아멘" : "흩어짐";
+              return resolutionChord(c, release);
+            }
+            const keyId = this.zoneKey ? keyName(this.zoneKey) : "w";
+            const tag = `${keyId}#${c.band}#${c.rootClass}`;
+            const r = conduct(this.phraseLock, {
+              bar,
+              place: c,
+              tag,
+              keyId,
+              level: tension,
+              holding,
+              gathered: (arc?.gathered ?? 0) > 0,
+              staying: sig.stay > 0.5,
+              turnAmount: p.turnAmount,
+              colourAmount: p.colourAmount,
+              prev: prevChord,
+              prevPlace,
+            });
+            this.phraseLock = r.lock;
+            tenseHit = r.kind === "tense";
+            const at = r.lock ? ` ${bar - r.lock.from + 1}/${r.lock.len}` : "";
+            this.conductLine = `${r.kind === "tense" ? "긴장" : r.kind === "turn" ? "머묾" : r.kind === "walk" ? "걸음" : "제자리"}${at}${r.bridged ? " · 이음(V7)" : ""}`;
+            return r.chord;
+          }
         : null,
+      // (functional, §13i: the arrival leans on the chord it lands on; the pad's voices led from the last bar's)
+      functional: p.harmonyTurns,
+      voicedFrom: p.harmonyTurns ? this.lastVoicing : null,
+      // (the arrival after a stored tension: its pre-dominant and dominants altered for certain)
+      tension: (this.arrivalState.hold ?? 0) > 0 ? 1 : tension,
+      resolve: release === "home" ? { lock: 0.95, pad: 0.85 } : release === "plagal" ? { lock: 0.85, pad: 0.7 } : release === "deceptive" ? { lock: 0.8, pad: 0.6 } : null,
       arrival,
       me: this.me.motif,
       others: this.motifs,
@@ -734,6 +955,24 @@ export class SoundEngine {
     });
     this.plans.set(bar, plan);
     for (const k of this.plans.keys()) if (k < bar - 4) this.plans.delete(k);
+    if (plan.voicing) this.lastVoicing = plan.voicing;
+    if (arrival) this.conductLine = arrival === "pre" ? "도착 버금딸림" : arrival === "dominant" ? "도착 딸림" : arrival === "deceptive" ? "도착 거짓 종지" : "도착 으뜸";
+    if (!p.harmonyTurns) this.conductLine = "";
+    // (for the patch's knobs, §8e: how far a tense phrase has climbed — the arrival's bars lean too — and a pluck when
+    // the chord changes, more for a tense one)
+    // (holding, §13h: the store's level carries it, the phrase's climb on top; a resolution's bar lets it all go at once)
+    const k8 = (((bar % TENSE_BARS) + TENSE_BARS) % TENSE_BARS) / (TENSE_BARS - 1);
+    const climb = holding ? Math.min(1, tension / 0.6) * (0.6 + 0.4 * k8) : tenseHit ? k8 : 0;
+    const lean = arrival === "pre" ? 0.5 : arrival === "dominant" ? 0.9 : arrival === "deceptive" ? 1 : 0;
+    const prev = this.plans.get(bar - 1)?.chord;
+    const changed = !!prev && (prev.rootClass !== plan.chord.rootClass || prev.classes.join() !== plan.chord.classes.join());
+    const landed = release === "home" || arrival === "tonic";
+    this.barShape.set(bar, { tension: landed ? 0 : Math.max(climb, lean), pluck: landed ? 1 : changed ? (plan.chord.quality ? 1 : 0.6) : 0, landed });
+    // (the status line)
+    const said: Record<string, string> = { build: "함께 지어 풀림", answer: "응답으로 반쯤 풀림", patience: "저절로 풀림(아멘)", scatter: "흩어짐" };
+    const last = this.arc.last && bar - this.arc.last.bar < 4 ? ` · ${said[this.arc.last.kind]}` : "";
+    this.tensionLine = arc ? `긴장 ${tension.toFixed(2)} (쌓임 ${this.arc.stored.toFixed(2)} · 정 ${arc.bond.toFixed(2)}${holding ? ` · 붙듦 ${this.arc.held}/${p.patienceBars}` : ""})${(this.arrivalState.hold ?? 0) > 0 && arrival ? ` · 도착 딸림 +${this.arrivalState.hold}` : ""}${last}` : "";
+    for (const k of this.barShape.keys()) if (k < bar - 8) this.barShape.delete(k);
     this.lastPlan = plan;
     return plan;
   }
@@ -754,6 +993,12 @@ export class SoundEngine {
       // the limiter before the device (§10c): with the room's speakers in the same Chrome the two summed and clipped
       this.limiter = makeLimiter(ctx);
       this.dull.connect(this.master).connect(this.limiter).connect(ctx.destination);
+      // (the ask's duck on the patch, §13j: between the patch's own gain and the master)
+      this.ducks = [];
+      this.duckNow = 1;
+      this.ncDuck = ctx.createGain();
+      this.ncDuck.connect(this.master);
+      this.ducks.push(this.ncDuck);
       // the headset's own output device, chosen on /v2/sound/output (the default when none)
       void applyOutput(ctx, "headset").then((s) => (this.outputLine = s));
       this.offOutput = onOutputChange("headset", () => void applyOutput(ctx, "headset").then((s) => (this.outputLine = s)));
@@ -810,7 +1055,9 @@ export class SoundEngine {
       bp.Q.value = 0.9;
       this.noiseGain = ctx.createGain();
       this.noiseGain.gain.value = 0;
-      noise.connect(bp).connect(this.noiseGain).connect(this.dry);
+      const noiseDuck = ctx.createGain();
+      this.ducks.push(noiseDuck);
+      noise.connect(bp).connect(noiseDuck).connect(this.noiseGain).connect(this.dry);
       // the vegetation into the hall's reverb too (10/31, the artist: too dry)
       this.grassSend = ctx.createGain();
       this.grassSend.gain.value = this.params.grassVerb;
@@ -828,6 +1075,7 @@ export class SoundEngine {
       shaper.curve = curve;
       shaper.oversample = "2x";
       this.bassGain.connect(shaper).connect(this.dry);
+      this.ducks.push(this.bassGain);
       // the beat spreads under everything: into the hall's room through a dark low-pass (no convolver of its own —
       // every convolver is audio-thread work, and five of them crackled on the artist's machine)
       this.bassSpread = ctx.createGain();
@@ -865,8 +1113,12 @@ export class SoundEngine {
       // pad: five sustained sines, retuned per bar
       const level = ctx.createGain();
       level.gain.value = 0;
-      level.connect(this.dry);
-      level.connect(this.rooms.hall);
+      // (through the ask's duck, §13j)
+      const padDuck = ctx.createGain();
+      this.ducks.push(padDuck);
+      level.connect(padDuck);
+      padDuck.connect(this.dry);
+      padDuck.connect(this.rooms.hall);
       const oscs: OscillatorNode[] = [];
       const gains: GainNode[] = [];
       for (let i = 0; i < 5; i++) {
@@ -1006,6 +1258,7 @@ export class SoundEngine {
   /** The found word's melody from `at` (a bar's start): the leaver's motif in the key I stand in, every note in tune, like the name. */
   private playFound(id: string, at: number, bar: number, key: WorldKey, barSec: number): void {
     const ctx = this.ctx!;
+    this.foundAt = at; // (the patch's far bell shimmers with it, §8e)
     if (!this.foundOut) {
       this.foundOut = ctx.createGain();
       // into the master, not the limiter as the name: the master is open at the level the name is announced at, and a
@@ -1031,6 +1284,162 @@ export class SoundEngine {
     a.splice(i, 0, at);
     const old = (this.ctx?.currentTime ?? 0) - 2;
     while (a.length && a[0] < old) a.shift();
+  }
+
+  /**
+   * MY ANSWER AS THE PICTURE SEES IT (§13d → the response, FramePeopleLayer): 0 … 2 through my answer's two bars to `id`
+   * (the first: our two lines, the second: the new word in one rhythm), as heard; null when I am not answering `id`.
+   */
+  answerPhaseOf(id: string): number | null {
+    const ctx = this.ctx;
+    const a = this.answerSpan;
+    if (!ctx || !a || a.id !== id || !this.timer) return null;
+    const lat = (ctx as AudioContext & { outputLatency?: number }).outputLatency || ctx.baseLatency || 0;
+    const u = (ctx.currentTime - lat - a.from) / Math.max(0.1, a.cycle);
+    return u >= 0 && u < 2 ? u : null;
+  }
+
+  /** Whose life this engine sounds (the picture's glyph of my word). */
+  get selfId(): string {
+    return this.myId;
+  }
+
+  /**
+   * THE FUTURE PASSING AS A DAYDREAM (§13k): `arrive` — a band of static tuning in with a whistle that locks, a quintal
+   * chord on the place's root shimmering high (its #11 the lydian's air), and my own melody in the place's lydian, an
+   * octave up, on a thin radio voice that passes (its pitch falls a little as it goes by) — panned from `panFrom` to
+   * `panTo` over futureDur s, into the hall; the patch blooms. `leave` — the static sweeping down and the chord sinking
+   * a semitone as it fades, off the way the wind blows. False when nothing was played (sound off, dead, the switch off).
+   */
+  daydream(kind: "arrive" | "leave", panFrom: number, panTo: number): boolean {
+    const ctx = this.ctx;
+    const p = this.params;
+    if (!ctx || !this.running || ctx.state !== "running" || p.dead || this.afterlife || !p.futureSound || p.futureLevel <= 0) return false;
+    const t0 = ctx.currentTime + 0.05;
+    const D = kind === "arrive" ? Math.max(2, p.futureDur) : Math.max(1.5, p.futureDur * 0.5);
+    const stop = t0 + D + 1.5;
+    const c1 = (v: number) => Math.max(-1, Math.min(1, v));
+    const env = (g: AudioParam, at: number, attack: number, end: number, level: number) => {
+      g.setValueAtTime(0, at);
+      g.linearRampToValueAtTime(level, at + attack);
+      g.setValueAtTime(level, Math.max(at + attack, end - Math.min(2, (end - at) * 0.4)));
+      g.linearRampToValueAtTime(0, end);
+    };
+    const out = ctx.createGain();
+    out.gain.value = p.futureLevel;
+    const pan = ctx.createStereoPanner();
+    pan.pan.setValueAtTime(c1(panFrom), t0);
+    pan.pan.linearRampToValueAtTime(c1(panTo), t0 + D);
+    const send = ctx.createGain();
+    send.gain.value = 0.55;
+    out.connect(pan);
+    pan.connect(this.dull);
+    pan.connect(send).connect(this.rooms.hall);
+    const tidy: AudioNode[] = [out, pan, send];
+    const root = this.placeNow?.rootClass ?? this.key?.root ?? 0;
+    // THE RADIO: static in a narrow band that tunes across, and a thin whistle gliding until it locks
+    if (p.futureRadio > 0) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noise;
+      src.loop = true;
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.Q.value = 9;
+      if (kind === "arrive") {
+        bp.frequency.setValueAtTime(420, t0);
+        bp.frequency.exponentialRampToValueAtTime(2600, t0 + D * 0.35);
+        bp.frequency.exponentialRampToValueAtTime(900, t0 + D);
+      } else {
+        bp.frequency.setValueAtTime(1800, t0);
+        bp.frequency.exponentialRampToValueAtTime(240, t0 + D);
+      }
+      const g = ctx.createGain();
+      env(g.gain, t0, kind === "arrive" ? 0.6 : 0.1, t0 + D, 0.4 * p.futureRadio);
+      src.connect(bp).connect(g).connect(out);
+      src.start(t0);
+      src.stop(stop);
+      const wh = ctx.createOscillator();
+      wh.type = "sine";
+      wh.frequency.setValueAtTime(kind === "arrive" ? 3100 : 1500, t0);
+      wh.frequency.exponentialRampToValueAtTime(kind === "arrive" ? 1180 : 420, t0 + D * 0.6);
+      const wg = ctx.createGain();
+      env(wg.gain, t0, 0.3, t0 + D * 0.75, 0.025 * p.futureRadio);
+      wh.connect(wg).connect(out);
+      wh.start(t0);
+      wh.stop(stop);
+      tidy.push(bp, g, wg);
+    }
+    // THE CHORD FROM ELSEWHERE: a quintal stack on the place's root, high, each voice shimmering (a tremolo of its own)
+    // and drifting; leaving, it sinks a semitone as it fades
+    if (p.futureChord > 0) {
+      [0, 7, 14, 21, 18].forEach((st, i) => {
+        const o = ctx.createOscillator();
+        o.type = "sine";
+        o.frequency.value = midiToHz(72 + root + st);
+        o.detune.setValueAtTime(kind === "arrive" ? -14 : 0, t0);
+        o.detune.linearRampToValueAtTime(kind === "arrive" ? 10 : -100, t0 + D);
+        const am = ctx.createGain();
+        am.gain.value = 0.6;
+        const lfo = ctx.createOscillator();
+        lfo.frequency.value = 4.5 + i * 1.1;
+        const lg = ctx.createGain();
+        lg.gain.value = 0.4;
+        lfo.connect(lg).connect(am.gain);
+        const g = ctx.createGain();
+        env(g.gain, t0 + i * 0.15, kind === "arrive" ? 1.6 : 0.2, t0 + D, (i === 4 ? 0.02 : 0.04) * p.futureChord);
+        o.connect(am).connect(g).connect(out);
+        o.start(t0);
+        lfo.start(t0);
+        o.stop(stop);
+        lfo.stop(stop);
+        tidy.push(am, lg, g);
+      });
+    }
+    // MY MELODY, BROADCAST FROM THE FUTURE: my motif in the place's lydian, an octave up, square through a radio's band,
+    // twice, passing (a doppler's fall)
+    if (kind === "arrive" && p.futureEcho > 0 && this.me && this.key) {
+      const lydian: WorldKey = { root, mode: MODES[6], degrees: this.key.degrees };
+      const notes = realize(this.me.motif, lydian, null, 1, 0);
+      const cyc = this.musicBarSec();
+      const start = t0 + D * 0.22;
+      const bpf = ctx.createBiquadFilter();
+      bpf.type = "bandpass";
+      bpf.frequency.value = 1700;
+      bpf.Q.value = 2.5;
+      const vg = ctx.createGain();
+      vg.gain.value = 0.1 * p.futureEcho;
+      bpf.connect(vg).connect(out);
+      tidy.push(bpf, vg);
+      for (let rep = 0; rep < 2; rep++)
+        for (const n of notes) {
+          const at = start + (rep + n.at) * cyc;
+          const len = Math.max(0.06, n.len * cyc);
+          if (at + len > t0 + D) continue;
+          const o = ctx.createOscillator();
+          o.type = "square";
+          o.frequency.value = n.freq * 2;
+          o.detune.setValueAtTime(25, at);
+          o.detune.linearRampToValueAtTime(25 - 60 * ((at + len - start) / Math.max(0.1, t0 + D - start)), at + len);
+          const g = ctx.createGain();
+          g.gain.setValueAtTime(0, at);
+          g.gain.linearRampToValueAtTime(1, at + 0.01);
+          g.gain.exponentialRampToValueAtTime(0.001, at + len + 0.05);
+          o.connect(g).connect(bpf);
+          o.start(at);
+          o.stop(at + len + 0.1);
+        }
+    }
+    // the patch blooms (§8e's bloom, cued — futureBloom its width)
+    this.cueBloomAt = t0;
+    setTimeout(() => {
+      for (const n of tidy)
+        try {
+          n.disconnect();
+        } catch {
+          /* gone already */
+        }
+    }, (stop - ctx.currentTime + 0.5) * 1000);
+    return true;
   }
 
   /**
@@ -1114,6 +1523,7 @@ export class SoundEngine {
       return;
     }
     const m = word ?? v.motif;
+    this.askAt = at; // (the patch's echo hangs on the question, §8e)
     const call = endOpen(realize(m, key, plan.chord, 1, bar), key);
     const shift = apartShift(realize(this.me.motif, key, plan.chord, 1, bar), call, this.params.motifTranspose, 12 * this.params.apartness);
     for (const n of shiftNotes(call, shift)) {
@@ -1270,6 +1680,13 @@ export class SoundEngine {
       const n = sig.neighbours.find((x) => x.o === o);
       if (n && !heard.includes(n)) heard.push(n);
     }
+    // WHILE SOMEONE ASKS ME (§13j): everything but the asker's voice down by askDuck (the pad, the vegetation, the bass,
+    // the patch here; the others' voices below)
+    const duck = sig.asker && !this.afterlife ? 1 - Math.max(0, Math.min(1, params.askDuck)) : 1;
+    if (Math.abs(duck - this.duckNow) > 1e-3) {
+      for (const g of this.ducks) g.gain.setTargetAtTime(duck, t, duck < this.duckNow ? 0.15 : 0.5);
+      this.duckNow = duck;
+    }
     heard.forEach((n, rank) => {
       alive.add(n.o);
       let v = this.voices.get(n.o);
@@ -1286,6 +1703,7 @@ export class SoundEngine {
       const pair = (params.askCounterpoint && (n.o === sig.asker || n.o === pairId)) || part;
       const calls = n.o === sig.asker || (pair && !part);
       v.level = pair ? PAIR_LEVEL * Math.min(4, Math.max(1, n.dist / 1.5)) : calls ? params.othersLevel * ASKER_LEVEL : params.othersLevel;
+      if (n.o !== sig.asker && n.o !== pairId) v.level *= duck;
       v.gain.gain.setTargetAtTime(v.level, t, calls ? 0.1 : 0.4);
       if (v.panner) {
         // who speaks is placed by HRTF too (the artist, 2026-11-10: out of sight it could not be told where the call
@@ -1673,7 +2091,8 @@ export class SoundEngine {
         gains[i].gain.setTargetAtTime(0, at, 0.4);
         continue;
       }
-      oscs[i].frequency.setTargetAtTime(midiToHz(p), at, 0.08);
+      // (functional, §13i: the voices are led by steps — they change at the bar, no swoop)
+      oscs[i].frequency.setTargetAtTime(midiToHz(p), at, this.params.harmonyTurns ? 0.012 : 0.08);
       gains[i].gain.setTargetAtTime(i === 0 ? 0.8 : 0.5, at, 0.4);
     }
   }

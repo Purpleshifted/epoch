@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { deceptiveOf, isMinor, predominantOf, stayingChord, walkingChord } from "./colour";
-import { chordName, magentaChordName, placeChord, scaleClasses, worldKey } from "./harmony";
+import { deceptiveOf, isMinor, predominantOf, stayingChord, tenseArrival, tenseChord, TENSE_BARS, walkingChord } from "./colour";
+import { bassOf, chordName, magentaChordName, placeChord, scaleClasses, worldKey } from "./harmony";
 import { arrivalBars, nextArrival, ARRIVAL_IDLE } from "./sequencer";
 
 describe("more turns in the harmony (sound-logic §13f)", () => {
@@ -60,8 +60,9 @@ describe("more turns in the harmony (sound-logic §13f)", () => {
     }
     expect(phases.slice(0, arrivalBars(100, true).length)).toEqual(arrivalBars(100, true));
     expect(phases[phases.length - 1]).toBeNull();
-    expect(predominantOf(key, 7).classes.length).toBe(4);
-    expect(isMinor(deceptiveOf(key))).toBe(false);
+    expect(predominantOf(place, 7).classes.length).toBe(4);
+    expect(isMinor(deceptiveOf(place))).toBe(false);
+    expect(deceptiveOf(place).classes[0]).toBe((place.rootClass + 8) % 12); // bVI of the chord it was to land on
   });
 
   it("names: suspensions, added notes, a pedal; Magenta gets what it knows", () => {
@@ -72,5 +73,53 @@ describe("more turns in the harmony (sound-logic §13f)", () => {
     expect(magentaChordName("Fmaj7/C")).toBe("Fmaj7");
     expect(magentaChordName("Am6")).toBe("Am");
     expect(magentaChordName("Dadd9")).toBe("D");
+  });
+
+  it("gathered, tense: as many eight-bar phrases as the level, home on the first bar, a dominant on the last (§13g)", () => {
+    expect(tenseChord(place, "x", 3, 0)).toBeNull();
+    let tense = 0;
+    for (let ph = 0; ph < 400; ph++) if (tenseChord(place, "x", ph * TENSE_BARS + 3, 0.5)) tense++;
+    expect(tense).toBeGreaterThan(150);
+    expect(tense).toBeLessThan(250);
+    const names = new Set<string>();
+    for (let t = 0; t < 30; t++) {
+      const tag = `t${t}`;
+      const bars = Array.from({ length: TENSE_BARS }, (_, k) => tenseChord(place, tag, 80 + k, 1)!);
+      expect(bars[0]).toEqual(place);
+      // the last bar leans home: it holds the place's leading tone (V, or the tritone substitute)
+      expect(bars[TENSE_BARS - 1].classes).toContain((place.rootClass + 11) % 12);
+      for (const c of bars) {
+        names.add(chordName(key, c));
+        expect(c.classes.length).toBeLessThanOrEqual(4); // the pad holds the bass and four
+        expect(bassOf(c)).toBeGreaterThanOrEqual(30);
+        expect(bassOf(c)).toBeLessThanOrEqual(52); // (I/3 lifts it a third)
+      }
+      // the same place, the same bar: the same chord
+      expect(tenseChord(place, tag, 83, 1)).toEqual(bars[3]);
+    }
+    expect([...names].some((n) => /7b9|7#9|dim7|m7b5|7#5|m\(maj7\)/.test(n))).toBe(true);
+  });
+
+  it("the lament's bass falls a semitone a bar instead of jumping an octave", () => {
+    let found = false;
+    for (let t = 0; t < 200 && !found; t++) {
+      const bass = Array.from({ length: 6 }, (_, k) => bassOf(tenseChord(place, `l${t}`, 160 + k, 1)!));
+      if (bass.every((b, i) => i === 0 || b === bass[0] - i)) found = true;
+    }
+    expect(found).toBe(true);
+  });
+
+  it("the arrival made tense: ii ø or #iv°7, then V altered; names Magenta still knows", () => {
+    const dom = tenseArrival(place, "dominant", 12, 1)!;
+    expect(dom.classes[0]).toBe((place.rootClass + 7) % 12); // the V of the chord it lands on (§13i)
+    expect(chordName(key, dom)).toMatch(/7b9|7#9|7#5/);
+    expect(tenseArrival(place, "pre", 12, 0)).toBeNull();
+    expect(chordName(key, tenseArrival(place, "pre", 12, 1)!)).toMatch(/m7b5|dim7/);
+    expect(magentaChordName("G7b9")).toBe("G7");
+    expect(magentaChordName("G7sus4b9/G")).toBe("G7");
+    expect(magentaChordName("Am(maj7)")).toBe("Am");
+    expect(magentaChordName("Cmaj7#11")).toBe("Cmaj7");
+    expect(magentaChordName("Bm7b5")).toBe("Bm");
+    expect(magentaChordName("Dbmaj7/G")).toBe("Dbmaj7");
   });
 });

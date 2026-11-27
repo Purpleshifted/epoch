@@ -28,6 +28,23 @@ export function voiceHop(id: string): number | null {
   return e?.hopOf ? e.hopOf(id) : null;
 }
 
+/**
+ * MY ANSWER TO `id`, AS HEARD (sound-logic §13d; the picture's response, FramePeopleLayer — the artist, 2026-11-28:
+ * "상대가 화답을 주면서 그쪽에서 말 걸 때랑은 또다른 비주얼"): 0 … 2 through its two bars, null when I am not answering `id`
+ * or no sound runs (the picture keeps its own clock then).
+ */
+export function voiceAnswer(id: string): number | null {
+  if (typeof window === "undefined" || !id) return null;
+  const e = (window as unknown as { __soundEngine?: { answerPhaseOf?: (id: string) => number | null } | null }).__soundEngine;
+  return e?.answerPhaseOf ? e.answerPhaseOf(id) : null;
+}
+
+/** Whose life the sound is (my glyph = my word), or "" when none runs. */
+export function soundSelf(): string {
+  if (typeof window === "undefined") return "";
+  return (window as unknown as { __soundEngine?: { selfId?: string } | null }).__soundEngine?.selfId ?? "";
+}
+
 /** Where the bar is now (cheap: read every frame). */
 export function musicNow(): MusicNow {
   if (typeof window !== "undefined") {

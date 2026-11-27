@@ -15,7 +15,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { DEFAULT_WITNESS, GLYPH_ROWS, glyphOf, nearestImage, rhythmOf, type Other } from "@/lib/parliament";
-import { musicNow, voiceHop } from "./musicClock";
+import { musicNow, soundSelf, voiceAnswer, voiceHop } from "./musicClock";
 import { emitLifeEvent, onLifeEvent } from "./lifeEvents";
 import { savedGroup } from "./levaSave";
 import { lidarActive } from "./LidarScan";
@@ -213,6 +213,8 @@ export function FramePeopleLayer({
   const together = useRef(false);
   const storyRef = useRef<{ ids: string[]; n: number; until: number } | null>(null);
   const bondsRef = useRef(new Map<string, number>());
+  /** Whom I have just answered, and when (performance.now()): their response is drawn through my answer's two bars. */
+  const answerRef = useRef<{ who: string; at: number } | null>(null);
   /** The life is over (the end's screens): no boxes drawn. */
   const over = useRef(false);
   useEffect(
@@ -222,6 +224,8 @@ export function FramePeopleLayer({
         if (e.kind === "story.born") storyRef.current = { ids: e.with ?? [], n: e.n ?? (e.with?.length ?? 2), until: performance.now() + 9000 };
         else if (e.kind === "bond.again" && e.who) bondsRef.current.set(e.who, e.n ?? 2);
         if (e.kind === "life.begin") bondsRef.current.clear();
+        if (e.kind === "word.answered" && e.who) answerRef.current = { who: e.who, at: performance.now() };
+        else if (e.kind === "life.begin" || e.kind === "ended") answerRef.current = null;
         if (e.kind === "ensemble.start") together.current = true;
         else if (e.kind === "ensemble.end" || e.kind === "life.begin" || e.kind === "ended") together.current = false;
         // (the life is over: no boxes on the end's screens — an unanswered question left its box there, the artist
@@ -448,7 +452,11 @@ export function FramePeopleLayer({
             const d = distM(w);
             const asks = !!w.asks;
             const told = !!story && story.ids.includes(w.id ?? "");
-            if (!(asks || told || (track === 2 && d < trackRadius))) continue;
+            // (whom I am answering: through my answer's two bars as heard — or, without sound, four seconds)
+            const ans = answerRef.current && answerRef.current.who === w.id ? answerRef.current : null;
+            const phase = ans ? voiceAnswer(w.id ?? "") ?? ((performance.now() - ans.at) / 1000 < 4 ? (performance.now() - ans.at) / 2000 : null) : null;
+            const responds = phase !== null && !asks;
+            if (!(asks || told || responds || (track === 2 && d < trackRadius))) continue;
             const r = rectOf(w);
             if (!r) continue;
             // THE BOND (someone I have answered before): a second line inside, and how many conversations
@@ -481,6 +489,57 @@ export function FramePeopleLayer({
               } else ctx.lineTo(cw / 2, ch);
               ctx.stroke();
               glyphAt(w.id ?? "", r.x0 - g, r.y0 - g - 4, 1);
+            } else if (responds) {
+              // RESPONDING TO MY ANSWER (the artist, 2026-11-28: "응답할 때 점 효과 … 차라리 상대가 화답을 주면서 그쪽에서
+              // 말 걸 때랑은 또다른 비주얼"): where the asker's box swelled OUT on its notes, the one I answer CLOSES IN on
+              // theirs — bold corners round a thin box. Bar 1 (our two lines): two parallel lines between us. Bar 2 (the
+              // new word in one rhythm): the lines become one that beats, the box doubles, and over it the word we made
+              const sung = voiceHop(w.id ?? "");
+              const on = rhythmOf(w.id ?? "")[step];
+              const beat = sung !== null ? sung : on ? Math.max(0, 1 - inStep / 0.45) : 0;
+              const one = (phase ?? 0) >= 1;
+              const g = -Math.min(10, 0.18 * (r.x1 - r.x0)) * beat;
+              ctx.strokeStyle = col(0.55);
+              ctx.lineWidth = 1;
+              ctx.strokeRect(r.x0, r.y0, r.x1 - r.x0, r.y1 - r.y0);
+              if (one) ctx.strokeRect(r.x0 + 3, r.y0 + 3, Math.max(1, r.x1 - r.x0 - 6), Math.max(1, r.y1 - r.y0 - 6));
+              ctx.strokeStyle = col(1);
+              ctx.lineWidth = 2 + 1.5 * beat;
+              brackets({ x0: r.x0 - g, y0: r.y0 - g, x1: r.x1 + g, y1: r.y1 + g }, 0);
+              // (to me, as the asker's line goes)
+              let mx = cw / 2, my = ch;
+              if (orbit) {
+                v.set(me2.x, 0.3, me2.z).project(camera);
+                mx = (v.x * 0.5 + 0.5) * cw;
+                my = (1 - (v.y * 0.5 + 0.5)) * ch;
+              }
+              const fx = (r.x0 + r.x1) / 2, fy = r.y1;
+              if (!one) {
+                // two lines, theirs lit on their notes
+                const nx = my - fy, ny = -(mx - fx), nl = Math.hypot(nx, ny) || 1, ox = (nx / nl) * 3, oy = (ny / nl) * 3;
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = col(0.45 + 0.55 * beat);
+                ctx.beginPath();
+                ctx.moveTo(fx - ox, fy - oy);
+                ctx.lineTo(mx - ox, my - oy);
+                ctx.stroke();
+                ctx.strokeStyle = col(0.6);
+                ctx.beginPath();
+                ctx.moveTo(fx + ox, fy + oy);
+                ctx.lineTo(mx + ox, my + oy);
+                ctx.stroke();
+              } else {
+                ctx.lineWidth = 2 + 2 * beat;
+                ctx.strokeStyle = col(1);
+                ctx.beginPath();
+                ctx.moveTo(fx, fy);
+                ctx.lineTo(mx, my);
+                ctx.stroke();
+              }
+              ctx.lineWidth = 1;
+              // over it: their melody while we are two, the word we made once we are one
+              const self = soundSelf();
+              glyphAt(one && self ? self : w.id ?? "", r.x0, r.y0 - 4, 1);
             } else if (told) {
               // A VOICE OF THE STORY: a whole thin box, beating with the others on the bar — on its own notes while it sings
               // a part to me (the ensemble, sound-logic §13e)

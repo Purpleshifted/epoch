@@ -45,7 +45,8 @@ describe("knobTarget", () => {
     expect(knobTarget(m, 1, 0.5)).toBeCloseTo(1.4);
     expect(knobTarget(m, 1, 0)).toBe(1);
     expect(knobTarget({ ...m, hi: 5 }, 1, 1)).toBe(2); // a careless hi never leaves the range
-    expect(knobTarget(m, 3, 1)).toBeCloseTo(1.8); // a careless source is clamped too
+    expect(knobTarget(m, 3, 1)).toBe(2); // a careless source is clamped too: twice at most (a width of 2), then the range
+    expect(knobTarget({ ...m, cap: 1.5 }, 2, 1)).toBe(1.5); // and the cap
   });
   it("a unipolar knob at −1 stays at the rest", () => {
     expect(knobTarget({ ...m, lo: undefined }, -1, 1)).toBe(1);
@@ -100,7 +101,53 @@ describe("KnobMapper", () => {
 
   it("depth 0 keeps every knob at the artist's values", () => {
     const k = new KnobMapper();
-    for (let i = 0; i < 10; i++) expect(k.step({ company: 1, zone: 1, space: 1, sealed: 1, speed: 1, together: 1 }, 0)).toEqual([]);
+    for (let i = 0; i < 10; i++) expect(k.step({ company: 1, zone: 1, space: 1, sealed: 1, speed: 1, together: 1, tension: 1, hang: 1, pluck: 1, ensemble: 1, bloom: 1, path: 1, found: 1 }, 0)).toEqual([]);
     expect(DEAD_BAND).toBeLessThan(0.01);
+  });
+});
+
+describe("the patch reacts to changes (§8e)", () => {
+  it("tension climbs at the usual pace and opens back at once when home comes", () => {
+    const k = new KnobMapper();
+    const saw = KNOB_MAPS.find((m) => m.nodeId === "241")!;
+    let ticks = 0;
+    while (Math.abs(k.current("241") - saw.hi) > 0.002 && ticks < 100) {
+      k.step({ ...IDLE_SOURCES, tension: 1 }, 1);
+      ticks++;
+    }
+    expect(ticks).toBeGreaterThan(4); // a glide, not a jump
+    let back = 0;
+    while (Math.abs(k.current("241") - saw.rest) > 0.002 && back < 100) {
+      k.step({ ...IDLE_SOURCES, tension: 0 }, 1);
+      back++;
+    }
+    expect(back).toBeLessThanOrEqual(2); // the release: at once
+  });
+
+  it("a pluck jumps in one update and falls back slowly; a hanging echo stays below the feedback's top", () => {
+    const k = new KnobMapper();
+    const env = KNOB_MAPS.find((m) => m.nodeId === "56")!;
+    k.step({ ...IDLE_SOURCES, pluck: 1 }, 1);
+    expect(k.current("56")).toBeCloseTo(env.hi, 3);
+    k.step(IDLE_SOURCES, 1);
+    expect(k.current("56")).toBeGreaterThan(env.hi - 0.06);
+    for (let i = 0; i < 40; i++) k.step({ ...IDLE_SOURCES, hang: 1 }, 1);
+    for (const id of ["138", "152"]) expect(k.current(id)).toBeLessThan(0.86);
+  });
+
+  it("every reacting row is idle at source 0 (nothing is sent while the switch is off)", () => {
+    const k = new KnobMapper(KNOB_MAPS.filter((m) => ["tension", "hang", "pluck", "ensemble", "bloom", "path", "found"].includes(m.source)));
+    expect(k.maps.length).toBe(22);
+    expect(k.step(IDLE_SOURCES, 1)).toEqual([]);
+  });
+
+  it("a width of 2 doubles a departure, yet a feedback never passes its cap", () => {
+    const k = new KnobMapper();
+    for (let i = 0; i < 40; i++) k.step({ ...IDLE_SOURCES, hang: 2, bloom: 2 }, 1);
+    for (const id of ["138", "152"]) expect(k.current(id)).toBeLessThanOrEqual(0.86);
+    for (const id of ["76", "81"]) expect(k.current(id)).toBeLessThanOrEqual(0.92);
+    const path = KNOB_MAPS.find((m) => m.nodeId === "142")!;
+    for (let i = 0; i < 40; i++) k.step({ ...IDLE_SOURCES, path: 2 }, 1);
+    expect(k.current("142")).toBeCloseTo(Math.min(path.max, path.rest + 2 * (path.hi - path.rest)), 3);
   });
 });

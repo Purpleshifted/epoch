@@ -146,7 +146,8 @@ export function planToSequences(plan: BarPlan, prev: BarPlan | null = null): Pat
   const parliament = poly([root, colourVoice, fifthVoice, fourthVoice]);
 
   // harmony: the pad's upper four tones, held a bar, only while building (the light engine's pad rule)
-  const upper = plan.pad.pitches.length > 1 ? plan.pad.pitches.slice(1, 5) : tones.map((t) => 48 + t);
+  // (the led voicing when there is one — §13i: the harmony layer moves by steps like the pad)
+  const upper = plan.voicing?.length ? plan.voicing.slice(0, 4) : plan.pad.pitches.length > 1 ? plan.pad.pitches.slice(1, 5) : tones.map((t) => 48 + t);
   while (upper.length < 4) upper.push(upper[upper.length - 1]);
   const harmony = poly(upper.map((p) => hold(p, mode === "build" ? STEPS_PER_BAR : 0)));
 

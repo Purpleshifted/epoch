@@ -640,7 +640,7 @@ export function RoleField({
         );
         const d = sound.engine.debug;
         const k = tonal.current.key;
-        soundLine = `${sound.status} · ${KEY_NAMES[k.root]} ${k.mode.name} · bar ${d.bar} ${d.chord} · lock ${d.lock.toFixed(2)} · ×${d.density}${d.answer ? " · answer" : ""} · near ${sig.neighbours.length} · path ${sig.pathP.toFixed(2)} stay ${sig.stay.toFixed(2)} sealed ${sig.sealed.toFixed(2)} · magenta ${d.magenta}${d.place ? " · 건물 " + d.place : ""}${d.phrase ? " · " + d.phrase : ""}${d.nc ? " · " + d.nc : ""}${d.found.played || d.found.waiting ? ` · 찾은 말 ${d.found.played}${d.found.last ? " (" + d.found.last + ")" : ""}${d.found.waiting ? " 대기 " + d.found.waiting : ""}` : ""}${d.dialogue ? " · " + d.dialogue : ""}${present ? "" : ` · 세션 ${lifeRef!.current.phase} (무음)`}`;
+        soundLine = `${sound.status} · ${KEY_NAMES[k.root]} ${k.mode.name} · bar ${d.bar} ${d.chord} · lock ${d.lock.toFixed(2)} · ×${d.density}${d.answer ? " · answer" : ""} · near ${sig.neighbours.length} · path ${sig.pathP.toFixed(2)} stay ${sig.stay.toFixed(2)} sealed ${sig.sealed.toFixed(2)} · magenta ${d.magenta}${d.place ? " · 건물 " + d.place : ""}${d.phrase ? " · " + d.phrase : ""}${d.nc ? " · " + d.nc : ""}${d.found.played || d.found.waiting ? ` · 찾은 말 ${d.found.played}${d.found.last ? " (" + d.found.last + ")" : ""}${d.found.waiting ? " 대기 " + d.found.waiting : ""}` : ""}${d.dialogue ? " · " + d.dialogue : ""}${d.tensionLine ? " · " + d.tensionLine : ""}${present ? "" : ` · 세션 ${lifeRef!.current.phase} (무음)`}`;
       }
       if (sound) markSpan("sound", performance.now() - tSound);
       (window as unknown as { __parliament?: ParliamentDebug }).__parliament = {
@@ -708,7 +708,9 @@ export function RoleField({
         />
       )}
       <PathLines playerPosRef={playerPosRef} getSnapshot={() => snap.current} brightness={pathLine} radius={VIEW_RADIUS} />
-      {marks?.burst.on && <AnswerBurst getBurst={() => burst.current} count={marks.burst.count} reach={marks.burst.reach} lifeSec={marks.burst.lifeSec} dot={marks.burst.dot} />}
+      {/* (the redesigned view: no burst — the one I answer responds in the frames instead, FramePeopleLayer; the artist
+          2026-11-28: "응답할 때 점 효과 이제 다른 걸로 바꾸거나 없애도 되지 않을까? 차라리 상대가 화답을 주면서") */}
+      {marks?.burst.on && !newLook() && <AnswerBurst getBurst={() => burst.current} count={marks.burst.count} reach={marks.burst.reach} lifeSec={marks.burst.lifeSec} dot={marks.burst.dot} />}
       {marks?.others.on && (
         <OtherDots
           getMarks={() => marksRef.current}
