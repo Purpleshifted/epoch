@@ -12,7 +12,7 @@ import { savable } from "./levaSave";
 import { LAB_GROUP, labLists } from "./mobileLab";
 import { DEFAULT_PRESENCE } from "@/lib/parliament/futurePresence";
 import type { PresenceMode } from "./FuturePresence";
-import { COLOUR_PROFILES, DEFAULT_RESIDUE, RESIDUE_PRESETS, setResidueLook } from "./FutureResidue";
+import { COLOUR_PROFILES, DEFAULT_RESIDUE, RESIDUE_PRESETS, setResidueLook, type ResidueShowWhen } from "./FutureResidue";
 
 /** The three kinds' everything as it starts (FutureResidue.tsx DEFAULT_RESIDUE): parts, plants, stems. */
 const K = DEFAULT_RESIDUE.kinds;
@@ -45,6 +45,17 @@ function greenPalette(hex: string): { leaves: string[]; flowers: string[] } {
   const c = new THREE.Color(hex), at = (m: number) => "#" + c.clone().multiplyScalar(m).getHexString();
   return { leaves: [at(0.55), at(0.8), at(1), at(1.15), at(0.7), at(1.3)], flowers: [at(1.5)] };
 }
+/** When the future can be found (FutureResidue.tsx showWhen). */
+const SHOW_WHEN: Record<string, ResidueShowWhen> = {
+  "늘 — 관찰자 없이도": "always",
+  "F 누를 때 — 관찰자와 겹쳤다고 보고 (폰: 버튼)": "press",
+  "관찰자가 지나갈 때만": "observer",
+};
+/** A knob the chosen way of seeing never reads (kept, saved values and all, but not listed). */
+const HIDDEN = () => false;
+/** "떠오르는 정도, 흩날리는 거리, 소용돌이는 다 디폴트로 0으로" (the artist, 2026-11-27): once, over what was saved before. */
+const BLOW_STILL = { tag: "scan-future-blow-still-2026-11-27", set: Object.fromEntries(["kp", "kl", "ks"].flatMap((p) => [`${p}BlowRise`, `${p}BlowDist`, `${p}BlowTurb`].map((k) => [k, 0]))) };
+
 const PLACE_MODES: Record<string, PresenceMode> = {
   "겹침 — 현재 위에 남은 것이 함께 섬": "overlay",
   "렌즈 — 내 둘레 반경 안에서만": "lens",
@@ -62,10 +73,17 @@ export function useScanFutureKnobs(isV2: boolean) {
       // "점 크기도 그렇고 걍 전부 다").
       "잔류 — 공통": folder(
         {
-          resGateR: { value: 12, min: 3, max: 40, step: 0.5, label: "관찰자가 있다고 보는 거리 (월드)" },
+          // (the artist, 2026-11-27: "디폴트로는 미래가 항상 보이게, 다른 모드에서는 F 누를 때마다 관찰자랑 겹쳤다고 가정하고 볼
+          // 수 있게, 또다른 모드에서는 실제 관찰자 지나갈 때만 동작하게 스위치")
+          resShowWhen: { options: SHOW_WHEN, value: DEFAULT_RESIDUE.showWhen as ResidueShowWhen, label: "미래가 보일 때" },
+          resPressHold: { value: DEFAULT_RESIDUE.pressHold, min: 0.5, max: 30, step: 0.5, label: "F 한 번에 미래가 머무는 시간 (s)", render: (get) => get(`${PLACE_GROUP}.잔류 — 공통.resShowWhen`) === "press" },
+          resGateR: { value: 12, min: 3, max: 40, step: 0.5, label: "관찰자가 있다고 보는 거리 (월드)", render: (get) => get(`${PLACE_GROUP}.잔류 — 공통.resShowWhen`) === "observer" },
           resFind: { value: 0.6, min: 0.1, max: 3, step: 0.05, label: "스캔이 부재를 찾는 거리 (월드)" },
-          resLife: { value: 0, min: 0, max: 120, step: 1, label: "남는 시간 (s, 0 = 관찰자가 떠날 때까지)" },
+          // ("남는 시간 늘려도 금방금방 사라지지..." — it had only capped the time while the overlap lasted; now: how long it
+          // stays after the overlap ends; same key, so her saved value now means that)
+          resLife: { value: DEFAULT_RESIDUE.life, min: 0, max: 120, step: 0.5, label: "남는 시간 — 겹침이 끝난 뒤 (s, 0 = 바로 흩날림)", render: (get) => get(`${PLACE_GROUP}.잔류 — 공통.resShowWhen`) !== "always" },
           resReach: { value: 14, min: 4, max: 40, step: 0.5, label: "보이는 거리 (월드)" },
+          everySec: { value: 2, min: 0.5, max: 10, step: 0.5, label: "미래를 다시 읽는 간격 (s)" },
           resLayerSec: { value: 0.5, min: 0.1, max: 4, step: 0.05, label: "다시 읽어 겹치는 간격 (s)" },
           resStagger: { value: 1.2, min: 0, max: 4, step: 0.1, label: "흩날릴 때 바람이 훑고 지나가는 시간 (s)" },
         },
@@ -201,6 +219,17 @@ export function useScanFutureKnobs(isV2: boolean) {
           resFlower: { value: 0.5, min: 0, max: 1, step: 0.05, label: "꽃 비율" },
           resPlantDensity: { value: 8, min: 0, max: 60, step: 1, label: "식생 점 밀도" },
           resTreeFull: { value: 4, min: 1, max: 10, step: 0.5, label: "나무 풍성함 (×)" },
+          // (the artist, 2026-11-27: "컬러팔레트가 시간에 따라 유기적으로 변하게 … 식생에 대해서만", "대비되는 색 … 마지막에만 확
+          // 번져서")
+          "식생 · 색의 흐름 (시간)": folder(
+            {
+              resPlantFlow: { value: DEFAULT_RESIDUE.plantFlow, min: 0, max: 1, step: 0.05, label: "팔레트를 따라 흐르는 정도 (0 = 고정)" },
+              resPlantFlowSec: { value: DEFAULT_RESIDUE.plantFlowSec, min: 2, max: 120, step: 1, label: "팔레트 한 바퀴 (s)" },
+              resPlantFlowScale: { value: DEFAULT_RESIDUE.plantFlowScale, min: 1, max: 40, step: 0.5, label: "색 물결의 크기 (월드)" },
+              resPlantContrast: { value: DEFAULT_RESIDUE.plantContrast, min: 0, max: 1, step: 0.05, label: "대비 색(꽃 색)이 잎 사이로 번지는 정도" },
+            },
+            { collapsed: false },
+          ),
           "식생 (잎 · 풀 · 꽃) · 점": folder(
             {
               klDot: { value: K.leaf.dot, min: 0.5, max: 8, step: 0.1, label: "점 크기 (px)" },
@@ -244,19 +273,15 @@ export function useScanFutureKnobs(isV2: boolean) {
         },
         { collapsed: true },
       ),
-      overlayMode: { options: PLACE_MODES, value: "overlay" as PresenceMode, label: "방식 (라이다가 꺼져 있을 때)" },
-      "보이는 것": folder(
-        {
-          radius: { value: 14, min: 4, max: 40, step: 1, label: "렌즈 반경" },
-          everySec: { value: 2, min: 0.5, max: 10, step: 0.5, label: "미래를 다시 읽는 간격 (s)" },
-          showRemains: { value: true, label: "남은 부재" },
-          showPlants: { value: true, label: "식생" },
-          showDeposits: { value: true, label: "둔덕 · 어두운 흙" },
-          showTraces: { value: true, label: "내 흔적" },
-          edgeColor: { value: "#8c8c8c", label: "남은 부재의 선 색" },
-        },
-        { collapsed: false },
-      ),
+      // (the old overlay of lines on paper, FuturePresence.tsx — drawn only with the lidar off; hidden: the scan view never
+      // reads them; saved values kept — the artist, 2026-11-27: "불필요한 레바 정리해줘")
+      overlayMode: { options: PLACE_MODES, value: "overlay" as PresenceMode, label: "방식 (라이다가 꺼져 있을 때)", render: HIDDEN },
+      radius: { value: 14, min: 4, max: 40, step: 1, label: "렌즈 반경", render: HIDDEN },
+      showRemains: { value: true, label: "남은 부재", render: HIDDEN },
+      showPlants: { value: true, label: "식생", render: HIDDEN },
+      showDeposits: { value: true, label: "둔덕 · 어두운 흙", render: HIDDEN },
+      showTraces: { value: true, label: "내 흔적", render: HIDDEN },
+      edgeColor: { value: "#8c8c8c", label: "남은 부재의 선 색", render: HIDDEN },
       "미래 읽기": folder(
         {
           readLatest: { value: true, label: "가장 최근에 지어진 단을 읽음 (끔 = 내 시각)" },
@@ -269,16 +294,19 @@ export function useScanFutureKnobs(isV2: boolean) {
           lastPile: { value: DEFAULT_PRESENCE.lastPile, min: 0, max: 1, step: 0.05, label: "오래 남음 — 말뚝" },
           wild: { value: 0.5, min: 0, max: 1, step: 0.05, label: "놔둔 땅의 숲 (0 = 없음)" },
           surface: { value: 30, min: 5, max: 120, step: 1, label: "부재 겉면의 점 밀도" },
-          plantColor: { value: "#2f8f3f", label: "식생 색" },
+          // (the old overlay's green, read only by the 초록 하나 palette button now)
+          plantColor: { value: "#2f8f3f", label: "식생 색", render: HIDDEN },
         },
         { collapsed: true },
       ),
-    }),
+    }, [], [BLOW_STILL]),
     { collapsed: false, order: 0.8, render: () => isV2 && labLists("scan-future") },
   );
   // (a plain module value, read per frame by FutureResidue — set before it reads it, as the lidar's look is)
   setResidueLook({
     on: v.overlayOn,
+    showWhen: v.resShowWhen as ResidueShowWhen,
+    pressHold: v.resPressHold,
     gateR: v.resGateR,
     find: v.resFind,
     life: v.resLife,
@@ -294,6 +322,10 @@ export function useScanFutureKnobs(isV2: boolean) {
     flower: v.resFlower,
     plantDensity: v.resPlantDensity,
     treeFull: v.resTreeFull,
+    plantFlow: v.resPlantFlow,
+    plantFlowSec: v.resPlantFlowSec,
+    plantFlowScale: v.resPlantFlowScale,
+    plantContrast: v.resPlantContrast,
     kinds: {
       part: { dot: v.kpDot, sizeVar: v.kpSizeVar, soft: v.kpSoft, spread: v.kpSpread, develop: v.kpDevelop, jitter: v.kpJitter, ghostAlpha: v.kpGhostAlpha, ghostLife: v.kpGhostLife, bleed: v.kpBleed, tear: v.kpTear, drip: v.kpDrip, block: v.kpBlock, thin: v.kpThin, blow: { time: v.kpBlowTime, dist: v.kpBlowDist, rise: v.kpBlowRise, turb: v.kpBlowTurb, bloom: v.kpBlowBloom }, smear: v.kpSmear, smearAlpha: v.kpSmearAlpha },
       leaf: { dot: v.klDot, sizeVar: v.klSizeVar, soft: v.klSoft, spread: v.klSpread, develop: v.klDevelop, jitter: v.klJitter, ghostAlpha: v.klGhostAlpha, ghostLife: v.klGhostLife, bleed: v.klBleed, tear: v.klTear, drip: v.klDrip, block: v.klBlock, thin: v.klThin, blow: { time: v.klBlowTime, dist: v.klBlowDist, rise: v.klBlowRise, turb: v.klBlowTurb, bloom: v.klBlowBloom }, smear: v.klSmear, smearAlpha: v.klSmearAlpha },

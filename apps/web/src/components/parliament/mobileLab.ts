@@ -49,8 +49,9 @@ export interface LabAssetInfo {
 export const LAB_INFO: Record<LabPage, LabAssetInfo> = {
   "scan-future": {
     name: "scan (future)",
-    sub: "미래의 장소 — 라이다가 읽은 자리에 남는 잔류, 관찰자가 있을 때만",
-    // (?futurepass=1: one observer that comes, stands, walks off and is gone, every 32 s — FutureResidue.tsx)
+    sub: "미래의 장소 — 라이다가 읽은 자리에 남는 잔류 (늘 · F 누를 때 · 관찰자가 지나갈 때)",
+    // (?futurepass=1: one observer that comes, stands, walks off and is gone, every 32 s — read only in the residue's
+    // "관찰자가 지나갈 때만" way, FutureResidue.tsx)
     query: { botserver: "0", futurepass: "1" },
     refs: ["3Dpc.jpg", "interaction_blob.jpeg", "IMG_1589.JPG", "IMG_1597.JPG", "IMG_1601.JPG"],
   },

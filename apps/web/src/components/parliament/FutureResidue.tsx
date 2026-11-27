@@ -6,8 +6,9 @@
  * While the lidar reads the present (LidarScan.tsx), the future's place round the visitor is read every few seconds as
  * the wall infers it (lib/parliament/futurePresence.ts): the parts that are left (as points on their faces), the plants
  * that take the ground, the mounds and the dark earth. None of it is drawn by itself. A part is FOUND when one of the
- * scan's readings lands within `find` of it — and only while one of the future's observers (lib/parliament/excavators.ts,
- * the same walkers bot (future) shows) is within `gateR` of the visitor. A found part develops from where the reading
+ * scan's readings lands within `find` of it — always (the default), or for a while after each F (as if an observer had
+ * crossed the visitor), or only while one of the future's observers (lib/parliament/excavators.ts, the same walkers bot
+ * (future) shows) is within `gateR` of the visitor (`showWhen`). A found part develops from where the reading
  * touched it outwards (`spread`), first in the colour the scan saw there, then its own — what is left pale (steel and
  * piles brightest), the plants in the night garden's colours of IMG_1586/1587 (her own palette) — and stays.
  *
@@ -76,14 +77,22 @@ export interface KindLook {
   smearAlpha: number;
 }
 
+/** WHEN THE FUTURE CAN BE FOUND (the artist, 2026-11-27: "디폴트로는 미래가 항상 보이게, 다른 모드에서는 F 누를 때마다
+ *  관찰자랑 겹쳤다고 가정하고 볼 수 있게, 또다른 모드에서는 실제 관찰자 지나갈 때만"): always; for `pressHold` seconds after
+ *  each F (a phone: the button), as if an observer had crossed the visitor; or only while a real observer is near. */
+export type ResidueShowWhen = "always" | "press" | "observer";
+
 export interface ResidueLook {
   /** 개인뷰에 켜기: the residue where every asset runs (the preview, the experiment); the scan (future) page always. */
   on: boolean;
+  showWhen: ResidueShowWhen;
+  pressHold: number;
   /** An observer within this (world) of the visitor makes the future findable. */
   gateR: number;
   /** A reading within this (world) of a part finds it. */
   find: number;
-  /** Seconds a found part stays while the observer is near (0 = until it leaves). */
+  /** Seconds what was found stays AFTER the overlap ends (F, or an observer leaving) before it blows away (0 = at
+   *  once); with "always" nothing ends, so it is not read. */
   life: number;
   /** How far off the residue shows (world; it fades from about half of it, never past the lidar's reach). */
   reach: number;
@@ -102,6 +111,13 @@ export interface ResidueLook {
   flower: number;
   plantDensity: number;
   treeFull: number;
+  /** THE PLANTS' COLOURS FLOW OVER TIME ("컬러팔레트가 시간에 따라 유기적으로 변하게 … 식생에 대해서만"): how much (0 = each
+   *  keeps its own), one turn of the palette (s), the colour waves' size (world), and how much of the contrasting
+   *  colours (her flowers') drift through the leaves (0 = none). */
+  plantFlow: number;
+  plantFlowSec: number;
+  plantFlowScale: number;
+  plantContrast: number;
   /** Each kind's own everything. */
   kinds: { part: KindLook; leaf: KindLook; stem: KindLook };
 }
@@ -131,9 +147,11 @@ const KIND_BASE: Omit<KindLook, "blow"> = { dot: 2, sizeVar: 0.6, soft: 0.6, spr
 
 export const DEFAULT_RESIDUE: ResidueLook = {
   on: false,
+  showWhen: "always",
+  pressHold: 6,
   gateR: 12,
   find: 0.6,
-  life: 0,
+  life: 3,
   reach: 14,
   layerSec: 0.5,
   stagger: 1.2,
@@ -147,10 +165,16 @@ export const DEFAULT_RESIDUE: ResidueLook = {
   flower: 0.5,
   plantDensity: 8,
   treeFull: 4,
+  plantFlow: 0.6,
+  plantFlowSec: 14,
+  plantFlowScale: 6,
+  plantContrast: 0.35,
   kinds: {
-    part: { ...KIND_BASE, sizeVar: 0.5, soft: 0.4, jitter: 0.03, bleed: 0.4, blow: { time: 2.2, dist: 4, rise: 0.4, turb: 0.8, bloom: 0.6 } },
-    leaf: { ...KIND_BASE, sizeVar: 0.7, soft: 0.7, jitter: 0.05, bleed: 0.6, tear: 0.2, drip: 0.3, block: 0.3, blow: { time: 2.5, dist: 5, rise: 1.2, turb: 1, bloom: 0.8 } },
-    stem: { ...KIND_BASE, sizeVar: 0.4, soft: 0.5, jitter: 0.03, bleed: 0.4, tear: 0.2, drip: 0.5, block: 0.3, thin: 0.3, blow: { time: 3, dist: 2.5, rise: 0.3, turb: 0.6, bloom: 0.4 } },
+    // (rise, distance and swirl 0 by default — the artist, 2026-11-27: "떠오르는 정도, 흩날리는 거리, 소용돌이는 다 디폴트로
+    // 0으로": letting go, they fade where they are)
+    part: { ...KIND_BASE, sizeVar: 0.5, soft: 0.4, jitter: 0.03, bleed: 0.4, blow: { time: 2.2, dist: 0, rise: 0, turb: 0, bloom: 0.6 } },
+    leaf: { ...KIND_BASE, sizeVar: 0.7, soft: 0.7, jitter: 0.05, bleed: 0.6, tear: 0.2, drip: 0.3, block: 0.3, blow: { time: 2.5, dist: 0, rise: 0, turb: 0, bloom: 0.8 } },
+    stem: { ...KIND_BASE, sizeVar: 0.4, soft: 0.5, jitter: 0.03, bleed: 0.4, tear: 0.2, drip: 0.5, block: 0.3, thin: 0.3, blow: { time: 3, dist: 0, rise: 0, turb: 0, bloom: 0.4 } },
   },
 };
 
@@ -169,6 +193,32 @@ function kindOf(L: ResidueLook, kind: number): KindLook {
 export const residueLook: ResidueLook = { ...DEFAULT_RESIDUE };
 export function setResidueLook(v: Partial<ResidueLook>): void {
   Object.assign(residueLook, v);
+}
+
+/** F (a phone: FutureResiduePressButton) pressed: each press counts once, read by the residue's frame. */
+export const residuePress = { count: 0 };
+export function pressResidue(): void {
+  if (residueLook.showWhen === "press") residuePress.count++;
+}
+
+/**
+ * THE PRESS ON A PHONE (showWhen "press"): a button — each tap counts as an observer crossing the visitor. On a desktop a
+ * faint line says the key. Rendered by ParliamentScene outside the Canvas while the life is live.
+ */
+export function FutureResiduePressButton({ coarse }: { coarse: boolean }) {
+  if (!coarse) return <div className="hud-ko pointer-events-none absolute bottom-40 left-4 text-[13px] tracking-[0.05em] text-white/35">F — 미래와 겹치기</div>;
+  return (
+    <button
+      type="button"
+      data-hud-control
+      onClick={pressResidue}
+      onContextMenu={(e) => e.preventDefault()}
+      className="hud-ko pointer-events-auto absolute left-4 top-8 select-none border border-white/40 bg-black/60 px-4 py-2 text-[17px] tracking-[0.04em] text-white/85 outline-none"
+      style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent", WebkitTouchCallout: "none", WebkitUserSelect: "none" }}
+    >
+      미래와 겹치기
+    </button>
+  );
 }
 
 /** Whether the residue runs on this page: under the lidar, on the scan (future) page, or where every asset runs and
@@ -302,6 +352,52 @@ float flightOf(float rt) {
   return clamp(rt / max(0.05, byKind(uScatter3) * (0.75 + 0.5 * fract(aSeed * 3.7))), 0.0, 1.0);
 }`;
 
+/** THE PLANTS' COLOURS FLOW (the artist, 2026-11-27: "컬러팔레트가 시간에 따라 유기적으로 변하게 … 다채롭고 꿈같은 느낌 …
+ *  식생에 대해서만", then "컬러팔레트 몇개에 대비되는 색 있는 게 좋은데 그게 마지막에만 확 번져서"): a slow field of colour
+ *  that moves through space and time — neighbours turn together — carries each plant point round her palette: leaves
+ *  through her six leaf colours, flowers through her five flower colours; and patches of the contrasting colours (her
+ *  flowers') drift through the leaves too, so the contrast is there while they live, not only as they blow away.
+ *  Needs aKind (a flower is 1.25: still the plants' kind) and aSeed declared before it. */
+const FLOW_GLSL = /* glsl */ `
+uniform vec3 uLeafPal[6];
+uniform vec3 uFlowerPal[5];
+uniform float uFlow;
+uniform float uFlowT;
+uniform float uFlowScale;
+uniform float uContrast;
+vec3 leafAt(float u) {
+  float x = fract(u) * 6.0;
+  int i = int(floor(x));
+  return mix(uLeafPal[i], uLeafPal[(i + 1) % 6], smoothstep(0.0, 1.0, fract(x)));
+}
+vec3 flowerAt(float u) {
+  float x = fract(u) * 5.0;
+  int i = int(floor(x));
+  return mix(uFlowerPal[i], uFlowerPal[(i + 1) % 5], smoothstep(0.0, 1.0, fract(x)));
+}
+// (a few sines out of step, bent by one another: slow drifting bands, never a grid)
+float flowField(vec3 p, float t, float k) {
+  vec3 q = p / max(0.5, uFlowScale);
+  float a = sin(q.x * 1.3 + t * 0.7 + k + sin(q.z * 0.9 - t * 0.4));
+  float b = sin(q.z * 1.1 - t * 0.5 + 2.0 * k + sin(q.x * 0.8 + t * 0.3));
+  float c = sin((q.x + q.z) * 0.6 + q.y * 1.5 + t * 0.35 + 3.0 * k);
+  return 0.5 + 0.18 * (a + b + c);
+}
+// the colour a plant point has now; base: the colour it was given
+vec3 flowColour(vec3 p, vec3 base) {
+  if (uFlow <= 0.0 || aKind < 0.5 || aKind > 1.5) return base;
+  float u = flowField(p, uFlowT, 0.0) + 0.15 * fract(aSeed * 17.3);
+  vec3 own;
+  if (aKind > 1.1) own = flowerAt(u);
+  else {
+    // the contrast drifting through the leaves in patches of its own
+    float c = flowField(p * 0.7, uFlowT * 0.6, 1.7);
+    float edge = 1.0 - uContrast;
+    own = mix(leafAt(u), flowerAt(u + 0.37), smoothstep(edge - 0.12, edge + 0.12, c) * step(0.001, uContrast));
+  }
+  return mix(base, own, uFlow);
+}`;
+
 const VERT = /* glsl */ `
 attribute vec3 aCol;
 attribute vec3 aBloom;
@@ -324,6 +420,7 @@ varying float vA;
 varying float vPx;
 varying float vSoft;
 ${BLOW_GLSL}
+${FLOW_GLSL}
 vec3 ramp(float t) {
   return t < 1.0 ? mix(uC0, uC1, t) : t < 2.0 ? mix(uC1, uC2, t - 1.0) : mix(uC2, uC3, t - 2.0);
 }
@@ -343,7 +440,7 @@ void main() {
     float dEye = -mv0.z;
     vec3 seen = ramp(clamp(dEye / uRange, 0.0, 1.0) * 3.0);
     float dev = byKind(uDevelop3);
-    col = mix(seen, aCol, dev > 0.0 ? smoothstep(0.0, dev, age) : 1.0);
+    col = mix(seen, flowColour(position, aCol), dev > 0.0 ? smoothstep(0.0, dev, age) : 1.0);
     // far off, as sparse as the lidar's own far readings (kept with the chance (lod/d)²), and gone at the scanner's reach
     if (uLod > 0.0 && dEye > uLod && fract(aSeed * 91.7) > (uLod / dEye) * (uLod / dEye)) a = 0.0;
     a *= 1.0 - smoothstep(uReach * 0.55, uReach, dEye);
@@ -388,6 +485,20 @@ void main() {
   float a = vA * mix(crisp, glow, vSoft);
   if (a <= 0.003) discard;
   gl_FragColor = vec4(vCol, a);
+}`;
+
+/** The cores only (the depth pass of the layer of now): the dense middle of a dot, nothing of its rim. */
+const CORE_FRAG = /* glsl */ `
+varying vec3 vCol;
+varying float vA;
+varying float vPx;
+varying float vSoft;
+void main() {
+  float r = length(gl_PointCoord * 2.0 - 1.0);
+  float crisp = clamp((1.0 - r) * vPx * 0.5 + 0.5, 0.0, 1.0);
+  float glow = exp(-r * r * 3.0) * (1.0 - smoothstep(0.8, 1.0, r));
+  if (vA * mix(crisp, glow, vSoft) < 0.5) discard;
+  gl_FragColor = vec4(0.0);
 }`;
 
 /** THE SMEAR: a blown point's way over the last uTail seconds, as a ribbon as wide as the dot along the very path it
@@ -452,6 +563,41 @@ void main() {
   gl_FragColor = vec4(vCol, a);
 }`;
 
+/** The colour flow's uniforms (FLOW_GLSL), on the layer of now and on each earlier layer. */
+const FLOW_UNIFORMS = () => ({
+  uLeafPal: { value: Array.from({ length: 6 }, () => new THREE.Color()) },
+  uFlowerPal: { value: Array.from({ length: 5 }, () => new THREE.Color()) },
+  uFlow: { value: 0 },
+  uFlowT: { value: 0 },
+  uFlowScale: { value: 6 },
+  uContrast: { value: 0 },
+});
+/** Her palette into a material's flow uniforms (saturated by `sat`, as the pool's colours are). */
+function setFlow(w: Record<string, THREE.IUniform>, L: ResidueLook, now: number, leaves: THREE.Color[], flowers: THREE.Color[]): void {
+  (w.uLeafPal.value as THREE.Color[]).forEach((c, i) => c.copy(leaves[i % leaves.length]));
+  (w.uFlowerPal.value as THREE.Color[]).forEach((c, i) => c.copy(flowers[i % flowers.length]));
+  w.uFlow.value = Math.max(0, Math.min(1, L.plantFlow));
+  w.uFlowT.value = (now * Math.PI * 2) / Math.max(1, L.plantFlowSec);
+  w.uFlowScale.value = L.plantFlowScale;
+  w.uContrast.value = Math.max(0, Math.min(1, L.plantContrast));
+}
+/** Her leaf and flower colours as the shaders take them (saturated by `sat`), kept until they or `sat` change. */
+const flowPal = { key: "", leaves: [] as THREE.Color[], flowers: [] as THREE.Color[] };
+function paletteOf(L: ResidueLook): { leaves: THREE.Color[]; flowers: THREE.Color[] } {
+  const key = `${L.leaves.join()}|${L.flowers.join()}|${L.sat}`;
+  if (key !== flowPal.key) {
+    const satd = (hex: string) => {
+      const c = new THREE.Color(hex);
+      const l = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b, s = Math.max(0, L.sat);
+      return c.setRGB(l + (c.r - l) * s, l + (c.g - l) * s, l + (c.b - l) * s);
+    };
+    flowPal.key = key;
+    flowPal.leaves = (L.leaves.length ? L.leaves : [...RESIDUE_PRESETS.garden.leaves]).map(satd);
+    flowPal.flowers = (L.flowers.length ? L.flowers : [...RESIDUE_PRESETS.garden.flowers]).map(satd);
+  }
+  return flowPal;
+}
+
 const BLOW_UNIFORMS = () => ({ uDist3: { value: new THREE.Vector3(4, 5, 2.5) }, uRise3: { value: new THREE.Vector3(0.4, 1.2, 0.3) }, uTurb3: { value: new THREE.Vector3(0.8, 1, 0.6) }, uScatter3: { value: new THREE.Vector3(2.2, 2.5, 3) }, uBloom3: { value: new THREE.Vector3(0.6, 0.8, 0.4) }, uSize3: { value: new THREE.Vector3(2, 2, 2) }, uSizeVar3: { value: new THREE.Vector3(0.6, 0.6, 0.6) }, uSoft3: { value: new THREE.Vector3(0.6, 0.6, 0.6) } });
 
 /** The pool's GPU side, made the first time the residue runs (the exhibition's view never makes it). */
@@ -463,6 +609,7 @@ function makePoints(): THREE.Points {
   const m = new THREE.ShaderMaterial({
     uniforms: {
       ...BLOW_UNIFORMS(),
+      ...FLOW_UNIFORMS(),
       uTime: { value: 0 },
       uDevelop3: { value: new THREE.Vector3(1.2, 1.2, 1.2) },
       uLife: { value: 0 },
@@ -477,12 +624,21 @@ function makePoints(): THREE.Points {
     vertexShader: VERT,
     fragmentShader: FRAG,
     transparent: true,
-    // (its depth written: the photograph's pass softens it by its real distance, not as the far ground)
-    depthWrite: true,
+    // (the colour writes no depth: a soft dot's faint rim must not cut the dots behind it — the artist saw the crowns
+    // as heaps of bubbles with dark rims, 2026-11-27: "검정 모서리가 간간이 보이는"; the cores' depth comes from the
+    // pass below)
+    depthWrite: false,
   });
   const pts = new THREE.Points(g, m);
   pts.frustumCulled = false;
   pts.renderOrder = 5;
+  // THE CORES' DEPTH, drawn first (opaque, no colour): only the dense middle of each dot writes depth, so the
+  // photograph's pass still softens the residue by its real distance and a near dot still hides what is behind its
+  // core — while the rims only ever blend
+  const depth = new THREE.Points(g, new THREE.ShaderMaterial({ uniforms: m.uniforms, vertexShader: VERT, fragmentShader: CORE_FRAG, colorWrite: false, depthWrite: true }));
+  depth.frustumCulled = false;
+  depth.renderOrder = 4;
+  pts.add(depth);
   return pts;
 }
 
@@ -503,7 +659,8 @@ function makeStreaks(): THREE.Mesh {
     vertexShader: STREAK_VERT,
     fragmentShader: STREAK_FRAG,
     transparent: true,
-    depthWrite: true,
+    // (no depth: soft edges blend, never cut what is behind)
+    depthWrite: false,
     side: THREE.DoubleSide,
   });
   const ms = new THREE.Mesh(g, m);
@@ -537,6 +694,7 @@ varying vec3 vCol;
 varying float vA;
 varying float vPx;
 varying float vSoft;
+${FLOW_GLSL}
 float byKind(vec3 v) {
   return aKind < 0.5 ? v.x : aKind < 1.5 ? v.y : v.z;
 }
@@ -574,7 +732,8 @@ void main() {
   ndc.y -= step(1.0 - 0.5 * drip, hc) * o * o * drip * 0.45 * (0.4 + hc);
   clip.xy = ndc * clip.w;
   vA = a;
-  vCol = aCol;
+  // (an earlier layer flows on with the rest: it is the same plants, a moment ago)
+  vCol = flowColour(position, aCol);
   gl_Position = clip;
   vPx = px * clamp(3.0 / max(0.1, dEye), 1.0, 1.6);
   gl_PointSize = a > 0.003 ? vPx : 0.0;
@@ -586,16 +745,19 @@ function makeGhost(): THREE.Points {
     g.setAttribute(name, new THREE.BufferAttribute(new Float32Array(GHOST_CAP * size), size).setUsage(THREE.DynamicDrawUsage));
   g.setDrawRange(0, 0);
   const m = new THREE.ShaderMaterial({
-    uniforms: Object.fromEntries([
-      ...["uAge", "uKill", "uLayer", "uLod", "uReach"].map((n) => [n, { value: n === "uAge" ? 1e6 : n === "uKill" ? 1 : 0 }]),
-      ...["uLife3", "uAlpha3", "uSize3", "uSizeVar3", "uSoft3", "uBleed3", "uTear3", "uDrip3", "uBlock3", "uThin3"].map((n) => [n, { value: new THREE.Vector3() }]),
-    ]),
+    uniforms: {
+      ...FLOW_UNIFORMS(),
+      ...Object.fromEntries([
+        ...["uAge", "uKill", "uLayer", "uLod", "uReach"].map((n) => [n, { value: n === "uAge" ? 1e6 : n === "uKill" ? 1 : 0 }]),
+        ...["uLife3", "uAlpha3", "uSize3", "uSizeVar3", "uSoft3", "uBleed3", "uTear3", "uDrip3", "uBlock3", "uThin3"].map((n) => [n, { value: new THREE.Vector3() }]),
+      ]),
+    },
     vertexShader: GHOST_VERT,
     fragmentShader: FRAG,
     transparent: true,
-    // (its depth written, so the photograph's pass softens it by its real distance; drawn after the layer of now, so
-    // it never hides it where the two coincide)
-    depthWrite: true,
+    // (no depth: an earlier layer's soft rims must not cut the dots behind them — they only blend; drawn after the
+    // layer of now)
+    depthWrite: false,
   });
   const p = new THREE.Points(g, m);
   p.frustumCulled = false;
@@ -760,7 +922,7 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
       const y = foot + 0.02 + H * (1 - (rr / R) * (rr / R)) * (0.3 + 0.7 * hash(sx, sz, i * 3 + 3));
       const flowering = hash(sx, sz, i * 7 + 5) < fl;
       const c = flowering ? pick(flowers, hash(sx, i, 103)) : tmp.copy(fam).lerp(nb, 0.3 * hash(sz, i, 107));
-      add(x + Math.cos(a) * rr, y, z + Math.sin(a) * rr, c, flowering ? 1.1 : 0.75 + 0.5 * hash(sz, sx, i), hash(sx, i, sz), pick(petals, hash(i, sz, 109)), 1);
+      add(x + Math.cos(a) * rr, y, z + Math.sin(a) * rr, c, flowering ? 1.1 : 0.75 + 0.5 * hash(sz, sx, i), hash(sx, i, sz), pick(petals, hash(i, sz, 109)), flowering ? 1.25 : 1);
     }
     close();
   }
@@ -809,13 +971,23 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
   const streaks = useRef<THREE.Mesh | null>(null);
   const ghosts = useRef<THREE.Points[]>([]);
   const field = useRef<{ f: DensityField; dens: DensityConfig | null; version: unknown; fed: number; drops: number } | null>(null);
-  const st = useRef({ timer: 10, pool: null as Pool | null, states: new Map<string, PartState>(), tapFrame: -1, present: false, obs: null as Excavator | null, pass: null as null | { x: number; z: number; fx: number; fz: number; t0: number }, streakHead: 0, streakFilled: 0, streakUntil: 0, layerT: 0, ghostHead: 0, ghostBorn: new Array<number>(GHOSTS).fill(-1e9), ghostKill: 0 });
+  const st = useRef({ timer: 10, pool: null as Pool | null, states: new Map<string, PartState>(), tapFrame: -1, present: false, obs: null as Excavator | null, pass: null as null | { x: number; z: number; fx: number; fz: number; t0: number }, streakHead: 0, streakFilled: 0, streakUntil: 0, layerT: 0, ghostHead: 0, ghostBorn: new Array<number>(GHOSTS).fill(-1e9), ghostKill: 0, pressSeen: residuePress.count, pressUntil: 0, releaseAt: 0 });
+  // F counts as an observer crossing the visitor (showWhen "press"; pressResidue checks the mode)
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      if (e.code === "KeyF" && !e.repeat && (e.target as HTMLElement | null)?.tagName !== "INPUT") pressResidue();
+    };
+    window.addEventListener("keydown", down);
+    return () => window.removeEventListener("keydown", down);
+  }, []);
   useEffect(
     () => () => {
       for (const o of [pts.current, streaks.current, ...ghosts.current]) {
         if (!o) continue;
         o.geometry.dispose();
         (o.material as THREE.Material).dispose();
+        // (the cores' depth pass, a child sharing the geometry)
+        for (const c of o.children) ((c as THREE.Points).material as THREE.Material).dispose();
       }
     },
     [],
@@ -856,7 +1028,25 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     const fFound = A("aFound").array as Float32Array, fDelay = A("aDelay").array as Float32Array, fRel = A("aRel").array as Float32Array, fDir = A("aDir").array as Float32Array;
     let dirty0 = Infinity, dirty1 = -1;
     let near: Excavator | null = null, nearD = Infinity;
-    if (getLive()) {
+    // WHEN IT CAN BE FOUND (showWhen): always — no observer needed; at F — each press counts as an observer standing
+    // across the visitor for pressHold seconds; else only while a real observer is near (below)
+    const live = getLive();
+    let pressing = false;
+    if (L.showWhen === "press" && live) {
+      if (residuePress.count !== s.pressSeen) {
+        s.pressSeen = residuePress.count;
+        s.pressUntil = now + Math.max(0.5, L.pressHold);
+        // (as if it stood a few steps ahead and walks off across the view when the time is up)
+        const d = new THREE.Vector3();
+        state.camera.getWorldDirection(d);
+        d.y = 0;
+        if (d.lengthSq() < 1e-6) d.set(0, 0, -1);
+        d.normalize();
+        s.obs = { i: 0, x: me.x + d.x * 3, z: me.z + d.z * 3, dx: -d.z, dz: d.x, standing: false };
+      }
+      pressing = now < s.pressUntil;
+    }
+    if (L.showWhen === "observer" && live) {
       let obs: Excavator[] = [];
       const passOn = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("futurepass") === "1";
       if (passOn) {
@@ -892,18 +1082,25 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
         }
       }
     }
-    // (in reach, with a little give so it does not flicker at the edge)
+    // (an observer in reach, with a little give so it does not flicker at the edge)
     const wasPresent = s.present;
-    s.present = near !== null && nearD <= (wasPresent ? L.gateR * 1.1 : L.gateR);
+    s.present = L.showWhen === "always" ? live : L.showWhen === "press" ? pressing : near !== null && nearD <= (wasPresent ? L.gateR * 1.1 : L.gateR);
     if (near) s.obs = near;
-    // LET GO: the observer went — everything held blows away its way, the gust sweeping through from upwind (the
-    // earlier layers fade out at once)
-    if (wasPresent && !s.present) s.ghostKill = now;
-    if (!wasPresent && s.present) {
+    // LET GO — `life` seconds AFTER the overlap ends (the artist, 2026-11-27: "남는 시간 늘려도 금방금방 사라지지... 진짜
+    // 겹칠 때에만 잠깐 생기는 거 같고"; 0 = at once): then everything held blows away the observer's way, the gust
+    // sweeping through from upwind, and the earlier layers fade out. A new overlap before then keeps it all.
+    if (wasPresent && !s.present) s.releaseAt = now + Math.max(0, L.life);
+    if (s.present) s.releaseAt = 0;
+    if (!wasPresent && s.present && s.ghostKill > 0) {
       s.ghostKill = 0;
       s.ghostBorn.fill(-1e9);
     }
-    if (wasPresent && !s.present && s.pool) {
+    const letGo = !s.present && s.releaseAt > 0 && now >= s.releaseAt;
+    if (letGo) {
+      s.releaseAt = 0;
+      s.ghostKill = now;
+    }
+    if (letGo && s.pool) {
       const o = s.obs, pool = s.pool;
       let dx = o ? o.dx : 1, dz = o ? o.dz : 0;
       if (o && o.standing) {
@@ -919,7 +1116,6 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       pool.parts.forEach((p) => {
         const ps = s.states.get(p.key);
         if (!ps || ps.found <= 0 || ps.rel > 0 || ps.died > 0) return;
-        if (L.life > 0 && now - ps.found > L.life) return;
         Object.assign(ps, { rel: now, dx, dz, ox: me.x, oz: me.z });
         for (let i = p.i0; i < p.i1; i++) {
           fRel[i] = blowAt(ps, fPos[i * 3], fPos[i * 3 + 2], pool.seed[i], L.stagger);
@@ -968,7 +1164,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       let m = 0;
       for (const p of pool0.parts) {
         const ps = s.states.get(p.key);
-        if (!ps || ps.found <= 0 || ps.rel > 0 || ps.died > 0 || (L.life > 0 && now - ps.found > L.life)) continue;
+        if (!ps || ps.found <= 0 || ps.rel > 0 || ps.died > 0) continue;
         for (let i = p.i0; i < p.i1 && m < GHOST_CAP; i++) {
           if (ps.found + fDelay[i] > now) continue;
           for (let c = 0; c < 3; c++) {
@@ -996,7 +1192,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     const layNew = (pool0: Pool) => {
       const fp = A("position").array as Float32Array, J = [L.kinds.part.jitter, L.kinds.leaf.jitter, L.kinds.stem.jitter];
       for (let i = 0; i < pool0.n; i++) {
-        const j = Math.max(0, J[pool0.kind[i]] ?? 0);
+        const j = Math.max(0, J[Math.round(pool0.kind[i])] ?? 0);
         for (let c = 0; c < 3; c++) fp[i * 3 + c] = pool0.pos[i * 3 + c] + (j > 0 ? (Math.random() * 2 - 1) * j : 0);
       }
       const a = A("position");
@@ -1129,7 +1325,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
         for (const pi of list) {
           const p = pool.parts[pi];
           let ps = s.states.get(p.key);
-          if (ps && ps.found > 0 && ps.rel <= 0 && ps.died <= 0 && !(L.life > 0 && now - ps.found > L.life)) continue;
+          if (ps && ps.found > 0 && ps.rel <= 0 && ps.died <= 0) continue;
           if (ps && ps.died > 0) continue;
           const b = p.box;
           const ddx = Math.max(b[0] - x, 0, x - b[3]), ddy = Math.max(b[1] - y, 0, y - b[4]), ddz = Math.max(b[2] - z, 0, z - b[5]);
@@ -1204,7 +1400,11 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     (su.uRes.value as THREE.Vector2).copy(DB);
     u.uRange.value = lidarLook.range;
     per(L, (k) => k.develop, u.uDevelop3.value as THREE.Vector3);
-    u.uLife.value = L.life;
+    // the plants' colours flowing through her palette (the layer of now and every earlier layer alike)
+    const pal = paletteOf(L);
+    setFlow(u, L, now, pal.leaves, pal.flowers);
+    // (the found no longer fade while they are held: 남는 시간 is how long they stay after the overlap — above)
+    u.uLife.value = 0;
     (u.uC0.value as THREE.Color).set(lidarLook.c0);
     (u.uC1.value as THREE.Color).set(lidarLook.c1);
     (u.uC2.value as THREE.Color).set(lidarLook.c2);
@@ -1227,6 +1427,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       per(L, (k) => k.drip, gu.uDrip3.value as THREE.Vector3);
       per(L, (k) => k.block, gu.uBlock3.value as THREE.Vector3);
       per(L, (k) => k.thin, gu.uThin3.value as THREE.Vector3);
+      setFlow(gu, L, now, pal.leaves, pal.flowers);
     });
     markSpan("residue", performance.now() - t0);
   });
