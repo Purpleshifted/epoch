@@ -75,7 +75,7 @@ export default function MobileLabStage({ page }: { page: LabPage }) {
             읽어오는 게 아닌 거지...?" → "그렇게 붙여봐" → "봇 받아오게 해 그냥"). botserver=1 keeps the page from adding =0.
             The action preview has the same two (the artist, 2026-11-24: "액션 프리뷰에 각 세션 변경사항 연결"): its test
             scene is the lab's (24 test walkers, one observer in view), the old "rehearsal world" (empty) is gone. */}
-        {(page === "scan-present" || page === "preview") && (
+        {(page === "scan-present" || page === "scan-future" || page === "preview") && (
           <>
             <span className="text-white/30">|</span>
             <a href={`/lab/mobile/${page}?botserver=1&watch=1`} className={scanLive ? "text-white underline" : "text-white/50 hover:text-white"} title="the exhibition's world as it runs (bot server, watched: this tab sends nothing)">

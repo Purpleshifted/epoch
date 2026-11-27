@@ -120,9 +120,16 @@ export function setLidarLook(v: Partial<LidarLook>): void {
 /** Whether the scan is drawn on this page: the scan (present) lab page, and the action preview that runs every asset
  *  as saved (the artist, 2026-11-24: "액션 프리뷰에 각 세션 변경사항 연결"). */
 export function lidarActive(): boolean {
-  // (…and on the experiment address, which runs every asset as the preview does — mobileLab.ts runsEveryAsset)
-  return lidarLook.on && (mobileLab() === "scan-present" || runsEveryAsset());
+  // (…and on the experiment address, which runs every asset as the preview does — mobileLab.ts runsEveryAsset; and on
+  // the scan (future) page, whose future is the scan's residue — FutureResidue.tsx)
+  const page = mobileLab();
+  return lidarLook.on && (page === "scan-present" || page === "scan-future" || runsEveryAsset());
 }
+
+/** THIS FRAME'S READINGS, for whoever reads the scan (scan (future)'s residue, FutureResidue.tsx): the ring buffer's
+ *  arrays and the range written in the last frame that read anything (`start`, `n`; it may wrap at `cap`); `frame` counts
+ *  those frames. Read only. */
+export const lidarTap: { pos: Float32Array | null; kind: Float32Array | null; start: number; n: number; cap: number; frame: number } = { pos: null, kind: null, start: 0, n: 0, cap: 0, frame: 0 };
 /** …and whether the frame is on the photo's black ground. */
 export function lidarBlack(): boolean {
   return lidarActive() && lidarLook.black;
@@ -694,6 +701,7 @@ export function LidarScan({ getCells, scale = 1 }: { getCells: () => readonly Ce
     s.az = (s.az + done) % A;
     markSpan("lidar", performance.now() - t0);
     if (!written) return;
+    Object.assign(lidarTap, { pos: Pa, kind: Ka, start, n: written, cap: MAX_POINTS, frame: lidarTap.frame + 1 });
     s.filled = Math.min(MAX_POINTS, s.filled + written);
     // upload only what this frame wrote (one range, or two when the ring buffer wrapped)
     for (const at of [pos, birth, dist, sza, kna]) {

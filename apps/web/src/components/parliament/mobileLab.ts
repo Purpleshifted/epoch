@@ -49,9 +49,10 @@ export interface LabAssetInfo {
 export const LAB_INFO: Record<LabPage, LabAssetInfo> = {
   "scan-future": {
     name: "scan (future)",
-    sub: "미래의 장소 — 겹침, 흰 바탕 위 가느다란 선",
-    query: { botserver: "0" },
-    refs: ["IMG_1586.JPG", "IMG_1587.JPG", "IMG_1589.JPG", "IMG_1597.JPG", "IMG_1599.JPG"],
+    sub: "미래의 장소 — 라이다가 읽은 자리에 남는 잔류, 관찰자가 있을 때만",
+    // (?futurepass=1: one observer that comes, stands, walks off and is gone, every 32 s — FutureResidue.tsx)
+    query: { botserver: "0", futurepass: "1" },
+    refs: ["3Dpc.jpg", "interaction_blob.jpeg", "IMG_1589.JPG", "IMG_1597.JPG", "IMG_1601.JPG"],
   },
   "scan-present": {
     name: "scan (present)",

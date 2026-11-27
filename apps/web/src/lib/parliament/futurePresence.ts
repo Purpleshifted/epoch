@@ -75,6 +75,10 @@ export interface PresenceResult {
   /** THE PARTS AS POINTS on their surfaces: [x, y, z, shade 0 … 1] each (y from the visitor's ground; empty unless
    *  PresenceConfig.surface). */
   surface: Float32Array;
+  /** Which part each surface point is on (0 … parts − 1; a part's points come one after another), and per part how
+   *  long it lasts: 1 = steel or a pile (what holds longest), 0 = the rest (the scan's residue — FutureResidue.tsx). */
+  surfacePart: Uint32Array;
+  partSteel: Uint8Array;
   /** Milliseconds this reading took. */
   ms: number;
 }
@@ -149,7 +153,7 @@ export function futurePresence(field: DensityField, me: string, K: number, kMe: 
   // through the column's generator, its parts taken away by the rules of what is left
   const spu = box.secPerUnit, unit = box.unit;
   const buildings = plan.buildings.slice().sort((p, q) => Math.hypot(wrapDelta(p.from.x - at.x), wrapDelta(p.from.z - at.z)) - Math.hypot(wrapDelta(q.from.x - at.x), wrapDelta(q.from.z - at.z))).slice(0, Math.max(0, Math.round(cfg.maxBuildings)));
-  const edges: number[] = [], surface: number[] = [];
+  const edges: number[] = [], surface: number[] = [], surfacePart: number[] = [], partSteel: number[] = [];
   const perArea = Math.max(0, cfg.surface ?? 0);
   let kept = 0, gone = 0;
   const ruin = Math.max(0, Math.min(1, cfg.ruin));
@@ -201,7 +205,12 @@ export function futurePresence(field: DensityField, me: string, K: number, kMe: 
     }
     for (const b of keptHere) {
       pushEdges(edges, b, -footY);
-      if (perArea > 0 && surface.length < 60000 * 4) pushSurface(surface, b, -footY, perArea, cfg.surfaceCap ?? 160);
+      if (perArea > 0 && surface.length < 60000 * 4) {
+        const from = surface.length / 4;
+        pushSurface(surface, b, -footY, perArea, cfg.surfaceCap ?? 160);
+        for (let i = from; i < surface.length / 4; i++) surfacePart.push(partSteel.length);
+        partSteel.push(STEEL_KINDS.has(b.kind) || b.kind === "pile" ? 1 : 0);
+      }
     }
     kept += keptHere.length;
   }
@@ -282,6 +291,8 @@ export function futurePresence(field: DensityField, me: string, K: number, kMe: 
     vegTree: trees,
     traces: Float32Array.from(traces),
     surface: Float32Array.from(surface),
+    surfacePart: Uint32Array.from(surfacePart),
+    partSteel: Uint8Array.from(partSteel),
     ms: Math.round((performance.now() - t0) * 10) / 10,
   };
 }

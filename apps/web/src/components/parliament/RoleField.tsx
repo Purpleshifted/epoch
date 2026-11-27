@@ -79,6 +79,7 @@ import { useFoldState, useStressState, useWorld } from "./useWorld";
 import { muffleSound, type LifeSignal } from "./useLifeSession";
 import { markSpan } from "./usePerfMeter";
 import type { GrassVisual, MarksVisual } from "./usePersonalVisuals";
+import { FutureResidue } from "./FutureResidue";
 
 /** The answer starts on the next bar's edge, or the one after when that is nearer than this (ms). */
 const ANSWER_REST_MS = 600;
@@ -647,6 +648,11 @@ export function RoleField({
       {future?.on && future.overlayOn && <FuturePresence log={log} meRef={me} getS={() => sNow.current} playerPosRef={playerPosRef} cfg={future} />}
       {future?.on && future.encounterOn && (
         <FutureEncounter log={log} meRef={me} getS={() => sNow.current} getWorldSec={() => (worldNow() - epochMs.current) / 1000} getEpochMs={() => epochMs.current} getLive={() => !lifeRef || lifeRef.current.phase === "live"} playerPosRef={playerPosRef} cfg={future} sound={sound} getYaw={() => playerYawRef?.current ?? 0} />
+      )}
+      {/* the scan's residue: the future found where the lidar reads while an observer is near (FutureResidue.tsx; it
+          checks per frame whether it runs — under the lidar, on the scan (future) page or where every asset runs) */}
+      {future && (
+        <FutureResidue log={log} meRef={me} getS={() => sNow.current} getWorldSec={() => (worldNow() - epochMs.current) / 1000} getEpochMs={() => epochMs.current} getLive={() => !lifeRef || lifeRef.current.phase === "live"} playerPosRef={playerPosRef} cfg={future} />
       )}
       <group ref={present}>
       {grass?.style === "dither" || grass?.style === "field" ? (

@@ -11,6 +11,7 @@ import { savable } from "./levaSave";
 import { LAB_GROUP, labLists } from "./mobileLab";
 import { DEFAULT_PRESENCE } from "@/lib/parliament/futurePresence";
 import type { PresenceMode } from "./FuturePresence";
+import { setResidueLook } from "./FutureResidue";
 
 const PLACE_GROUP = LAB_GROUP["scan-future"];
 const PLACE_MODES: Record<string, PresenceMode> = {
@@ -20,11 +21,32 @@ const PLACE_MODES: Record<string, PresenceMode> = {
 };
 
 export function useScanFutureKnobs(isV2: boolean) {
-  return useControls(
+  const v = useControls(
     PLACE_GROUP,
     savable(PLACE_GROUP, {
       overlayOn: { value: false, label: "개인뷰에 켜기 (랩의 이 페이지에서는 늘 보임)" },
-      overlayMode: { options: PLACE_MODES, value: "overlay" as PresenceMode, label: "방식" },
+      // THE SCAN'S RESIDUE (the artist, 2026-11-27: B, "있을 때만"): while the lidar reads the place, what it reads near the
+      // future's remains develops them — only while a future observer is near; they blow away the way it walks when it
+      // leaves (FutureResidue.tsx)
+      "잔류 — 라이다 위의 미래": folder(
+        {
+          resGateR: { value: 12, min: 3, max: 40, step: 0.5, label: "관찰자가 있다고 보는 거리 (월드)" },
+          resFind: { value: 0.6, min: 0.1, max: 3, step: 0.05, label: "스캔이 부재를 찾는 거리 (월드)" },
+          resSpread: { value: 5, min: 0.5, max: 30, step: 0.5, label: "찾은 부재에 번지는 속도 (월드/s)" },
+          resDevelop: { value: 1.2, min: 0, max: 5, step: 0.1, label: "하얗게 바래는 시간 (s)" },
+          resLife: { value: 0, min: 0, max: 120, step: 1, label: "남는 시간 (s, 0 = 관찰자가 떠날 때까지)" },
+          resDot: { value: 2, min: 0.5, max: 6, step: 0.1, label: "점 크기 (px)" },
+          resColour: { value: "#ffffff", label: "남은 부재의 색" },
+          resConcrete: { value: 0.7, min: 0, max: 1, step: 0.05, label: "콘크리트 밝기 (철골·말뚝 = 1)" },
+          resPlantDensity: { value: 14, min: 0, max: 60, step: 1, label: "식생 점 밀도" },
+          resScatter: { value: 2.5, min: 0.3, max: 8, step: 0.1, label: "흩날리는 시간 (s)" },
+          resScatterDist: { value: 5, min: 0, max: 20, step: 0.5, label: "흩날리는 거리 (월드)" },
+          resStagger: { value: 1.2, min: 0, max: 4, step: 0.1, label: "흩날림 엇갈림 (s)" },
+          resRise: { value: 1.2, min: 0, max: 6, step: 0.1, label: "위로 뜨는 정도 (월드)" },
+        },
+        { collapsed: false },
+      ),
+      overlayMode: { options: PLACE_MODES, value: "overlay" as PresenceMode, label: "방식 (라이다가 꺼져 있을 때)" },
       "보이는 것": folder(
         {
           radius: { value: 14, min: 4, max: 40, step: 1, label: "렌즈 반경" },
@@ -56,4 +78,22 @@ export function useScanFutureKnobs(isV2: boolean) {
     }),
     { collapsed: false, order: 0.8, render: () => isV2 && labLists("scan-future") },
   );
+  // (a plain module value, read per frame by FutureResidue — set before it reads it, as the lidar's look is)
+  setResidueLook({
+    on: v.overlayOn,
+    gateR: v.resGateR,
+    find: v.resFind,
+    spread: v.resSpread,
+    develop: v.resDevelop,
+    life: v.resLife,
+    dot: v.resDot,
+    colour: v.resColour,
+    concrete: v.resConcrete,
+    plantDensity: v.resPlantDensity,
+    scatter: v.resScatter,
+    scatterDist: v.resScatterDist,
+    stagger: v.resStagger,
+    rise: v.resRise,
+  });
+  return v;
 }
