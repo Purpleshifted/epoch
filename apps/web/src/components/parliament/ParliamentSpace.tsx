@@ -97,7 +97,7 @@ import {
 } from "@/lib/parliament";
 import { FUSE_BLEND_S, type UnitChunks, type UnitStats } from "@/lib/parliament/fuseUnits";
 import { WALL_BUILD } from "@/lib/parliament/build";
-import { FutureVillage, futureLink } from "./FutureVillage";
+import { FutureVillage, futureGround, futureLink } from "./FutureVillage";
 import { FutureUnder, futureUnder } from "./FutureUnder";
 import { FutureExcavatorsWall } from "./FutureExcavatorsWall";
 import { futureOnly } from "@/lib/parliament/futureOnly";
@@ -2820,13 +2820,15 @@ function MeMark({ m, y, look, topRef, label }: { m: Mark; y: number; look: MeLoo
     mats.ring.opacity = (m.stale ? 0.35 : 0.7) * f;
     mats.fill.opacity = 0.06 * f;
     mats.sprite.opacity = base * f;
-    mats.column.uniforms.uAlpha.value = (m.stale ? 0.15 : 0.3) * f;
+    // (stronger — the artist, 2026-11-27: "시범용 '나' 빛기둥 너무 연하고 미래까지 안 이어져"; was 0.3 / 0.15)
+    mats.column.uniforms.uAlpha.value = (m.stale ? 0.3 : 0.65) * f;
     mats.column.uniforms.uY.value = y;
-    // the block's top as the view knows it: the line up and the light column reach it — my future, what is stacked above me
-    const top = Math.max(topRef.current, y + 1);
+    // the block's top as the view knows it: the line up and the light column reach it — my future, what is stacked
+    // above me — and on, up to the future layer's ground while that layer is shown (FutureVillage futureGround)
+    const top = Math.max(topRef.current, y + 1, futureGround.y ?? -Infinity);
     // THE LIGHT COLUMN JOINS ME TO MY FUTURE (the artist, 2026-11-22: "내 미래랑 빛기둥으로 잇는 게 낫지 않나"): from my
-    // height up to the top, full at me and still a fifth of it where it meets the layer above
-    mats.column.uniforms.uFall.value = Math.max(3, (top - y) * 0.5);
+    // height up to the top, full at me and still about a third of it where it meets the layer above
+    mats.column.uniforms.uFall.value = Math.max(3, (top - y) * 0.8);
     if (up.current) {
       up.current.position.y = (y + top) / 2;
       up.current.scale.y = Math.max(top - y, 0.001);

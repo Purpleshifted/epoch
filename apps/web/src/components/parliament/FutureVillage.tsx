@@ -27,6 +27,9 @@ import { savable } from "./levaSave";
 
 /** Between the wall's ticker (which asks for it with these knobs) and its answer (which is drawn here). */
 export const futureLink: { cfg: FutureConfig | null; result: FutureResult | null; version: number } = { cfg: null, result: null, version: 0 };
+/** Where the future layer's ground is drawn (world y) while the layer is shown; null = not shown. The wall's "me" light
+ *  column reaches up to it (ParliamentSpace MeMark — the artist, 2026-11-27: "시범용 '나' 빛기둥 … 미래까지 안 이어져"). */
+export const futureGround: { y: number | null } = { y: null };
 
 const GROUP = "미래 마을 층";
 /** The most parts of one kind that are drawn (the worker sends no more: SpaceModel.computeFuture). */
@@ -280,6 +283,7 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
     [],
   );
   useEffect(() => () => beamMat.dispose(), [beamMat]);
+  useEffect(() => () => void (futureGround.y = null), []);
   const litGeo = useMemo(() => pitGeometry(k.pitLight, k.pitDark, k.pitFall, 1), [k.pitLight, k.pitDark, k.pitFall]);
   const darkGeo = useMemo(() => pitGeometry(k.pitLight, k.pitDark, k.pitFall, k.pitWall), [k.pitLight, k.pitDark, k.pitFall, k.pitWall]);
   const shaftGeo = useMemo(() => pitGeometry(k.pitLight, k.pitDark, k.pitFall, 1, false), [k.pitLight, k.pitDark, k.pitFall]);
@@ -355,6 +359,7 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
     // THE PIT, BY WHERE THE EYE IS: above the layer's ground the version chosen for looking down, below it the one for
     // looking from the side or from underneath.
     const groundY = g.position.y + foot;
+    futureGround.y = k.on || futureOnly() ? groundY : null;
     const cam = state.camera.position;
     // (the layer alone — /rehearsal/future, lib/parliament/futureOnly.ts: no pit and none of its light, whatever the knob)
     const style: PitStyle = !k.pit || futureOnly() ? "none" : cam.y >= groundY ? k.pitAbove : "beam";
