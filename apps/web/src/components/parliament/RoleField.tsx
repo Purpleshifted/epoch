@@ -63,6 +63,7 @@ import {
 } from "@/lib/parliament";
 import { KEY_NAMES, personalSignals, worldKey, type WorldKey } from "@/lib/sound";
 import { DitherGround } from "./DitherGround";
+import { newLook } from "./mobileLab";
 import { FuturePresence, futurePeek, type FuturePresenceVisual } from "./FuturePresence";
 import { FutureEncounter, futureMeet } from "./FutureEncounter";
 import { NatureCloud, type GrassReaction } from "./NatureCloud";
@@ -527,7 +528,8 @@ export function RoleField({
       stress.current = stressAt(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
       const foldMs = performance.now() - tFold;
       markSpan("fold", foldMs);
-      foldEvery.current = Math.min(3, Math.max(FOLD_EVERY, foldMs / 1000 / 0.06));
+      // (only on the lab's pages and the experiment: the exhibition's personal view reads at its old fixed pace)
+      if (newLook()) foldEvery.current = Math.min(3, Math.max(FOLD_EVERY, foldMs / 1000 / 0.06));
       if (witnessRef) {
         witnessRef.current = observe({
           me: { id: me.current.id, x: p.x, z: p.z, vx: p.vx ?? 0, vz: p.vz ?? 0 },
@@ -566,7 +568,7 @@ export function RoleField({
           });
           ledgerMs.current = performance.now() - tLed;
           markSpan("ledger", ledgerMs.current);
-          ledgerEvery.current = Math.min(10, Math.max(LEDGER_EVERY, ledgerMs.current / 1000 / 0.04));
+          if (newLook()) ledgerEvery.current = Math.min(10, Math.max(LEDGER_EVERY, ledgerMs.current / 1000 / 0.04));
         }
         // the marks: others within the view, the sealed cells (marks.ts)
         if (marks?.on) {
