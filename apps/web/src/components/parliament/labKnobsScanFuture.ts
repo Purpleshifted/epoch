@@ -6,13 +6,13 @@
  * 2026-11-23 one group, "미래 (개인뷰 · 시험)", held both future groups (its saves are not read any more).
  */
 
-import { button, folder, levaStore, useControls } from "leva";
+import { button, folder, levaStore, monitor, useControls } from "leva";
 import * as THREE from "three";
 import { savable } from "./levaSave";
 import { LAB_GROUP, labLists } from "./mobileLab";
 import { DEFAULT_PRESENCE } from "@/lib/parliament/futurePresence";
 import type { PresenceMode } from "./FuturePresence";
-import { COLOUR_PROFILES, DEFAULT_RESIDUE, RESIDUE_PRESETS, setResidueLook, type ResidueShowWhen } from "./FutureResidue";
+import { COLOUR_PROFILES, DEFAULT_RESIDUE, RESIDUE_PRESETS, residueTiming, setResidueLook, type ResidueShowWhen } from "./FutureResidue";
 
 /** The three kinds' everything as it starts (FutureResidue.tsx DEFAULT_RESIDUE): parts, plants, stems. */
 const K = DEFAULT_RESIDUE.kinds;
@@ -51,6 +51,8 @@ const SHOW_WHEN: Record<string, ResidueShowWhen> = {
   "F 누를 때 — 관찰자와 겹쳤다고 보고 (폰: 버튼)": "press",
   "관찰자가 지나갈 때만": "observer",
 };
+/** The two intervals as they run now (FutureResidue.tsx residueTiming), for the readout: "2.0 s · 0.50 s · 0 %". */
+const timingNow = () => `${residueTiming.every.toFixed(1)} s · ${residueTiming.layer.toFixed(2)} s · ${Math.round(residueTiming.load * 100)} %`;
 /** A knob the chosen way of seeing never reads (kept, saved values and all, but not listed). */
 const HIDDEN = () => false;
 /** "떠오르는 정도, 흩날리는 거리, 소용돌이는 다 디폴트로 0으로" (the artist, 2026-11-27): once, over what was saved before. */
@@ -83,8 +85,14 @@ export function useScanFutureKnobs(isV2: boolean) {
           // stays after the overlap ends; same key, so her saved value now means that)
           resLife: { value: DEFAULT_RESIDUE.life, min: 0, max: 120, step: 0.5, label: "남는 시간 — 겹침이 끝난 뒤 (s, 0 = 바로 흩날림)", render: (get) => get(`${PLACE_GROUP}.잔류 — 공통.resShowWhen`) !== "always" },
           resReach: { value: 14, min: 4, max: 40, step: 0.5, label: "보이는 거리 (월드)" },
-          everySec: { value: 2, min: 0.5, max: 10, step: 0.5, label: "미래를 다시 읽는 간격 (s)" },
-          resLayerSec: { value: 0.5, min: 0.1, max: 4, step: 0.05, label: "다시 읽어 겹치는 간격 (s)" },
+          // (the artist, 2026-11-27: "미래 다시 읽는 간격이랑 다시 읽어 겹치는 간격 성능 따라 유동적으로 범위 안에서": each
+          // interval a range — its saved number is now the shortest — moved by FutureResidue's frame within it)
+          resAdapt: { value: DEFAULT_RESIDUE.adapt, label: "두 간격을 성능 따라 자동으로 (끔 = 가장 짧게 고정)" },
+          everySec: { value: 2, min: 0.5, max: 10, step: 0.5, label: "미래를 다시 읽는 간격 — 가장 짧게 (s)" },
+          resEveryMax: { value: DEFAULT_RESIDUE.everyMax, min: 0.5, max: 20, step: 0.5, label: "미래를 다시 읽는 간격 — 가장 길게 (s)", render: (get) => get(`${PLACE_GROUP}.잔류 — 공통.resAdapt`) },
+          resLayerSec: { value: 0.5, min: 0.1, max: 4, step: 0.05, label: "다시 읽어 겹치는 간격 — 가장 짧게 (s)" },
+          resLayerMax: { value: DEFAULT_RESIDUE.layerMax, min: 0.1, max: 6, step: 0.05, label: "다시 읽어 겹치는 간격 — 가장 길게 (s)", render: (get) => get(`${PLACE_GROUP}.잔류 — 공통.resAdapt`) },
+          "지금 간격 (읽기 · 겹침 · 느려짐)": monitor(timingNow, { graph: false, interval: 500 }),
           resStagger: { value: 1.2, min: 0, max: 4, step: 0.1, label: "흩날릴 때 바람이 훑고 지나가는 시간 (s)" },
         },
         { collapsed: false },
@@ -318,6 +326,9 @@ export function useScanFutureKnobs(isV2: boolean) {
     life: v.resLife,
     reach: v.resReach,
     layerSec: v.resLayerSec,
+    adapt: v.resAdapt,
+    everyMax: v.resEveryMax,
+    layerMax: v.resLayerMax,
     stagger: v.resStagger,
     colour: v.resColour,
     concrete: v.resConcrete,

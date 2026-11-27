@@ -102,6 +102,13 @@ export interface ResidueLook {
   reach: number;
   /** A new layer of the reading every this many seconds; the gust's sweep through everything held when it blows (s). */
   layerSec: number;
+  /** BOTH INTERVALS MOVE WITH HOW HARD THE VIEW IS WORKING (the artist, 2026-11-27: "미래 다시 읽는 간격이랑 다시 읽어
+   *  겹치는 간격 성능 따라 유동적으로 범위 안에서"): on, the reading's interval (FuturePresenceVisual.everySec … everyMax)
+   *  and the layers' (layerSec … layerMax) sit at their shortest while frames come as fast as this screen has lately
+   *  done, and stretch toward their longest as frames slow or a reading itself grows costly; off, the shortest always. */
+  adapt: boolean;
+  everyMax: number;
+  layerMax: number;
   stagger: number;
   /** What is left: its colour, and concrete's share of it (steel and piles full); the stems' colour. */
   colour: string;
@@ -158,6 +165,9 @@ export const DEFAULT_RESIDUE: ResidueLook = {
   life: 3,
   reach: 14,
   layerSec: 0.5,
+  adapt: true,
+  everyMax: 6,
+  layerMax: 1.5,
   stagger: 1.2,
   colour: "#ffffff",
   concrete: 0.7,
@@ -198,6 +208,11 @@ export const residueLook: ResidueLook = { ...DEFAULT_RESIDUE };
 export function setResidueLook(v: Partial<ResidueLook>): void {
   Object.assign(residueLook, v);
 }
+
+/** THE TWO INTERVALS AS THEY RUN NOW (ResidueLook.adapt): the reading's and the layers' (s), how slow the frames are
+ *  (0 = as fast as this screen lately did … 1 = twice as slow), what one reading and one layer cost (ms) — the knobs'
+ *  readout. */
+export const residueTiming = { every: 2, layer: 0.5, load: 0, readMs: 0, layerMs: 0 };
 
 /** F (a phone: FutureResiduePressButton) pressed: each press counts once, read by the residue's frame. */
 export const residuePress = { count: 0 };
@@ -986,7 +1001,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
   const streaks = useRef<THREE.Mesh | null>(null);
   const ghosts = useRef<THREE.Points[]>([]);
   const field = useRef<{ f: DensityField; dens: DensityConfig | null; version: unknown; fed: number; drops: number } | null>(null);
-  const st = useRef({ timer: 10, pool: null as Pool | null, states: new Map<string, PartState>(), tapFrame: -1, present: false, obs: null as Excavator | null, pass: null as null | { x: number; z: number; fx: number; fz: number; t0: number }, streakHead: 0, streakFilled: 0, streakUntil: 0, layerT: 0, ghostHead: 0, ghostBorn: new Array<number>(GHOSTS).fill(-1e9), ghostKill: 0, pressSeen: residuePress.count, pressUntil: 0, releaseAt: 0 });
+  const st = useRef({ timer: 10, pool: null as Pool | null, states: new Map<string, PartState>(), tapFrame: -1, present: false, obs: null as Excavator | null, pass: null as null | { x: number; z: number; fx: number; fz: number; t0: number }, streakHead: 0, streakFilled: 0, streakUntil: 0, layerT: 0, ghostHead: 0, ghostBorn: new Array<number>(GHOSTS).fill(-1e9), ghostKill: 0, pressSeen: residuePress.count, pressUntil: 0, releaseAt: 0, dtAvg: 0, dtBest: 0, readMs: 0, layerMs: 0, every: NaN, layer: NaN });
   // F counts as an observer crossing the visitor (showWhen "press"; pressResidue checks the mode)
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -1226,12 +1241,33 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       a.needsUpdate = true;
     };
 
+    // HOW HARD THE VIEW IS WORKING ("성능 따라 유동적으로 범위 안에서"): the frames against the fastest this screen has
+    // lately done (a 30 Hz screen is not read as slow; the fastest forgets slowly, ~0.2 ms a second), and what a reading
+    // and a layer themselves cost — each interval at its shortest when all is well, toward its longest as frames slow
+    // (twice the fastest = the longest) or as one reading would take more than 2 % of the time (a layer 3 %)
+    const fd = Math.min(0.25, Math.max(0.001, dt));
+    if (!(s.dtAvg > 0)) s.dtAvg = s.dtBest = fd;
+    s.dtAvg += (fd - s.dtAvg) * Math.min(1, dt * 2);
+    s.dtBest = Math.min(s.dtAvg, s.dtBest + dt * 0.0002);
+    const load = Math.min(1, Math.max(0, (s.dtAvg / s.dtBest - 1.15) / 0.85));
+    const fin = (x: number, d: number) => (Number.isFinite(x) ? x : d);
+    const eLo = Math.max(0.5, fin(cfg.everySec, 2)), eHi = Math.max(eLo, fin(L.everyMax, eLo));
+    const lLo = Math.max(0.05, fin(L.layerSec, 0.5)), lHi = Math.max(lLo, fin(L.layerMax, lLo));
+    const eWant = L.adapt ? Math.min(eHi, Math.max(eLo + (eHi - eLo) * load, s.readMs / 1000 / 0.02)) : eLo;
+    const lWant = L.adapt ? Math.min(lHi, Math.max(lLo + (lHi - lLo) * load, s.layerMs / 1000 / 0.03)) : lLo;
+    // (longer quickly, ~0.7 s; shorter again slowly, ~4 s — so it does not flutter)
+    const ease = (cur: number, want: number) => (Number.isFinite(cur) ? cur + (want - cur) * Math.min(1, dt / (want > cur ? 0.7 : 4)) : want);
+    s.every = ease(s.every, eWant);
+    s.layer = ease(s.layer, lWant);
+    Object.assign(residueTiming, { every: s.every, layer: s.layer, load, readMs: s.readMs, layerMs: s.layerMs });
+
     // THE READING OF THE FUTURE, every few seconds: the pool built anew, what each part has been through carried by
     // its key; a part gone from the reading fades out where it was (or finishes blowing away)
     s.timer += dt;
     const sNow = getS();
-    if (s.timer >= Math.max(0.5, cfg.everySec) && h.fed >= all.length && sNow > 0) {
+    if (s.timer >= s.every && h.fed >= all.length && sNow > 0) {
       s.timer = 0;
+      const tRead = performance.now();
       const kMe = Math.floor(sNow / Math.max(1, dcfg.slotSec));
       let K = kMe;
       if (cfg.readLatest) {
@@ -1332,15 +1368,22 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       g.setDrawRange(0, pool.n);
       const byKind = [0, 0, 0];
       for (let i = 0; i < pool.n; i++) byKind[Math.min(2, Math.round(pool.kind[i]))]++;
-      (window as unknown as { __residue?: unknown }).__residue = { k: K, kMe, parts: pool.parts.length, points: pool.n, part: byKind[0], leaf: byKind[1], stem: byKind[2], held: [...s.states.values()].filter((q) => q.found > 0 && q.rel <= 0).length, present: s.present, observer: Math.round(nearD * 10) / 10, ms: r.ms };
+      (window as unknown as { __residue?: unknown }).__residue = { k: K, kMe, parts: pool.parts.length, points: pool.n, part: byKind[0], leaf: byKind[1], stem: byKind[2], held: [...s.states.values()].filter((q) => q.found > 0 && q.rel <= 0).length, present: s.present, observer: Math.round(nearD * 10) / 10, ms: r.ms, every: Math.round(s.every * 100) / 100, layer: Math.round(s.layer * 100) / 100, load: Math.round(load * 100) / 100 };
+      // (what this reading cost, all of it — the next intervals weigh it)
+      const readMs = performance.now() - tRead;
+      s.readMs = s.readMs > 0 ? s.readMs * 0.5 + readMs * 0.5 : readMs;
     }
 
-    // BETWEEN READINGS, a layer every layerSec: the one shown stays behind as an earlier layer, the points laid anew
+    // BETWEEN READINGS, a layer every `layer` seconds (layerSec … layerMax): the one shown stays behind as an earlier
+    // layer, the points laid anew
     s.layerT += dt;
-    if (s.pool && s.present && L.layerSec > 0 && s.layerT >= L.layerSec) {
+    if (s.pool && s.present && s.layerT >= s.layer) {
       s.layerT = 0;
+      const tLayer = performance.now();
       layGhost();
       layNew(s.pool);
+      const layerMs = performance.now() - tLayer;
+      s.layerMs = s.layerMs > 0 ? s.layerMs * 0.7 + layerMs * 0.3 : layerMs;
     }
 
     // FINDING: the scan's readings near a part find it — only while an observer is near
