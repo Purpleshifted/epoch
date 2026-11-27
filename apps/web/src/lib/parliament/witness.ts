@@ -39,6 +39,8 @@ export type LogKey =
   | "word.asked"
   | "word.answered"
   | "word.found"
+  | "story.born"
+  | "bond.again"
   | "ensemble.start"
   | "ensemble.end"
   | "dying"
@@ -173,6 +175,8 @@ export interface WitnessConfig {
   ensembleSec: number;
   /** While someone stays near, they ask something every this many seconds… */
   askEverySec: number;
+  /** Building together, voices that spoke within this long of one another make a story (two) or a narrative (more). */
+  storySec: number;
   /** … and the question stays open for an answer this long. */
   askOpenSec: number;
 }
@@ -193,6 +197,7 @@ export const DEFAULT_WITNESS: WitnessConfig = {
   wordGapSec: 12,
   ensembleSec: 3,
   askEverySec: 16,
+  storySec: 30, // (asks come at least wordGapSec apart: two voices within this long are "at once" for the record)
   askOpenSec: 7,
 };
 
@@ -350,6 +355,12 @@ export class WitnessLog {
   private isDying = false;
   private watched = false;
   private worded = new Set<string>();
+  /** THE STORY AND THE BOND (the artist, 2026-11-27: "같이 지을 때 여러명이서 대위법처럼 대화하면 … '이야기가 탄생했습니다'
+   *  '서사가 탄생했습니다'"; "대화했던 상대와 다시 대화하면 '인연이 이어집니다...'"): who spoke to me and when; how many voices
+   *  the story of this building-together has reached; how often I have answered each one. */
+  private voices = new Map<string, { t: number; r: RoleId }>();
+  private storyN = 0;
+  private answeredBy = new Map<string, number>();
   private lastWordT = -Infinity;
   private lastFuture: string | null = null;
 
@@ -367,6 +378,7 @@ export class WitnessLog {
   private ask(t: number, who: Who): void {
     this.question = { who, t };
     this.totals.asked++;
+    this.voices.set(who.o, { t, r: who.r });
   }
 
   /** Someone's question is open now. */
@@ -384,7 +396,12 @@ export class WitnessLog {
     const who = this.question.who;
     this.question = null;
     this.totals.newWords.push(dots);
-    return this.write(t, "word.answered", { who, dots }, 1);
+    const first = this.write(t, "word.answered", { who, dots }, 1);
+    // answered before: the bond goes on (its own line, after the word's)
+    const times = (this.answeredBy.get(who.o) ?? 0) + 1;
+    this.answeredBy.set(who.o, times);
+    if (times >= 2) this.write(t, "bond.again", { who, n: times, dots: glyphOf(who.o) }, 1);
+    return first;
   }
 
   /** The end has begun to make itself felt (session.ts warn): one line. */
@@ -503,6 +520,15 @@ export class WitnessLog {
         w("word.asked", { who, n, dots: newWordOf(longest.o, obs.me, Math.floor(obs.t)) }, 2);
       }
     }
+    // a story: building together, two voices that spoke within a while of one another (counterpoint) — a narrative when
+    // more join; one line each time the voices grow, anew with each building-together
+    if (this.ensemble?.value) {
+      const live = [...this.voices].filter(([, v]) => obs.t - v.t <= this.cfg.storySec);
+      if (live.length >= 2 && live.length > this.storyN) {
+        this.storyN = live.length;
+        w("story.born", { n: live.length, with: live.map(([o, v]) => ({ o, r: v.r })) }, 2);
+      }
+    } else this.storyN = 0;
     // the future passed where the visitor stands (FuturePresence.tsx): one line a passing, reversed
     if (obs.future && obs.future.id !== this.lastFuture) {
       this.lastFuture = obs.future.id;

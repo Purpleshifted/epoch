@@ -293,6 +293,15 @@ export function useBotPresentKnobs(isV2: boolean) {
           const id = (window as unknown as { __framesNearest?: string | null }).__framesNearest;
           if (id) emitLifeEvent({ kind: "word.asked", text: "(시험)", level: 1, who: id });
         }),
+        "이야기 시험 — 보이는 가까운 셋": button(() => {
+          const ids = (window as unknown as { __framesInView?: string[] }).__framesInView ?? [];
+          if (ids.length >= 2) emitLifeEvent({ kind: "story.born", text: "(시험)", level: 2, with: ids, n: ids.length });
+        }),
+        // (tests on this screen only: nothing is written to the record or the world)
+        "인연 시험 — 가장 가까운 이": button(() => {
+          const id = (window as unknown as { __framesInView?: string[] }).__framesInView?.[0];
+          if (id) emitLifeEvent({ kind: "bond.again", text: "(시험)", level: 1, who: id, n: 2 });
+        }),
         // (a test on this screen only: the four nearest are drawn as building with me)
         "같이 짓기 시험 — 가까운 넷 (켜고 끄기)": button(() => {
           const g = window as unknown as { __framesBuildTest?: boolean };

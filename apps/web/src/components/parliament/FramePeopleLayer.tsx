@@ -14,7 +14,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { DEFAULT_WITNESS, individualNo, nearestImage, rhythmOf, stepAt, type Other } from "@/lib/parliament";
+import { DEFAULT_WITNESS, individualNo, nearestImage, rhythmOf, type Other } from "@/lib/parliament";
+import { musicNow } from "./musicClock";
 import { onLifeEvent } from "./lifeEvents";
 import { savedGroup } from "./levaSave";
 import { lidarActive } from "./LidarScan";
@@ -43,6 +44,8 @@ import {
 } from "./framePeople";
 
 /** A bot as a walker of frames: its last place and when it came, its measured pace (m/s), still or not. */
+type Rect = { x0: number; y0: number; x1: number; y1: number };
+
 interface BotWalker extends Walker {
   lastT: number;
   mps: number;
@@ -198,9 +201,15 @@ export function FramePeopleLayer({
   // building together, as the record says it ("합주 중… 함께 집을 짓습니다" → until it ends): I stay, and someone near
   // stays too (witness.ts)
   const together = useRef(false);
+  const storyRef = useRef<{ ids: string[]; n: number; until: number } | null>(null);
+  const bondsRef = useRef(new Map<string, number>());
   useEffect(
     () =>
       onLifeEvent((e) => {
+        // (a story's voices stay bound for nine seconds; a bond stays for the life)
+        if (e.kind === "story.born") storyRef.current = { ids: e.with ?? [], n: e.n ?? (e.with?.length ?? 2), until: performance.now() + 9000 };
+        else if (e.kind === "bond.again" && e.who) bondsRef.current.set(e.who, e.n ?? 2);
+        if (e.kind === "life.begin") bondsRef.current.clear();
         if (e.kind === "ensemble.start") together.current = true;
         else if (e.kind === "ensemble.end" || e.kind === "life.begin" || e.kind === "ended") together.current = false;
       }),
@@ -364,9 +373,10 @@ export function FramePeopleLayer({
           const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).setY(0).normalize();
           const v = new THREE.Vector3();
           ctx.font = "10px ui-monospace, monospace";
-          const ms = performance.now();
-          const step = stepAt(ms), inStep = (ms % 250) / 250;
-          type Rect = { x0: number; y0: number; x1: number; y1: number };
+          // (the beat everything here keeps: the music's own bar when it sounds — musicClock.ts)
+          const { step, into: inStep } = musicNow();
+          const story = storyRef.current && storyRef.current.until > performance.now() ? storyRef.current : null;
+          const storyRects: Rect[] = [];
           /** The pictogram's body on the screen (its height, 10 of its card's 15 units across), padded; null off it. */
           const rectOf = (w: BotWalker): Rect | null => {
             const h = personHeight(L, w, undefined) * (w.boost ?? 1) * unit;
@@ -409,9 +419,19 @@ export function FramePeopleLayer({
             if (inBuild.has(w)) continue;
             const d = distM(w);
             const asks = !!w.asks;
-            if (!(asks || (track === 2 && d < trackRadius))) continue;
+            const told = !!story && story.ids.includes(w.id ?? "");
+            if (!(asks || told || (track === 2 && d < trackRadius))) continue;
             const r = rectOf(w);
             if (!r) continue;
+            // THE BOND (someone I have answered before): a second line inside, and how many conversations
+            const bond = bondsRef.current.get(w.id ?? "") ?? 0;
+            const tag = bond >= 2 ? `  ×${bond}` : "";
+            if (bond >= 2) {
+              ctx.strokeStyle = col(0.8);
+              ctx.lineWidth = 1;
+              ctx.strokeRect(r.x0 + 3, r.y0 + 3, Math.max(1, r.x1 - r.x0 - 6), Math.max(1, r.y1 - r.y0 - 6));
+            }
+            if (told) storyRects.push(r);
             if (asks) {
               // ASKING ME: bold, beating on its own melody's notes (out a little and back within the step), a line to me
               const on = rhythmOf(w.id ?? "")[step];
@@ -427,17 +447,43 @@ export function FramePeopleLayer({
               ctx.lineTo(cw / 2, ch);
               ctx.stroke();
               ctx.fillStyle = col(1);
-              ctx.fillText(`${individualNo(w.id ?? "")}  ♪`, r.x0 - g, r.y0 - g - 4);
+              ctx.fillText(`${individualNo(w.id ?? "")}  ♪${tag}`, r.x0 - g, r.y0 - g - 4);
+            } else if (told) {
+              // A VOICE OF THE STORY: a whole thin box, beating with the others on the bar
+              const bar = step % 2 === 0 ? Math.max(0, 1 - inStep / 0.45) : 0;
+              ctx.strokeStyle = col(0.85 + 0.15 * bar);
+              ctx.lineWidth = 1 + bar;
+              ctx.strokeRect(r.x0 - 2 * bar, r.y0 - 2 * bar, r.x1 - r.x0 + 4 * bar, r.y1 - r.y0 + 4 * bar);
+              ctx.fillStyle = col(0.9);
+              ctx.fillText(`${individualNo(w.id ?? "")}${tag}`, r.x0, r.y0 - 4);
             } else {
               // NEAR ME: the corners only
               ctx.strokeStyle = col(0.7);
               ctx.lineWidth = 1;
               brackets(r, 0);
               ctx.fillStyle = col(0.7);
-              ctx.fillText(`${individualNo(w.id ?? "")}  ${d.toFixed(1)}m`, r.x0, r.y0 - 4);
+              ctx.fillText(`${individualNo(w.id ?? "")}  ${d.toFixed(1)}m${tag}`, r.x0, r.y0 - 4);
             }
             tracked++;
           }
+          // THE STORY (voices in counterpoint while we build): its voices bound to ONE ANOTHER — every pair a line, head
+          // to head — and what it is, over the leftmost
+          if (story && storyRects.length) {
+            ctx.strokeStyle = col(0.7);
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            for (let i = 0; i < storyRects.length; i++)
+              for (let j = i + 1; j < storyRects.length; j++) {
+                ctx.moveTo((storyRects[i].x0 + storyRects[i].x1) / 2, storyRects[i].y0);
+                ctx.lineTo((storyRects[j].x0 + storyRects[j].x1) / 2, storyRects[j].y0);
+              }
+            ctx.stroke();
+            const left = storyRects.reduce((a, b) => (a.x0 <= b.x0 ? a : b));
+            ctx.fillStyle = col(1);
+            ctx.fillText(story.n >= 3 ? `서사 · ${story.n}` : "이야기 · 2", left.x0, left.y0 - 16);
+          }
+          // (for the lab's tests: the three nearest in view)
+          (window as unknown as { __framesInView?: string[] }).__framesInView = [...W].filter((w) => rectOf(w)).sort((p, q) => distM(p) - distM(q)).slice(0, 3).map((w) => w.id ?? "");
           // BUILDING TOGETHER: one box round all of them, beating on the shared bar; their feet chained; double brackets each
           const shown: Rect[] = [];
           for (const w of builders) {

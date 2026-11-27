@@ -347,7 +347,8 @@ export function SessionHud({
     for (const e of rec.entries) {
       if (emitted.current.has(e)) continue;
       emitted.current.add(e);
-      emitLifeEvent({ kind: e.key, text: formatEntry(e, lang).text.replace(/\{\}/g, "♪"), level: e.level, lifeT: e.t, who: (e.args as { who?: { o?: string } } | undefined)?.who?.o });
+      // (with: a story's voices; n: its count, or the bond's conversations — for what is drawn round the people)
+      emitLifeEvent({ kind: e.key, text: formatEntry(e, lang).text.replace(/\{\}/g, "♪"), level: e.level, lifeT: e.t, who: (e.args as { who?: { o?: string } } | undefined)?.who?.o, with: e.args.with?.map((x) => x.o), n: e.args.n });
     }
   }, [rec.entries, lang]);
 

@@ -8,7 +8,8 @@
 
 import * as THREE from "three";
 import { ATLAS_GLSL, type SpriteIndex } from "./spritePeople";
-import { rhythmOf, stepAt } from "@/lib/parliament";
+import { rhythmOf } from "@/lib/parliament";
+import { musicNow } from "./musicClock";
 
 export const MAX_CARDS = 4096;
 /** The pictograms' own layer: the street's softening (InkPaper's blur by depth, its exposure) leaves it out and draws it
@@ -956,11 +957,9 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
     // (talking: the head hops on each note of their melody — up two cells, then one, then down, within the step)
     let hop = 0;
     if (L.pix && (stateOf(w) === "talk" || w.talking)) {
-      const ms = performance.now();
-      if (rhythmOf(w.id ?? String(Math.round(w.hash * 1e6)))[stepAt(ms)]) {
-        const q = (ms % 250) / 250;
-        hop = q < 0.35 ? 2 : q < 0.7 ? 1 : 0;
-      }
+      // (on the music's own bar when it sounds — musicClock.ts; the screen's fixed bar when silent)
+      const m = musicNow();
+      if (rhythmOf(w.id ?? String(Math.round(w.hash * 1e6)))[m.step]) hop = m.into < 0.35 ? 2 : m.into < 0.7 ? 1 : 0;
     }
     Ff[n * 4 + 3] = hop;
     Gg[n * 4] = G2.dir;

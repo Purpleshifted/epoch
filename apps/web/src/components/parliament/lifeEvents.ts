@@ -15,6 +15,9 @@ export interface LifeEvent {
   lifeT?: number;
   /** The id of whom the line is about (its `{}`), where it names someone: who asked, whom I answered. */
   who?: string;
+  /** The ids of those the line gathers (a story's voices), and its count (the voices; the bond's conversations). */
+  with?: string[];
+  n?: number;
 }
 
 const listeners = new Set<(e: LifeEvent) => void>();

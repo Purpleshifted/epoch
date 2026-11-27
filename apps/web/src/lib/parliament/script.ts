@@ -345,6 +345,9 @@ export const LOG: Record<Lang, LogTemplates> = {
       "word.asked": (a) => ["({}?)", "곁에서 묻습니다: ({}?)", "({}...?)", "다시 묻습니다: ({}?)"][(a.n ?? 0) % 4],
       "word.answered": () => "새로운 어휘가 탄생했습니다 ({})",
       "word.found": () => "({})가 남긴 말 발견",
+      "story.born": (a) => ((a.n ?? 2) >= 3 ? `서사가 탄생했습니다 · ${a.n}개의 목소리` : "이야기가 탄생했습니다 · 두 목소리"),
+      // (the artist's words, 2026-11-27: "이야기가 탄생했습니다" / "서사가 탄생했습니다" / "인연이 이어집니다...")
+      "bond.again": (a) => `인연이 이어집니다… ({}) · ${a.n ?? 2}번째 대화`,
       dying: () => "죽어가고 있습니다...",
       "dying.watched": () => "({})가 당신의 마지막을 지킵니다...",
       "ensemble.start": () => "합주 중… 함께 집을 짓습니다.",
@@ -375,6 +378,8 @@ export const LOG: Record<Lang, LogTemplates> = {
       "word.asked": (a) => ["({}?)", "Asked beside you: ({}?)", "({}...?)", "Asked again: ({}?)"][(a.n ?? 0) % 4],
       "word.answered": () => "A new word is born ({})",
       "word.found": () => "A word left by ({}) found",
+      "story.born": (a) => ((a.n ?? 2) >= 3 ? `A narrative is born · ${a.n} voices` : "A story is born · two voices"),
+      "bond.again": (a) => `The bond goes on… ({}) · conversation ${a.n ?? 2}`,
       dying: () => "You are dying...",
       "dying.watched": () => "({}) keeps watch over your last moments...",
       "ensemble.start": () => "In ensemble… building a house together.",
