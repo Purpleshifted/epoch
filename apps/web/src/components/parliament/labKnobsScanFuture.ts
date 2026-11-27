@@ -147,16 +147,18 @@ export function useScanFutureKnobs(isV2: boolean) {
             },
             { collapsed: true },
           ),
-          "건물 부재 (둔덕 · 흙 포함) · 장노출 · 글리치 (이전 읽기)": folder(
+          // (the artist, 2026-11-28: "글리치는 녹아내릴(흩날릴) 때만 적용되도록" — held, the earlier layers are a clean
+          // exposure; the five below act only as the future blows away)
+          "건물 부재 (둔덕 · 흙 포함) · 장노출 (이전 읽기) · 글리치 (흩날릴 때만)": folder(
             {
               kpJitter: { value: K.part.jitter, min: 0, max: 0.3, step: 0.005, label: "읽을 때마다 어긋남 (월드)" },
               kpGhostAlpha: { value: K.part.ghostAlpha, min: 0, max: 1, step: 0.05, label: "이전 읽기의 진하기 (0 = 없음)" },
               kpGhostLife: { value: K.part.ghostLife, min: 0.2, max: 12, step: 0.1, label: "이전 읽기가 남는 시간 (s)" },
-              kpBleed: { value: K.part.bleed, min: 0, max: 1, step: 0.05, label: "번짐" },
-              kpTear: { value: K.part.tear, min: 0, max: 1, step: 0.05, label: "글리치: 가로 찢김" },
-              kpDrip: { value: K.part.drip, min: 0, max: 1, step: 0.05, label: "글리치: 세로 흘러내림" },
-              kpBlock: { value: K.part.block, min: 0, max: 1, step: 0.05, label: "글리치: 블록 (빠짐 · 점 커짐)" },
-              kpThin: { value: K.part.thin, min: 0, max: 1, step: 0.05, label: "오래될수록 성겨짐" },
+              kpBleed: { value: K.part.bleed, min: 0, max: 1, step: 0.05, label: "번짐 — 흩날릴 때 (점 커지고 흐려짐)" },
+              kpTear: { value: K.part.tear, min: 0, max: 1, step: 0.05, label: "글리치 — 흩날릴 때: 가로 찢김" },
+              kpDrip: { value: K.part.drip, min: 0, max: 1, step: 0.05, label: "글리치 — 흩날릴 때: 세로 흘러내림 (녹아내림)" },
+              kpBlock: { value: K.part.block, min: 0, max: 1, step: 0.05, label: "글리치 — 흩날릴 때: 블록 (빠짐 · 점 커짐)" },
+              kpThin: { value: K.part.thin, min: 0, max: 1, step: 0.05, label: "성겨짐 — 흩날릴 때" },
             },
             { collapsed: true },
           ),
@@ -194,16 +196,16 @@ export function useScanFutureKnobs(isV2: boolean) {
             },
             { collapsed: true },
           ),
-          "줄기 · 장노출 · 글리치 (이전 읽기)": folder(
+          "줄기 · 장노출 (이전 읽기) · 글리치 (흩날릴 때만)": folder(
             {
               ksJitter: { value: K.stem.jitter, min: 0, max: 0.3, step: 0.005, label: "읽을 때마다 어긋남 (월드)" },
               ksGhostAlpha: { value: K.stem.ghostAlpha, min: 0, max: 1, step: 0.05, label: "이전 읽기의 진하기 (0 = 없음)" },
               ksGhostLife: { value: K.stem.ghostLife, min: 0.2, max: 12, step: 0.1, label: "이전 읽기가 남는 시간 (s)" },
-              ksBleed: { value: K.stem.bleed, min: 0, max: 1, step: 0.05, label: "번짐" },
-              ksTear: { value: K.stem.tear, min: 0, max: 1, step: 0.05, label: "글리치: 가로 찢김" },
-              ksDrip: { value: K.stem.drip, min: 0, max: 1, step: 0.05, label: "글리치: 세로 흘러내림" },
-              ksBlock: { value: K.stem.block, min: 0, max: 1, step: 0.05, label: "글리치: 블록 (빠짐 · 점 커짐)" },
-              ksThin: { value: K.stem.thin, min: 0, max: 1, step: 0.05, label: "오래될수록 성겨짐" },
+              ksBleed: { value: K.stem.bleed, min: 0, max: 1, step: 0.05, label: "번짐 — 흩날릴 때 (점 커지고 흐려짐)" },
+              ksTear: { value: K.stem.tear, min: 0, max: 1, step: 0.05, label: "글리치 — 흩날릴 때: 가로 찢김" },
+              ksDrip: { value: K.stem.drip, min: 0, max: 1, step: 0.05, label: "글리치 — 흩날릴 때: 세로 흘러내림 (녹아내림)" },
+              ksBlock: { value: K.stem.block, min: 0, max: 1, step: 0.05, label: "글리치 — 흩날릴 때: 블록 (빠짐 · 점 커짐)" },
+              ksThin: { value: K.stem.thin, min: 0, max: 1, step: 0.05, label: "성겨짐 — 흩날릴 때" },
             },
             { collapsed: true },
           ),
@@ -287,16 +289,16 @@ export function useScanFutureKnobs(isV2: boolean) {
             },
             { collapsed: true },
           ),
-          "식생 (잎 · 풀 · 꽃) · 장노출 · 글리치 (이전 읽기)": folder(
+          "식생 (잎 · 풀 · 꽃) · 장노출 (이전 읽기) · 글리치 (흩날릴 때만)": folder(
             {
               klJitter: { value: K.leaf.jitter, min: 0, max: 0.3, step: 0.005, label: "읽을 때마다 어긋남 (월드)" },
               klGhostAlpha: { value: K.leaf.ghostAlpha, min: 0, max: 1, step: 0.05, label: "이전 읽기의 진하기 (0 = 없음)" },
               klGhostLife: { value: K.leaf.ghostLife, min: 0.2, max: 12, step: 0.1, label: "이전 읽기가 남는 시간 (s)" },
-              klBleed: { value: K.leaf.bleed, min: 0, max: 1, step: 0.05, label: "번짐" },
-              klTear: { value: K.leaf.tear, min: 0, max: 1, step: 0.05, label: "글리치: 가로 찢김" },
-              klDrip: { value: K.leaf.drip, min: 0, max: 1, step: 0.05, label: "글리치: 세로 흘러내림" },
-              klBlock: { value: K.leaf.block, min: 0, max: 1, step: 0.05, label: "글리치: 블록 (빠짐 · 점 커짐)" },
-              klThin: { value: K.leaf.thin, min: 0, max: 1, step: 0.05, label: "오래될수록 성겨짐" },
+              klBleed: { value: K.leaf.bleed, min: 0, max: 1, step: 0.05, label: "번짐 — 흩날릴 때 (점 커지고 흐려짐)" },
+              klTear: { value: K.leaf.tear, min: 0, max: 1, step: 0.05, label: "글리치 — 흩날릴 때: 가로 찢김" },
+              klDrip: { value: K.leaf.drip, min: 0, max: 1, step: 0.05, label: "글리치 — 흩날릴 때: 세로 흘러내림 (녹아내림)" },
+              klBlock: { value: K.leaf.block, min: 0, max: 1, step: 0.05, label: "글리치 — 흩날릴 때: 블록 (빠짐 · 점 커짐)" },
+              klThin: { value: K.leaf.thin, min: 0, max: 1, step: 0.05, label: "성겨짐 — 흩날릴 때" },
             },
             { collapsed: true },
           ),

@@ -455,6 +455,36 @@ vec3 flowColour(vec3 p, vec3 base) {
   return mix(base, own, uFlow);
 }`;
 
+/** THE GLITCH ONLY AS IT GOES (the artist, 2026-11-28: "글리치는 녹아내릴(흩날릴) 때만 적용되도록"; needs byKind): at
+ *  strength g (0 … 1 — a point's flight, an earlier layer's melting once let go), its dots larger and softer (bleed), a
+ *  share dropped (thin), blocks of the screen dropping out or grown, bands torn sideways, columns sliding down (drip —
+ *  IMG_1589 / 1597); `layer` seeds where the bands, columns and blocks fall. Held, it is clean. */
+const GLITCH_GLSL = /* glsl */ `
+uniform vec3 uBleed3;
+uniform vec3 uTear3;
+uniform vec3 uDrip3;
+uniform vec3 uBlock3;
+uniform vec3 uThin3;
+float gh1(float x, float layer) { return fract(sin(x * 12.9898 + layer * 78.233) * 43758.5453); }
+void glitch(inout vec4 clip, inout float px, inout float soft, inout float a, float g, float seed, float layer) {
+  if (g <= 0.0) return;
+  float bleed = byKind(uBleed3), tear = byKind(uTear3), drip = byKind(uDrip3), block = byKind(uBlock3);
+  px *= 1.0 + 2.5 * bleed * g;
+  soft = min(1.0, soft + bleed * g);
+  if (fract(seed * 37.1) < byKind(uThin3) * g) a = 0.0;
+  vec2 ndc = clip.xy / clip.w;
+  vec2 cell = floor((ndc * 0.5 + 0.5) * vec2(10.0, 16.0));
+  float hk = gh1(cell.x * 17.0 + cell.y * 131.0 + 7.0, layer), bo = block * g;
+  if (hk < 0.25 * bo) a = 0.0;
+  else if (hk > 1.0 - 0.25 * bo) px *= 1.0 + 3.0 * block * g;
+  float band = floor((ndc.y * 0.5 + 0.5) * 28.0);
+  ndc.x += step(1.0 - 0.4 * tear, gh1(band + 3.0, layer)) * (gh1(band + 41.0, layer) - 0.5) * 0.3 * tear * g;
+  float colm = floor((ndc.x * 0.5 + 0.5) * 56.0);
+  float hc = gh1(colm * 1.7 + 101.0, layer);
+  ndc.y -= step(1.0 - 0.5 * drip, hc) * g * g * drip * 0.45 * (0.4 + hc);
+  clip.xy = ndc * clip.w;
+}`;
+
 /** FAR AND NEAR, ITS OWN (ResidueLook.far … near; needs byKind): thinned and grown past `far`, thinned too near — as
  *  the present's readings are (LidarScan lodSize), at the future's own numbers. */
 const DIST_GLSL = /* glsl */ `
@@ -490,6 +520,7 @@ uniform vec3 uDevelop3;
 uniform float uLife;
 uniform float uRange;
 uniform float uReach;
+uniform float uGlitchSeed;
 uniform vec3 uC0;
 uniform vec3 uC1;
 uniform vec3 uC2;
@@ -500,6 +531,7 @@ varying float vPx;
 varying float vSoft;
 ${BLOW_GLSL}
 ${DIST_GLSL}
+${GLITCH_GLSL}
 ${FLOW_GLSL}
 vec3 ramp(float t) {
   return t < 1.0 ? mix(uC0, uC1, t) : t < 2.0 ? mix(uC1, uC2, t - 1.0) : mix(uC2, uC3, t - 2.0);
@@ -507,6 +539,8 @@ vec3 ramp(float t) {
 void main() {
   vec3 p = position;
   float a = 0.0;
+  // (how far it has flown: the glitch's strength — 0 while it is held)
+  float gk = 0.0;
   // (sizes spread, unlike the present's even dots: most small, a few large)
   float sv = fract(aSeed * 53.1);
   float px = byKind(uSize3) * mix(1.0, 0.55 + 1.5 * sv * sv, byKind(uSizeVar3));
@@ -531,6 +565,7 @@ void main() {
       float rt = uTime - aRel;
       if (rt > 0.0) {
         float k = flightOf(rt);
+        gk = k;
         p += blowOffset(position, rt, k);
         a *= 1.0 - smoothstep(0.45, 1.0, k);
         // C: it blooms as it leaves — a petal's colour for a plant, a pale pollen for what is left — swelling a little
@@ -548,9 +583,14 @@ void main() {
   float dE = -mv.z;
   a *= farKeep(dE, aSeed);
   px *= farGrow(dE);
+  vec4 clip = projectionMatrix * mv;
+  // THE GLITCH, only as it blows away ("글리치는 녹아내릴(흩날릴) 때만"), growing with its flight
+  float sf = vSoft;
+  glitch(clip, px, sf, a, gk, aSeed, uGlitchSeed);
+  vSoft = sf;
   vA = a;
   vCol = col;
-  gl_Position = projectionMatrix * mv;
+  gl_Position = clip;
   // (as the lidar's dots: one size on screen, a little larger right by the eye)
   vPx = px * clamp(3.0 / max(0.1, dE), 1.0, 1.6);
   gl_PointSize = a > 0.0 ? vPx : 0.0;
@@ -719,6 +759,8 @@ function makePoints(): THREE.Points {
       uRange: { value: 22 },
       ...DIST_UNIFORMS(),
       ...presentDepth,
+      ...Object.fromEntries(["uBleed3", "uTear3", "uDrip3", "uBlock3", "uThin3"].map((n) => [n, { value: new THREE.Vector3() }])),
+      uGlitchSeed: { value: 0 },
       uReach: { value: 14 },
       uC0: { value: new THREE.Color("#5ff0c8") },
       uC1: { value: new THREE.Color("#c6f06a") },
@@ -791,11 +833,7 @@ uniform vec3 uAlpha3;
 uniform vec3 uSize3;
 uniform vec3 uSizeVar3;
 uniform vec3 uSoft3;
-uniform vec3 uBleed3;
-uniform vec3 uTear3;
-uniform vec3 uDrip3;
-uniform vec3 uBlock3;
-uniform vec3 uThin3;
+uniform float uGlitch;
 varying vec3 vCol;
 varying float vA;
 varying float vPx;
@@ -805,39 +843,24 @@ float byKind(vec3 v) {
   return aKind < 0.5 ? v.x : aKind < 1.5 ? v.y : v.z;
 }
 ${DIST_GLSL}
-float h1(float x) { return fract(sin(x * 12.9898 + uLayer * 78.233) * 43758.5453); }
+${GLITCH_GLSL}
 void main() {
   // (o: how old the layer is for this kind, 0 just laid … 1 gone)
   float o = clamp(uAge / max(0.05, byKind(uLife3)), 0.0, 1.0);
   float f = 1.0 - o;
   float a = byKind(uAlpha3) * uKill * f * f;
-  float bleed = byKind(uBleed3), tear = byKind(uTear3), drip = byKind(uDrip3), block = byKind(uBlock3);
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   float dEye = -mv.z;
   a *= 1.0 - smoothstep(uReach * 0.55, uReach, dEye);
   float sv = fract(aSeed * 53.1);
-  // BLEED: the older a layer, the larger and softer its dots
-  float px = byKind(uSize3) * mix(1.0, 0.55 + 1.5 * sv * sv, byKind(uSizeVar3)) * (1.0 + 2.5 * bleed * o);
-  vSoft = min(1.0, byKind(uSoft3) + bleed * o);
+  float px = byKind(uSize3) * mix(1.0, 0.55 + 1.5 * sv * sv, byKind(uSizeVar3));
   vec4 clip = projectionMatrix * mv;
-  vec2 ndc = clip.xy / clip.w;
-  // DENSITY: an older layer thins out (each point its own threshold)
-  if (fract(aSeed * 37.1) < byKind(uThin3) * o) a = 0.0;
-  // BLOCKS: the screen in blocks; in each layer a few blocks drop out and a few have their dots grown (IMG_1597)
-  vec2 cell = floor((ndc * 0.5 + 0.5) * vec2(10.0, 16.0));
-  float hk = h1(cell.x * 17.0 + cell.y * 131.0 + 7.0), bo = block * (0.3 + 0.7 * o);
-  if (hk < 0.25 * bo) a = 0.0;
-  else if (hk > 1.0 - 0.25 * bo) px *= 1.0 + 3.0 * block;
-  // TEAR: the screen in bands, a few of each layer's own torn sideways — more as it ages
-  float band = floor((ndc.y * 0.5 + 0.5) * 28.0);
-  float hb = h1(band + 3.0);
-  ndc.x += step(1.0 - 0.4 * tear, hb) * (h1(band + 41.0) - 0.5) * 0.3 * tear * (0.25 + o);
-  // DRIP: a few columns of each layer slide down as it ages (IMG_1589 / 1597)
-  float colm = floor((ndc.x * 0.5 + 0.5) * 56.0);
-  float hc = h1(colm * 1.7 + 101.0);
-  ndc.y -= step(1.0 - 0.5 * drip, hc) * o * o * drip * 0.45 * (0.4 + hc);
-  clip.xy = ndc * clip.w;
-  // FAR AND NEAR, as the layer of now's (softened with it, in its frame)
+  // THE GLITCH only as it goes: held, an earlier layer is a clean exposure that fades with its age; once let go it
+  // melts (uGlitch 0 … 1 over the flight) — "글리치는 녹아내릴(흩날릴) 때만"
+  float sf = byKind(uSoft3);
+  glitch(clip, px, sf, a, uGlitch, aSeed, uLayer);
+  vSoft = sf;
+  // FAR AND NEAR, as the layer of now's (softened with it, in its frame; glitched only as it melts, above)
   a *= farKeep(dEye, aSeed);
   px *= farGrow(dEye);
   vA = a;
@@ -859,7 +882,7 @@ function makeGhost(): THREE.Points {
       ...DIST_UNIFORMS(),
       ...presentDepth,
       ...Object.fromEntries([
-        ...["uAge", "uKill", "uLayer", "uReach"].map((n) => [n, { value: n === "uAge" ? 1e6 : n === "uKill" ? 1 : 0 }]),
+        ...["uAge", "uKill", "uLayer", "uReach", "uGlitch"].map((n) => [n, { value: n === "uAge" ? 1e6 : n === "uKill" ? 1 : 0 }]),
         ...["uLife3", "uAlpha3", "uSize3", "uSizeVar3", "uSoft3", "uBleed3", "uTear3", "uDrip3", "uBlock3", "uThin3"].map((n) => [n, { value: new THREE.Vector3() }]),
       ]),
     },
@@ -1298,6 +1321,8 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     if (letGo) {
       s.releaseAt = 0;
       s.ghostKill = now;
+      // (where this going's bands, columns and blocks fall)
+      (P.material as THREE.ShaderMaterial).uniforms.uGlitchSeed.value = Math.random() * 100;
     }
     if (letGo && s.pool) {
       const o = s.obs, pool = s.pool;
@@ -1741,6 +1766,12 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     (su.uRes.value as THREE.Vector2).copy(DB);
     u.uRange.value = lidarLook.range;
     per(L, (k) => k.develop, u.uDevelop3.value as THREE.Vector3);
+    // (the glitch as the points blow away — the same five as the earlier layers')
+    per(L, (k) => k.bleed, u.uBleed3.value as THREE.Vector3);
+    per(L, (k) => k.tear, u.uTear3.value as THREE.Vector3);
+    per(L, (k) => k.drip, u.uDrip3.value as THREE.Vector3);
+    per(L, (k) => k.block, u.uBlock3.value as THREE.Vector3);
+    per(L, (k) => k.thin, u.uThin3.value as THREE.Vector3);
     // the plants' colours flowing through her palette (the layer of now and every earlier layer alike)
     const pal = paletteOf(L);
     setFlow(u, L, now, pal.leaves, pal.flowers);
@@ -1750,12 +1781,15 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     (u.uC1.value as THREE.Color).set(lidarLook.c1);
     (u.uC2.value as THREE.Color).set(lidarLook.c2);
     (u.uC3.value as THREE.Color).set(lidarLook.c3);
-    // the earlier layers: their age, and gone within a moment once the observer has left
-    const kill = s.ghostKill > 0 ? 1 - Math.min(1, (now - s.ghostKill) / 0.6) : 1;
+    // the earlier layers: their age; once let go they melt away over the flight (glitching as they go — "글리치는
+    // 녹아내릴(흩날릴) 때만"), fading slowly at first
+    const meltP = s.ghostKill > 0 ? Math.min(1, (now - s.ghostKill) / Math.max(0.6, longestFlight(L) + L.stagger)) : 0;
+    const kill = 1 - meltP * meltP;
     ghosts.current.forEach((gh, i) => {
       const gu = (gh.material as THREE.ShaderMaterial).uniforms;
       gu.uAge.value = now - s.ghostBorn[i];
       gu.uKill.value = kill;
+      gu.uGlitch.value = meltP;
       setDist(gu, L);
       gu.uReach.value = Math.min(L.reach, lidarLook.range);
       per(L, (k) => k.ghostLife, gu.uLife3.value as THREE.Vector3);
