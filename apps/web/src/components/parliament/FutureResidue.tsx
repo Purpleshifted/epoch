@@ -102,6 +102,13 @@ export interface ResidueLook {
   flower: number;
   plantDensity: number;
   treeFull: number;
+  /** THE PLANTS' COLOURS FLOW OVER TIME ("컬러팔레트가 시간에 따라 유기적으로 변하게 … 식생에 대해서만"): how much (0 = each
+   *  keeps its own), one turn of the palette (s), the colour waves' size (world), and how much of the contrasting
+   *  colours (her flowers') drift through the leaves (0 = none). */
+  plantFlow: number;
+  plantFlowSec: number;
+  plantFlowScale: number;
+  plantContrast: number;
   /** Each kind's own everything. */
   kinds: { part: KindLook; leaf: KindLook; stem: KindLook };
 }
@@ -147,6 +154,10 @@ export const DEFAULT_RESIDUE: ResidueLook = {
   flower: 0.5,
   plantDensity: 8,
   treeFull: 4,
+  plantFlow: 0.6,
+  plantFlowSec: 14,
+  plantFlowScale: 6,
+  plantContrast: 0.35,
   kinds: {
     part: { ...KIND_BASE, sizeVar: 0.5, soft: 0.4, jitter: 0.03, bleed: 0.4, blow: { time: 2.2, dist: 4, rise: 0.4, turb: 0.8, bloom: 0.6 } },
     leaf: { ...KIND_BASE, sizeVar: 0.7, soft: 0.7, jitter: 0.05, bleed: 0.6, tear: 0.2, drip: 0.3, block: 0.3, blow: { time: 2.5, dist: 5, rise: 1.2, turb: 1, bloom: 0.8 } },
@@ -302,6 +313,52 @@ float flightOf(float rt) {
   return clamp(rt / max(0.05, byKind(uScatter3) * (0.75 + 0.5 * fract(aSeed * 3.7))), 0.0, 1.0);
 }`;
 
+/** THE PLANTS' COLOURS FLOW (the artist, 2026-11-27: "컬러팔레트가 시간에 따라 유기적으로 변하게 … 다채롭고 꿈같은 느낌 …
+ *  식생에 대해서만", then "컬러팔레트 몇개에 대비되는 색 있는 게 좋은데 그게 마지막에만 확 번져서"): a slow field of colour
+ *  that moves through space and time — neighbours turn together — carries each plant point round her palette: leaves
+ *  through her six leaf colours, flowers through her five flower colours; and patches of the contrasting colours (her
+ *  flowers') drift through the leaves too, so the contrast is there while they live, not only as they blow away.
+ *  Needs aKind (a flower is 1.25: still the plants' kind) and aSeed declared before it. */
+const FLOW_GLSL = /* glsl */ `
+uniform vec3 uLeafPal[6];
+uniform vec3 uFlowerPal[5];
+uniform float uFlow;
+uniform float uFlowT;
+uniform float uFlowScale;
+uniform float uContrast;
+vec3 leafAt(float u) {
+  float x = fract(u) * 6.0;
+  int i = int(floor(x));
+  return mix(uLeafPal[i], uLeafPal[(i + 1) % 6], smoothstep(0.0, 1.0, fract(x)));
+}
+vec3 flowerAt(float u) {
+  float x = fract(u) * 5.0;
+  int i = int(floor(x));
+  return mix(uFlowerPal[i], uFlowerPal[(i + 1) % 5], smoothstep(0.0, 1.0, fract(x)));
+}
+// (a few sines out of step, bent by one another: slow drifting bands, never a grid)
+float flowField(vec3 p, float t, float k) {
+  vec3 q = p / max(0.5, uFlowScale);
+  float a = sin(q.x * 1.3 + t * 0.7 + k + sin(q.z * 0.9 - t * 0.4));
+  float b = sin(q.z * 1.1 - t * 0.5 + 2.0 * k + sin(q.x * 0.8 + t * 0.3));
+  float c = sin((q.x + q.z) * 0.6 + q.y * 1.5 + t * 0.35 + 3.0 * k);
+  return 0.5 + 0.18 * (a + b + c);
+}
+// the colour a plant point has now; base: the colour it was given
+vec3 flowColour(vec3 p, vec3 base) {
+  if (uFlow <= 0.0 || aKind < 0.5 || aKind > 1.5) return base;
+  float u = flowField(p, uFlowT, 0.0) + 0.15 * fract(aSeed * 17.3);
+  vec3 own;
+  if (aKind > 1.1) own = flowerAt(u);
+  else {
+    // the contrast drifting through the leaves in patches of its own
+    float c = flowField(p * 0.7, uFlowT * 0.6, 1.7);
+    float edge = 1.0 - uContrast;
+    own = mix(leafAt(u), flowerAt(u + 0.37), smoothstep(edge - 0.12, edge + 0.12, c) * step(0.001, uContrast));
+  }
+  return mix(base, own, uFlow);
+}`;
+
 const VERT = /* glsl */ `
 attribute vec3 aCol;
 attribute vec3 aBloom;
@@ -324,6 +381,7 @@ varying float vA;
 varying float vPx;
 varying float vSoft;
 ${BLOW_GLSL}
+${FLOW_GLSL}
 vec3 ramp(float t) {
   return t < 1.0 ? mix(uC0, uC1, t) : t < 2.0 ? mix(uC1, uC2, t - 1.0) : mix(uC2, uC3, t - 2.0);
 }
@@ -343,7 +401,7 @@ void main() {
     float dEye = -mv0.z;
     vec3 seen = ramp(clamp(dEye / uRange, 0.0, 1.0) * 3.0);
     float dev = byKind(uDevelop3);
-    col = mix(seen, aCol, dev > 0.0 ? smoothstep(0.0, dev, age) : 1.0);
+    col = mix(seen, flowColour(position, aCol), dev > 0.0 ? smoothstep(0.0, dev, age) : 1.0);
     // far off, as sparse as the lidar's own far readings (kept with the chance (lod/d)²), and gone at the scanner's reach
     if (uLod > 0.0 && dEye > uLod && fract(aSeed * 91.7) > (uLod / dEye) * (uLod / dEye)) a = 0.0;
     a *= 1.0 - smoothstep(uReach * 0.55, uReach, dEye);
@@ -452,6 +510,41 @@ void main() {
   gl_FragColor = vec4(vCol, a);
 }`;
 
+/** The colour flow's uniforms (FLOW_GLSL), on the layer of now and on each earlier layer. */
+const FLOW_UNIFORMS = () => ({
+  uLeafPal: { value: Array.from({ length: 6 }, () => new THREE.Color()) },
+  uFlowerPal: { value: Array.from({ length: 5 }, () => new THREE.Color()) },
+  uFlow: { value: 0 },
+  uFlowT: { value: 0 },
+  uFlowScale: { value: 6 },
+  uContrast: { value: 0 },
+});
+/** Her palette into a material's flow uniforms (saturated by `sat`, as the pool's colours are). */
+function setFlow(w: Record<string, THREE.IUniform>, L: ResidueLook, now: number, leaves: THREE.Color[], flowers: THREE.Color[]): void {
+  (w.uLeafPal.value as THREE.Color[]).forEach((c, i) => c.copy(leaves[i % leaves.length]));
+  (w.uFlowerPal.value as THREE.Color[]).forEach((c, i) => c.copy(flowers[i % flowers.length]));
+  w.uFlow.value = Math.max(0, Math.min(1, L.plantFlow));
+  w.uFlowT.value = (now * Math.PI * 2) / Math.max(1, L.plantFlowSec);
+  w.uFlowScale.value = L.plantFlowScale;
+  w.uContrast.value = Math.max(0, Math.min(1, L.plantContrast));
+}
+/** Her leaf and flower colours as the shaders take them (saturated by `sat`), kept until they or `sat` change. */
+const flowPal = { key: "", leaves: [] as THREE.Color[], flowers: [] as THREE.Color[] };
+function paletteOf(L: ResidueLook): { leaves: THREE.Color[]; flowers: THREE.Color[] } {
+  const key = `${L.leaves.join()}|${L.flowers.join()}|${L.sat}`;
+  if (key !== flowPal.key) {
+    const satd = (hex: string) => {
+      const c = new THREE.Color(hex);
+      const l = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b, s = Math.max(0, L.sat);
+      return c.setRGB(l + (c.r - l) * s, l + (c.g - l) * s, l + (c.b - l) * s);
+    };
+    flowPal.key = key;
+    flowPal.leaves = (L.leaves.length ? L.leaves : [...RESIDUE_PRESETS.garden.leaves]).map(satd);
+    flowPal.flowers = (L.flowers.length ? L.flowers : [...RESIDUE_PRESETS.garden.flowers]).map(satd);
+  }
+  return flowPal;
+}
+
 const BLOW_UNIFORMS = () => ({ uDist3: { value: new THREE.Vector3(4, 5, 2.5) }, uRise3: { value: new THREE.Vector3(0.4, 1.2, 0.3) }, uTurb3: { value: new THREE.Vector3(0.8, 1, 0.6) }, uScatter3: { value: new THREE.Vector3(2.2, 2.5, 3) }, uBloom3: { value: new THREE.Vector3(0.6, 0.8, 0.4) }, uSize3: { value: new THREE.Vector3(2, 2, 2) }, uSizeVar3: { value: new THREE.Vector3(0.6, 0.6, 0.6) }, uSoft3: { value: new THREE.Vector3(0.6, 0.6, 0.6) } });
 
 /** The pool's GPU side, made the first time the residue runs (the exhibition's view never makes it). */
@@ -463,6 +556,7 @@ function makePoints(): THREE.Points {
   const m = new THREE.ShaderMaterial({
     uniforms: {
       ...BLOW_UNIFORMS(),
+      ...FLOW_UNIFORMS(),
       uTime: { value: 0 },
       uDevelop3: { value: new THREE.Vector3(1.2, 1.2, 1.2) },
       uLife: { value: 0 },
@@ -537,6 +631,7 @@ varying vec3 vCol;
 varying float vA;
 varying float vPx;
 varying float vSoft;
+${FLOW_GLSL}
 float byKind(vec3 v) {
   return aKind < 0.5 ? v.x : aKind < 1.5 ? v.y : v.z;
 }
@@ -574,7 +669,8 @@ void main() {
   ndc.y -= step(1.0 - 0.5 * drip, hc) * o * o * drip * 0.45 * (0.4 + hc);
   clip.xy = ndc * clip.w;
   vA = a;
-  vCol = aCol;
+  // (an earlier layer flows on with the rest: it is the same plants, a moment ago)
+  vCol = flowColour(position, aCol);
   gl_Position = clip;
   vPx = px * clamp(3.0 / max(0.1, dEye), 1.0, 1.6);
   gl_PointSize = a > 0.003 ? vPx : 0.0;
@@ -586,10 +682,13 @@ function makeGhost(): THREE.Points {
     g.setAttribute(name, new THREE.BufferAttribute(new Float32Array(GHOST_CAP * size), size).setUsage(THREE.DynamicDrawUsage));
   g.setDrawRange(0, 0);
   const m = new THREE.ShaderMaterial({
-    uniforms: Object.fromEntries([
-      ...["uAge", "uKill", "uLayer", "uLod", "uReach"].map((n) => [n, { value: n === "uAge" ? 1e6 : n === "uKill" ? 1 : 0 }]),
-      ...["uLife3", "uAlpha3", "uSize3", "uSizeVar3", "uSoft3", "uBleed3", "uTear3", "uDrip3", "uBlock3", "uThin3"].map((n) => [n, { value: new THREE.Vector3() }]),
-    ]),
+    uniforms: {
+      ...FLOW_UNIFORMS(),
+      ...Object.fromEntries([
+        ...["uAge", "uKill", "uLayer", "uLod", "uReach"].map((n) => [n, { value: n === "uAge" ? 1e6 : n === "uKill" ? 1 : 0 }]),
+        ...["uLife3", "uAlpha3", "uSize3", "uSizeVar3", "uSoft3", "uBleed3", "uTear3", "uDrip3", "uBlock3", "uThin3"].map((n) => [n, { value: new THREE.Vector3() }]),
+      ]),
+    },
     vertexShader: GHOST_VERT,
     fragmentShader: FRAG,
     transparent: true,
@@ -760,7 +859,7 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
       const y = foot + 0.02 + H * (1 - (rr / R) * (rr / R)) * (0.3 + 0.7 * hash(sx, sz, i * 3 + 3));
       const flowering = hash(sx, sz, i * 7 + 5) < fl;
       const c = flowering ? pick(flowers, hash(sx, i, 103)) : tmp.copy(fam).lerp(nb, 0.3 * hash(sz, i, 107));
-      add(x + Math.cos(a) * rr, y, z + Math.sin(a) * rr, c, flowering ? 1.1 : 0.75 + 0.5 * hash(sz, sx, i), hash(sx, i, sz), pick(petals, hash(i, sz, 109)), 1);
+      add(x + Math.cos(a) * rr, y, z + Math.sin(a) * rr, c, flowering ? 1.1 : 0.75 + 0.5 * hash(sz, sx, i), hash(sx, i, sz), pick(petals, hash(i, sz, 109)), flowering ? 1.25 : 1);
     }
     close();
   }
@@ -996,7 +1095,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     const layNew = (pool0: Pool) => {
       const fp = A("position").array as Float32Array, J = [L.kinds.part.jitter, L.kinds.leaf.jitter, L.kinds.stem.jitter];
       for (let i = 0; i < pool0.n; i++) {
-        const j = Math.max(0, J[pool0.kind[i]] ?? 0);
+        const j = Math.max(0, J[Math.round(pool0.kind[i])] ?? 0);
         for (let c = 0; c < 3; c++) fp[i * 3 + c] = pool0.pos[i * 3 + c] + (j > 0 ? (Math.random() * 2 - 1) * j : 0);
       }
       const a = A("position");
@@ -1204,6 +1303,9 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     (su.uRes.value as THREE.Vector2).copy(DB);
     u.uRange.value = lidarLook.range;
     per(L, (k) => k.develop, u.uDevelop3.value as THREE.Vector3);
+    // the plants' colours flowing through her palette (the layer of now and every earlier layer alike)
+    const pal = paletteOf(L);
+    setFlow(u, L, now, pal.leaves, pal.flowers);
     u.uLife.value = L.life;
     (u.uC0.value as THREE.Color).set(lidarLook.c0);
     (u.uC1.value as THREE.Color).set(lidarLook.c1);
@@ -1227,6 +1329,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       per(L, (k) => k.drip, gu.uDrip3.value as THREE.Vector3);
       per(L, (k) => k.block, gu.uBlock3.value as THREE.Vector3);
       per(L, (k) => k.thin, gu.uThin3.value as THREE.Vector3);
+      setFlow(gu, L, now, pal.leaves, pal.flowers);
     });
     markSpan("residue", performance.now() - t0);
   });

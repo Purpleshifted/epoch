@@ -201,6 +201,17 @@ export function useScanFutureKnobs(isV2: boolean) {
           resFlower: { value: 0.5, min: 0, max: 1, step: 0.05, label: "꽃 비율" },
           resPlantDensity: { value: 8, min: 0, max: 60, step: 1, label: "식생 점 밀도" },
           resTreeFull: { value: 4, min: 1, max: 10, step: 0.5, label: "나무 풍성함 (×)" },
+          // (the artist, 2026-11-27: "컬러팔레트가 시간에 따라 유기적으로 변하게 … 식생에 대해서만", "대비되는 색 … 마지막에만 확
+          // 번져서")
+          "식생 · 색의 흐름 (시간)": folder(
+            {
+              resPlantFlow: { value: DEFAULT_RESIDUE.plantFlow, min: 0, max: 1, step: 0.05, label: "팔레트를 따라 흐르는 정도 (0 = 고정)" },
+              resPlantFlowSec: { value: DEFAULT_RESIDUE.plantFlowSec, min: 2, max: 120, step: 1, label: "팔레트 한 바퀴 (s)" },
+              resPlantFlowScale: { value: DEFAULT_RESIDUE.plantFlowScale, min: 1, max: 40, step: 0.5, label: "색 물결의 크기 (월드)" },
+              resPlantContrast: { value: DEFAULT_RESIDUE.plantContrast, min: 0, max: 1, step: 0.05, label: "대비 색(꽃 색)이 잎 사이로 번지는 정도" },
+            },
+            { collapsed: false },
+          ),
           "식생 (잎 · 풀 · 꽃) · 점": folder(
             {
               klDot: { value: K.leaf.dot, min: 0.5, max: 8, step: 0.1, label: "점 크기 (px)" },
@@ -294,6 +305,10 @@ export function useScanFutureKnobs(isV2: boolean) {
     flower: v.resFlower,
     plantDensity: v.resPlantDensity,
     treeFull: v.resTreeFull,
+    plantFlow: v.resPlantFlow,
+    plantFlowSec: v.resPlantFlowSec,
+    plantFlowScale: v.resPlantFlowScale,
+    plantContrast: v.resPlantContrast,
     kinds: {
       part: { dot: v.kpDot, sizeVar: v.kpSizeVar, soft: v.kpSoft, spread: v.kpSpread, develop: v.kpDevelop, jitter: v.kpJitter, ghostAlpha: v.kpGhostAlpha, ghostLife: v.kpGhostLife, bleed: v.kpBleed, tear: v.kpTear, drip: v.kpDrip, block: v.kpBlock, thin: v.kpThin, blow: { time: v.kpBlowTime, dist: v.kpBlowDist, rise: v.kpBlowRise, turb: v.kpBlowTurb, bloom: v.kpBlowBloom }, smear: v.kpSmear, smearAlpha: v.kpSmearAlpha },
       leaf: { dot: v.klDot, sizeVar: v.klSizeVar, soft: v.klSoft, spread: v.klSpread, develop: v.klDevelop, jitter: v.klJitter, ghostAlpha: v.klGhostAlpha, ghostLife: v.klGhostLife, bleed: v.klBleed, tear: v.klTear, drip: v.klDrip, block: v.klBlock, thin: v.klThin, blow: { time: v.klBlowTime, dist: v.klBlowDist, rise: v.klBlowRise, turb: v.klBlowTurb, bloom: v.klBlowBloom }, smear: v.klSmear, smearAlpha: v.klSmearAlpha },
