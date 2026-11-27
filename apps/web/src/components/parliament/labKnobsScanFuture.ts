@@ -12,7 +12,7 @@ import { savable } from "./levaSave";
 import { LAB_GROUP, labLists } from "./mobileLab";
 import { DEFAULT_PRESENCE } from "@/lib/parliament/futurePresence";
 import type { PresenceMode } from "./FuturePresence";
-import { DEFAULT_RESIDUE, RESIDUE_PRESETS, setResidueLook } from "./FutureResidue";
+import { COLOUR_PROFILES, DEFAULT_RESIDUE, RESIDUE_PRESETS, setResidueLook } from "./FutureResidue";
 
 /** The three kinds' everything as it starts (FutureResidue.tsx DEFAULT_RESIDUE): parts, plants, stems. */
 const K = DEFAULT_RESIDUE.kinds;
@@ -28,10 +28,18 @@ function setKnob(key: string, value: unknown): void {
   const data = levaStore.getData() as Record<string, unknown>;
   for (const path of Object.keys(data)) if (path.startsWith(PLACE_GROUP + ".") && path.endsWith("." + key)) levaStore.setValueAtPath(path, value, true);
 }
-function loadPalette(leaves: readonly string[], flowers: readonly string[]): void {
+function loadPalette(leaves: readonly string[], flowers: readonly string[], part?: string, stem?: string): void {
   LEAF_KEYS.forEach((k, i) => setKnob(k, leaves[i % leaves.length]));
   FLOWER_KEYS.forEach((k, i) => setKnob(k, flowers[i % flowers.length]));
+  // (a colour profile also gives the parts and the stems theirs)
+  if (part) setKnob("resColour", part);
+  if (stem) setKnob("resStemColour", stem);
 }
+/** One of her colour profiles, loaded into every colour knob (FutureResidue.tsx COLOUR_PROFILES). */
+const loadProfile = (i: number) => () => {
+  const p = COLOUR_PROFILES[i];
+  if (p) loadPalette(p.leaves, p.flowers, p.part, p.stem);
+};
 /** The old single green (식생 색), darker and lighter, as a palette. */
 function greenPalette(hex: string): { leaves: string[]; flowers: string[] } {
   const c = new THREE.Color(hex), at = (m: number) => "#" + c.clone().multiplyScalar(m).getHexString();
@@ -163,6 +171,14 @@ export function useScanFutureKnobs(isV2: boolean) {
             {
               "정원 IMG_1586 색 불러오기": button(() => loadPalette(RESIDUE_PRESETS.garden.leaves, RESIDUE_PRESETS.garden.flowers)),
               "밤 숲 IMG_1587 색 불러오기": button(() => loadPalette(RESIDUE_PRESETS.night.leaves, RESIDUE_PRESETS.night.flowers)),
+              // (her colour profiles, 2026-11-27: "컬러 프로파일 찾아봄" — each also sets the parts' and the stems' colours)
+              "프로파일 · 코발트 · 주홍 (0637)": button(loadProfile(0)),
+              "프로파일 · Eco-Electric (1970)": button(loadProfile(1)),
+              "프로파일 · 보라 소용돌이 (1971)": button(loadProfile(2)),
+              "프로파일 · 점묘 노을 (1973)": button(loadProfile(3)),
+              "프로파일 · 라벤더 흘러내림 (1974)": button(loadProfile(4)),
+              "프로파일 · 들꽃 · 감지 상자 (1975)": button(loadProfile(5)),
+              "프로파일 · 청록 엉겅퀴 (1976)": button(loadProfile(6)),
               "초록 하나 (식생 색) 불러오기": button(() => {
                 const g = greenPalette(String((levaStore.getData() as Record<string, { value?: unknown }>)[`${PLACE_GROUP}.미래 읽기.plantColor`]?.value ?? "#2f8f3f"));
                 loadPalette(g.leaves, g.flowers);

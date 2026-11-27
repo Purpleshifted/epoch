@@ -113,6 +113,20 @@ export const RESIDUE_PRESETS = {
   night: { leaves: ["#3f6f4a", "#6f9a5e", "#a8c48a", "#7d8f6a", "#5a7f6f", "#c0b090"], flowers: ["#ff6a3d", "#6c63e0", "#ffb38a", "#ff4f6d", "#f5e06a"] },
 } as const;
 
+/** HER COLOUR PROFILES (visual_reference_images/color_profiles, the artist 2026-11-27: "컬러 프로파일 찾아봄"): electric
+ *  nature — cobalt and violet against vermilion, red and hot pink, acid chartreuse and mint for accents, dark olive and
+ *  brown beneath, lavender white for the light. Each read off its picture (its main colours by k-means, then lifted to
+ *  shine on the scan's black): six leaf colours, five flower colours, the parts' colour and the stems'. */
+export const COLOUR_PROFILES: readonly { label: string; leaves: string[]; flowers: string[]; part: string; stem: string }[] = [
+  { label: "코발트 · 주홍 (IMG_0637)", leaves: ["#2f6bff", "#4f8a34", "#6f8a2a", "#8a5cff", "#3d5fbf", "#5e7d3a"], flowers: ["#ff4a1c", "#ff7a2a", "#ff3fa8", "#e0261a", "#c24fd0"], part: "#f0edfa", stem: "#b07a4a" },
+  { label: "Eco-Electric (IMG_1970)", leaves: ["#8987ec", "#598ffd", "#c7cc10", "#a8a6f2", "#7aa8ff", "#b5ba2a"], flowers: ["#c7cc10", "#f0edfa", "#8987ec", "#598ffd", "#e8ff40"], part: "#f0edfa", stem: "#9c8068" },
+  { label: "보라 소용돌이 (IMG_1971)", leaves: ["#964cdc", "#ca97ce", "#b56bd8", "#9da65a", "#c8e06a", "#6a4fc0"], flowers: ["#ff7ab0", "#e86a5a", "#f0a080", "#ff5fd0", "#40d8e0"], part: "#f2e6f6", stem: "#b48aa0" },
+  { label: "점묘 노을 (IMG_1973)", leaves: ["#58b89a", "#9dbf7a", "#2d8dca", "#c8b060", "#7ac0a0", "#4aa8c8"], flowers: ["#ff3a2a", "#ff7a3a", "#ff4fa0", "#ffc23a", "#e8e060"], part: "#f4ecd8", stem: "#b08a50" },
+  { label: "라벤더 흘러내림 (IMG_1974)", leaves: ["#7998e4", "#8aa5e5", "#a0b4f0", "#7483ba", "#b0a8d8", "#6c7fd0"], flowers: ["#ff5a1a", "#ff8a3a", "#ffcc3a", "#e04a2a", "#ff6a8a"], part: "#dddcf0", stem: "#a87a4a" },
+  { label: "들꽃 · 감지 상자 (IMG_1975)", leaves: ["#3a6ae0", "#5a80d0", "#4a7ac8", "#2f5fb8", "#6a8ae8", "#4f9a6a"], flowers: ["#ff1a3a", "#ffb020", "#ffffff", "#ff3fa0", "#3a8aff"], part: "#f4f4ff", stem: "#8a9ad0" },
+  { label: "청록 엉겅퀴 (IMG_1976)", leaves: ["#4ec8c0", "#2c9ab0", "#6ae0c0", "#3a7ab8", "#8ad8d0", "#2aa0a0"], flowers: ["#ff2a2a", "#e0201f", "#ff5a3a", "#c0306a", "#ff8a6a"], part: "#e8eef0", stem: "#8a5a5a" },
+];
+
 const KIND_BASE: Omit<KindLook, "blow"> = { dot: 2, sizeVar: 0.6, soft: 0.6, spread: 5, develop: 1.2, jitter: 0.04, ghostAlpha: 0.45, ghostLife: 3, bleed: 0.5, tear: 0.3, drip: 0.4, block: 0.35, thin: 0.4, smear: 0, smearAlpha: 0.45 };
 
 export const DEFAULT_RESIDUE: ResidueLook = {
