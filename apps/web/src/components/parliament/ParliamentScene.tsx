@@ -40,6 +40,7 @@ import { useTilt, type TiltState } from "./useTilt";
 import { usePageLock } from "./usePageLock";
 import { usePersonalVisuals } from "./usePersonalVisuals";
 import { FuturePeekButton, useFuturePresenceControls } from "./FuturePresence";
+import { FutureResiduePressButton, residueActive, residueLook } from "./FutureResidue";
 import { futureHold } from "./FutureEncounter";
 import { SessionHud } from "./SessionHud";
 import { newLook, type LabPage } from "./mobileLab";
@@ -627,6 +628,8 @@ export default function ParliamentScene({ lab }: { lab?: LabPage } = {}) {
       </Canvas>
       {/* the peek into the future (FuturePresence.tsx mode "peek"): the phone's button, the desktop's key, while live */}
       {isV2 && future.on && future.overlayOn && future.mode === "peek" && (!withSession || session.phase === "live") && <FuturePeekButton coarse={coarse} />}
+      {/* the scan's residue, "F 누를 때": a tap counts as an observer crossing me (FutureResidue.tsx) */}
+      {isV2 && residueActive() && residueLook.showWhen === "press" && (!withSession || session.phase === "live") && <FutureResiduePressButton coarse={coarse} />}
 
       {/* 흰 바탕: the log keeps its shape and place, its colours turned for paper while the life runs (the dark screens
           before and after stay as they are) */}
