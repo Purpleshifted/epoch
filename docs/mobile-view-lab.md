@@ -125,6 +125,20 @@ not yet seen on screen by her or by a capture (load average 250+ at the time):
 - Known: the observer itself is still not drawn under the lidar (bot (future)'s, 107bc5c), so the residue comes and goes
   without the observer being seen; on 시험 장면 the remains need buildings in this browser's stored world (the wild plants
   round the visitor are there anyway); `__residue` in the console (parts, points, held, present, observer distance).
+- 5ba87cf: far off the residue is as sparse as the lidar's far readings ((lod/d)²) and gone at its reach (the far plants
+  had piled into a green band along the horizon); plant density 8.
+
+**The dream's colours (2026-11-27, "미래 색을 좀 더 꿈처럼 다채롭게" → her pick A + C; 53c638a, type check only — a headless
+look hung at load 230):**
+- A · the plants as the night gardens of IMG_1586/1587: each plant cloud and tree its own colour family (`식생 팔레트`:
+  정원 1586 = sage, olive, lavender, grey-green, yellow-green, mint-grey with coral, dusty pink, butter, rose, violet
+  flowers; 밤 숲 1587 = deep greens, moss, olive grey, teal, dry with poppy, delphinium, peach, red, yellow; 초록 하나 = the
+  old 식생 색), a little of a neighbour's family in it; a meadow's points flower by its own flower share × `꽃 비율`; tree
+  stems a birch's near-white. What is left stays pale (white × concrete), the human-traces rule kept. `식생 채도`.
+- The grain, apart from the present's crisp even dots: `점 크기 편차` (most small, a few large), `점 부드러움` (0 = the
+  lidar's one-pixel edge … 1 = a soft round glow, drawn a little larger), `겹치면 밝아짐` (additive on the black).
+- C · blowing away, each point takes its bloom colour (a petal's from the palette for plants, a pale pollen of the whole
+  palette for what is left) and swells a little before shrinking (`흩날릴 때 피는 색`).
 
 **Status (2026-11-23): PAUSED by the coordinator (machine overloaded) after the reference study; nothing built, no
 question put to the artist yet.** Code untouched (`FuturePresence.tsx`, `futurePresence.ts`, `labKnobsScanFuture.ts` =
