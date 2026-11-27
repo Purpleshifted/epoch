@@ -260,10 +260,19 @@ cuts them short.
 
 **The future's far and near, its own (01b0a34):** "미래랑 현재는 거리 따라 lod/흐림/뭉침 적용하는 정도 따로". The residue
 is on its own layer (`futureLayer.ts`, FUTURE_LAYER 6): under the photograph it is left out of the depth softening and
-drawn over the composed frame, dropped where the present's depth is nearer. Each kind's `· 거리` folder: 시작 거리
-(12), 성기게 정도 (1 = the present's (lod/d)²), 뭉치기 정도 (0; 1 = the present's ×d/lod), 또렷한 거리 (4), 흐림 가까이
-(0) / 멀리 (0.6, at the reach). The present keeps its own: scan (present) › 먼 점 뭉치기 시작 거리 and the photograph's
-softening. Headless (load 13): no shader errors; the look not judged by me.
+drawn over the composed frame, dropped where the present's depth is nearer. Headless (load 13): no shader errors; the
+look not judged by me.
+- **One set each (c66e39a):** "부재나 종류마다 정하지 말고 그냥 미래/현재만 따로". The future: one folder, `거리 효과 —
+  미래` — 시작 거리 (12), 성기게 정도 (1 = the present's (lod/d)²), 뭉치기 정도 (0; 1 = the present's ×d/lod), 또렷한
+  거리 (4), 흐림 가까이 (0) / 멀리 (0.6, at the reach); the per-kind folders of 01b0a34 are gone. The present: scan
+  (present) › 먼 점 뭉치기 시작 거리 plus 먼 점 성기게 — 정도 / 먼 점 뭉치기 (커짐) — 정도 (1 · 1 = as before), and the
+  base's 가까운 / 먼 흐림 (the photograph's softening — now the present's alone).
+
+**The present thinner while the future shows (c66e39a):** "미래가 나타났을 때 현재 렌더에 점 덜 쓰는 방식으로 성능
+조절". `LidarScan.lidarThin.scale` (the view's rays × it, the ring's directions skipped; life unchanged). The residue
+counts the future's points on the screen and brings the present down to `미래가 보일 때 현재 점 비율` (0.5) once
+`미래 점이 이만큼 보이면 다 줄임` (3 000) show — within ~1 s, back over ~2 s; readout `지금 현재 점 비율 · 보이는 미래
+점`. Fewer present readings also means fewer chances to find the future: it develops a little slower.
 
 **Status (2026-11-23): PAUSED by the coordinator (machine overloaded) after the reference study; nothing built, no
 question put to the artist yet.** Code untouched (`FuturePresence.tsx`, `futurePresence.ts`, `labKnobsScanFuture.ts` =
