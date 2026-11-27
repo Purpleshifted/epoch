@@ -2128,7 +2128,8 @@ function SpaceWorld({
     focusY.current = events.length ? (focusS / cfg.secPerUnit) * cfg.unit : null;
     // THE MARKERS' TRIAL (MeLook.trialMid, the artist 2026-11-22): "me" is drawn among the living bots — the follow
     // goes to where it is drawn, not to the sample's time
-    if (meTrialMid && useMe && trialMe.y !== null) {
+    // (…and the trial's stand-in bot while no real me sends — Markers, 2026-11-27)
+    if (meTrialMid && trialMe.y !== null && (useMe || (trialMe.standIn && followWho !== "latest"))) {
       focusY.current = trialMe.y;
       focus.current = { focusS: (trialMe.y / cfg.unit) * cfg.secPerUnit, focusIsMe: true };
     }
@@ -2685,6 +2686,8 @@ interface Mark {
   s: number;
   /** No newer sample for `holdSec` (only "me" is still drawn then, dimmed). */
   stale: boolean;
+  /** The trial's stand-in (MeLook.trialMid): a living bot drawn as "me" while no real me is sending. */
+  standIn?: boolean;
 }
 
 /** What the overlay says about "me": the id this browser's player tab wrote, and how long it has been silent. */
@@ -2692,6 +2695,8 @@ interface MeStatus {
   id: string | null;
   /** Seconds since its newest sample arrived; null = it has left no presence yet. */
   silentSec: number | null;
+  /** The bot standing in for "me" in the trial (null = none: the real me, or the trial off). */
+  standIn?: string | null;
 }
 
 const MARK_COLOR = { me: "#ff4d00", bot: "#2a62ff", visitor: "#111111" } as const;
@@ -2732,7 +2737,7 @@ const QUIET_COLOR = { me: "#ffffff", bot: "#8a8f96", visitor: "#d4d7db" } as con
 
 /** THE TRIAL'S HEIGHT (MeLook.trialMid): where "me" is drawn — the middle of the living bots' heights (world y) — set by
  *  the markers, read by the camera's follow; null = the trial is off or there are no bots to stand among. */
-const trialMe: { y: number | null } = { y: null };
+const trialMe: { y: number | null; standIn: boolean } = { y: null, standIn: false };
 
 const glyphTextures = new Map<string, THREE.CanvasTexture>();
 /** A being's melody glyph (glyph.ts) as a small white-on-clear texture, made once per id. */
@@ -3722,6 +3727,8 @@ function Markers({
   const timer = useRef(10);
   const sig = useRef("");
   const meSig = useRef("");
+  /** The trial's stand-in bot (kept while it lives). */
+  const standIn = useRef<string | null>(null);
 
   useFrame((_, dt) => {
     timer.current += dt;
@@ -3747,15 +3754,32 @@ function Markers({
       if (stale && id !== me) continue;
       out.push({ id, kind: id === me ? "me" : id.startsWith("bot") ? "bot" : "visitor", role: e.r, x: e.x, z: e.z, s: e.s, stale });
     }
+    // THE TRIAL'S STAND-IN (the artist, 2026-11-27: "'나'를 글로벌에서 시범으로 보이는 버튼은 내가 없어도 보이게 해줘
+    // (그게 실제로 접속하면 실제 내 위치로 하고...)" — "대충 봇 중 하나 잡아서 보여주는 방식으로"): with the trial on and no
+    // real "me" sending from this browser, one living bot is drawn as "me" — the same one while it lives (picked from the
+    // middle of their heights); the moment this browser's visitor sends a fresh sample, "me" is the real one again.
+    const realMe = me ? out.find((m) => m.id === me) : undefined;
+    if (look.trialMid && !(realMe && !realMe.stale)) {
+      const living = out.filter((m) => m.kind === "bot" && !m.stale);
+      let pick = living.find((m) => m.id === standIn.current);
+      if (!pick && living.length) pick = [...living].sort((a, b) => a.s - b.s)[living.length >> 1];
+      standIn.current = pick?.id ?? null;
+      if (pick) {
+        pick.kind = "me";
+        pick.standIn = true;
+        // (a silent real me gives its place to the stand-in: one "me" on the wall)
+        if (realMe) out.splice(out.indexOf(realMe), 1);
+      }
+    } else standIn.current = null;
     const meAt = me ? seen.current.get(me)?.at : undefined;
-    const meStatus: MeStatus = { id: me, silentSec: meAt === undefined ? null : meAt < 0 ? Infinity : Math.floor((now - meAt) / 1000) };
-    const ms = `${meStatus.id}:${meStatus.silentSec}`;
+    const meStatus: MeStatus = { id: me, silentSec: meAt === undefined ? null : meAt < 0 ? Infinity : Math.floor((now - meAt) / 1000), standIn: standIn.current };
+    const ms = `${meStatus.id}:${meStatus.silentSec}:${meStatus.standIn}`;
     if (ms !== meSig.current) {
       meSig.current = ms;
       onMe(meStatus);
     }
     out.sort((a, b) => (a.id < b.id ? -1 : 1));
-    const next = out.map((m) => `${m.id}:${m.s}:${m.x.toFixed(2)}:${m.z.toFixed(2)}:${m.stale}`).join("|");
+    const next = out.map((m) => `${m.id}:${m.kind}:${m.s}:${m.x.toFixed(2)}:${m.z.toFixed(2)}:${m.stale}`).join("|");
     if (next === sig.current) return;
     sig.current = next;
     setMarks(out);
@@ -3767,17 +3791,28 @@ function Markers({
   // "me" is drawn at the middle of the living bots' heights, wherever they are; the record stays as it is
   const botYs = marks.filter((m) => m.kind === "bot" && !m.stale).map((m) => (m.s / secPerUnit) * unit).sort((a, b) => a - b);
   const trialY = look.trialMid && botYs.length ? botYs[botYs.length >> 1] : null;
+  // (the stand-in is drawn where it is — it is one of the bots; the follow goes there too)
+  const stand = marks.find((m) => m.standIn);
+  const standY = stand ? (stand.s / secPerUnit) * unit : null;
   useEffect(() => {
-    trialMe.y = trialY;
-  }, [trialY]);
-  useEffect(() => () => void (trialMe.y = null), []);
+    trialMe.y = standY ?? trialY;
+    trialMe.standIn = standY !== null;
+  }, [trialY, standY]);
+  useEffect(
+    () => () => {
+      trialMe.y = null;
+      trialMe.standIn = false;
+    },
+    [],
+  );
   return (
     <>
       {marks.map((m) => {
         const y = (m.s / secPerUnit) * unit;
         if (m.kind === "me") {
-          const yMe = trialY ?? y;
-          return <MeMark key={m.id} m={m} y={yMe} look={look} topRef={topRef} label={labels ? `${m.stale ? "me (silent)" : "me"} · ${m.role}${look.trialMid ? " · 시험 높이" : ""}` : null} />;
+          const yMe = m.standIn ? y : (trialY ?? y);
+          const label = m.standIn ? `me (시험: ${m.id})` : `${m.stale ? "me (silent)" : "me"} · ${m.role}${look.trialMid ? " · 시험 높이" : ""}`;
+          return <MeMark key={m.id} m={m} y={yMe} look={look} topRef={topRef} label={labels ? label : null} />;
         }
         const kind = tint && m.kind === "bot" ? botKinds.get(m.id) : undefined;
         const color = kind ? BOT_KIND_COLOR[kind] : quiet ? QUIET_COLOR[m.kind] : MARK_COLOR[m.kind];
@@ -5933,7 +5968,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         )}
         {c.markers && (
           <div style={{ color: MARK_COLOR.me }}>
-            {meStatus.id === null
+            {meStatus.standIn
+              ? `me: 시험 — ${meStatus.standIn} 를 나로 그림 (이 브라우저에서 개인뷰가 살아 있으면 실제 내 자리로)`
+              : meStatus.id === null
               ? "me: none in this browser (open /mobile in this browser)"
               : meStatus.silentSec === null
                 ? `me ${meStatus.id}: no presence yet`
