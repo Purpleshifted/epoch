@@ -122,8 +122,8 @@ export const DEFAULT_RESIDUE: ResidueLook = {
   stagger: 1.2,
   rise: 1.2,
   turb: 1,
-  expose: 0.8,
-  streak: 0.6,
+  expose: 0.25,
+  streak: 0.45,
 };
 
 /** A birch's stem, nearly white (IMG_1586/1587), and its dark marks. */
@@ -373,9 +373,9 @@ void main() {
   float dEye = c0.w;
   if (uLod > 0.0 && dEye > uLod && fract(aSeed * 91.7) > (uLod / dEye) * (uLod / dEye)) a = 0.0;
   a *= 1.0 - smoothstep(uReach * 0.55, uReach, dEye);
-  // (as wide as the dot was then, a little narrower towards the oldest)
+  // (a little wider than the dot was then — a blur, not a thread — narrowing towards the oldest)
   float sv = fract(aSeed * 53.1);
-  float px = uSize * mix(1.0, 0.55 + 1.5 * sv * sv, uSizeVar) * (1.0 - 0.55 * k) * (1.0 - 0.4 * along);
+  float px = 1.4 * uSize * mix(1.0, 0.55 + 1.5 * sv * sv, uSizeVar) * (1.0 - 0.55 * k) * (1.0 - 0.4 * along);
   vA = a;
   vSide = side;
   vCol = mix(aCol, aBloom * (1.0 + 0.4 * uBloom), uBloom * smoothstep(0.0, 0.3, k));
