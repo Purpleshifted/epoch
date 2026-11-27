@@ -61,7 +61,7 @@ export interface ResidueLook {
   rise: number;
 }
 
-export const DEFAULT_RESIDUE: ResidueLook = { on: false, gateR: 12, find: 0.6, spread: 5, develop: 1.2, life: 0, dot: 2, colour: "#ffffff", concrete: 0.7, plantDensity: 14, scatter: 2.5, scatterDist: 5, stagger: 1.2, rise: 1.2 };
+export const DEFAULT_RESIDUE: ResidueLook = { on: false, gateR: 12, find: 0.6, spread: 5, develop: 1.2, life: 0, dot: 2, colour: "#ffffff", concrete: 0.7, plantDensity: 8, scatter: 2.5, scatterDist: 5, stagger: 1.2, rise: 1.2 };
 
 /** Set by the scan (future) knobs (labKnobsScanFuture.ts), read per frame here. */
 export const residueLook: ResidueLook = { ...DEFAULT_RESIDUE };
@@ -137,6 +137,7 @@ uniform float uDist;
 uniform float uRise;
 uniform float uSize;
 uniform float uRange;
+uniform float uLod;
 uniform vec3 uC0;
 uniform vec3 uC1;
 uniform vec3 uC2;
@@ -157,7 +158,12 @@ void main() {
     a = age < 0.0 ? 0.0 : 1.0;
     // developing: first as the scan saw it there (the lidar's colour by range from the eye), then pale — what is left
     vec4 mv0 = modelViewMatrix * vec4(p, 1.0);
-    vec3 seen = ramp(clamp(-mv0.z / uRange, 0.0, 1.0) * 3.0);
+    float dEye = -mv0.z;
+    vec3 seen = ramp(clamp(dEye / uRange, 0.0, 1.0) * 3.0);
+    // far off, as sparse as the lidar's own far readings (kept with the chance (lod/d)²), and gone at the scanner's
+    // reach — the far plants had piled into one green band along the horizon
+    if (uLod > 0.0 && dEye > uLod && fract(aSeed * 91.7) > (uLod / dEye) * (uLod / dEye)) a = 0.0;
+    a *= 1.0 - smoothstep(uRange * 0.7, uRange, dEye);
     col = mix(seen, aCol, uDevelop > 0.0 ? smoothstep(0.0, uDevelop, age) : 1.0);
     if (uLife > 0.0) a *= 1.0 - smoothstep(uLife * 0.7, uLife, age);
     // (gone from the future's reading: it fades in a second rather than popping)
@@ -228,6 +234,7 @@ function makePoints(): THREE.Points {
       uRise: { value: 1.2 },
       uSize: { value: 2 },
       uRange: { value: 22 },
+      uLod: { value: 12 },
       uC0: { value: new THREE.Color("#5ff0c8") },
       uC1: { value: new THREE.Color("#c6f06a") },
       uC2: { value: new THREE.Color("#ffb86b") },
@@ -628,6 +635,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     u.uRise.value = L.rise;
     u.uSize.value = L.dot * state.viewport.dpr;
     u.uRange.value = lidarLook.range;
+    u.uLod.value = lidarLook.lod;
     (u.uC0.value as THREE.Color).set(lidarLook.c0);
     (u.uC1.value as THREE.Color).set(lidarLook.c1);
     (u.uC2.value as THREE.Color).set(lidarLook.c2);

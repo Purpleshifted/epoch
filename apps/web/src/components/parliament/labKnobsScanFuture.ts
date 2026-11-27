@@ -38,7 +38,7 @@ export function useScanFutureKnobs(isV2: boolean) {
           resDot: { value: 2, min: 0.5, max: 6, step: 0.1, label: "점 크기 (px)" },
           resColour: { value: "#ffffff", label: "남은 부재의 색" },
           resConcrete: { value: 0.7, min: 0, max: 1, step: 0.05, label: "콘크리트 밝기 (철골·말뚝 = 1)" },
-          resPlantDensity: { value: 14, min: 0, max: 60, step: 1, label: "식생 점 밀도" },
+          resPlantDensity: { value: 8, min: 0, max: 60, step: 1, label: "식생 점 밀도" },
           resScatter: { value: 2.5, min: 0.3, max: 8, step: 0.1, label: "흩날리는 시간 (s)" },
           resScatterDist: { value: 5, min: 0, max: 20, step: 0.5, label: "흩날리는 거리 (월드)" },
           resStagger: { value: 1.2, min: 0, max: 4, step: 0.1, label: "흩날림 엇갈림 (s)" },
