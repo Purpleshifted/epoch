@@ -242,6 +242,15 @@ future 할 때 관찰자랑 연결 안 돼있지? 돼있다면 일단 디폴트�
   distance. Earlier layers and smears write no depth. Headless at her saved values: no errors, but no tree came into
   view from the headless spot — the crowns are for her to check.
 
+**Each kind's point count (90adb1b):** "각 레바별로 점 수나 밀도 정할 수 있게 해줘". Every kind's `· 점` folder has
+`점 수 (×)` (0 … 4, 1 = as before, 0 = none of that kind): under 1 a steady share is left out (the same points every
+rebuild), over 1 more are made the same way — 부재: the faces (× 겉면 점 밀도, futurePresence's per-part and per-reading
+caps raised with it), mounds and dark earth; 줄기: along each stem; 식생: leaf clumps in the crowns and points in the
+meadows. The absolute knobs moved beside it, keys and saves kept: `겉면 점 밀도` (from 미래 읽기) in 부재 · 점,
+`풀숲 점 밀도` and `나무 수관 풍성함` in 식생 · 점 (the stem's count still follows 수관 풍성함 too). The stem is now drawn
+whenever a tree has a crown. Pool 200k points; an earlier layer over 40k takes an even share of every kind.
+`window.__residue` counts part / leaf / stem. Not seen on screen by me (load 8, build check only).
+
 **Status (2026-11-23): PAUSED by the coordinator (machine overloaded) after the reference study; nothing built, no
 question put to the artist yet.** Code untouched (`FuturePresence.tsx`, `futurePresence.ts`, `labKnobsScanFuture.ts` =
 HEAD). Resume = put the three directions below to her and build her pick.
