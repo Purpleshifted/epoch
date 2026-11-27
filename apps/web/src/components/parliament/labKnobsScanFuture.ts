@@ -11,7 +11,13 @@ import { savable } from "./levaSave";
 import { LAB_GROUP, labLists } from "./mobileLab";
 import { DEFAULT_PRESENCE } from "@/lib/parliament/futurePresence";
 import type { PresenceMode } from "./FuturePresence";
-import { setResidueLook } from "./FutureResidue";
+import { setResidueLook, type ResiduePalette } from "./FutureResidue";
+
+const RESIDUE_PALETTES: Record<string, ResiduePalette> = {
+  "정원 — IMG_1586 (옅은 밤의 정원)": "garden",
+  "밤 숲 — IMG_1587 (짙은 초록, 양귀비)": "night",
+  "초록 하나 (이전, 식생 색)": "green",
+};
 
 const PLACE_GROUP = LAB_GROUP["scan-future"];
 const PLACE_MODES: Record<string, PresenceMode> = {
@@ -39,6 +45,14 @@ export function useScanFutureKnobs(isV2: boolean) {
           resColour: { value: "#ffffff", label: "남은 부재의 색" },
           resConcrete: { value: 0.7, min: 0, max: 1, step: 0.05, label: "콘크리트 밝기 (철골·말뚝 = 1)" },
           resPlantDensity: { value: 8, min: 0, max: 60, step: 1, label: "식생 점 밀도" },
+          // (A + C, the artist 2026-11-27: "미래 색을 좀 더 꿈처럼 다채롭게")
+          resPalette: { options: RESIDUE_PALETTES, value: "garden" as ResiduePalette, label: "식생 팔레트" },
+          resSat: { value: 1, min: 0, max: 1.8, step: 0.05, label: "식생 채도" },
+          resFlower: { value: 0.5, min: 0, max: 1, step: 0.05, label: "꽃 비율" },
+          resSizeVar: { value: 0.6, min: 0, max: 1, step: 0.05, label: "점 크기 편차" },
+          resSoft: { value: 0.6, min: 0, max: 1, step: 0.05, label: "점 부드러움 (0 = 현재처럼 또렷)" },
+          resGlow: { value: true, label: "겹치면 밝아짐" },
+          resBloom: { value: 0.8, min: 0, max: 1, step: 0.05, label: "흩날릴 때 피는 색" },
           resScatter: { value: 2.5, min: 0.3, max: 8, step: 0.1, label: "흩날리는 시간 (s)" },
           resScatterDist: { value: 5, min: 0, max: 20, step: 0.5, label: "흩날리는 거리 (월드)" },
           resStagger: { value: 1.2, min: 0, max: 4, step: 0.1, label: "흩날림 엇갈림 (s)" },
@@ -90,6 +104,13 @@ export function useScanFutureKnobs(isV2: boolean) {
     colour: v.resColour,
     concrete: v.resConcrete,
     plantDensity: v.resPlantDensity,
+    palette: v.resPalette as ResiduePalette,
+    sat: v.resSat,
+    flower: v.resFlower,
+    sizeVar: v.resSizeVar,
+    soft: v.resSoft,
+    glow: v.resGlow,
+    bloom: v.resBloom,
     scatter: v.resScatter,
     scatterDist: v.resScatterDist,
     stagger: v.resStagger,

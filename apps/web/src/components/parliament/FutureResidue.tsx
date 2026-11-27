@@ -54,6 +54,19 @@ export interface ResidueLook {
   concrete: number;
   /** Points of a plant cloud per square world unit of its ground. */
   plantDensity: number;
+  /** THE DREAM'S COLOURS (the artist, 2026-11-27: "미래 색을 좀 더 꿈처럼 다채롭게" → A + C): the plants as the night
+   *  gardens of IMG_1586/1587 — each cloud and tree its own colour family, flowers as bright accents — while what is left
+   *  stays pale; `sat` their saturation, `flower` how many of a meadow's points flower. */
+  palette: ResiduePalette;
+  sat: number;
+  flower: number;
+  /** The points' grain, apart from the present's crisp even dots: their sizes spread (0 = even), their edge soft
+   *  (0 = crisp … 1 = a soft round glow), and where they overlap they add up to light. */
+  sizeVar: number;
+  soft: number;
+  glow: boolean;
+  /** C: blowing away, they take a petal's or a pollen's colour (0 = none … 1). */
+  bloom: number;
   /** The blowing away: its time (s), how far (world), how far apart the points start (s), how much they rise (world). */
   scatter: number;
   scatterDist: number;
@@ -61,7 +74,18 @@ export interface ResidueLook {
   rise: number;
 }
 
-export const DEFAULT_RESIDUE: ResidueLook = { on: false, gateR: 12, find: 0.6, spread: 5, develop: 1.2, life: 0, dot: 2, colour: "#ffffff", concrete: 0.7, plantDensity: 8, scatter: 2.5, scatterDist: 5, stagger: 1.2, rise: 1.2 };
+export const DEFAULT_RESIDUE: ResidueLook = { on: false, gateR: 12, find: 0.6, spread: 5, develop: 1.2, life: 0, dot: 2, colour: "#ffffff", concrete: 0.7, plantDensity: 8, palette: "garden", sat: 1, flower: 0.5, sizeVar: 0.6, soft: 0.6, glow: true, bloom: 0.8, scatter: 2.5, scatterDist: 5, stagger: 1.2, rise: 1.2 };
+
+export type ResiduePalette = "garden" | "night" | "green";
+/** The plants' colour families and their flowers, read off the references: IMG_1586 (sage, olive, lavender, dusty pink,
+ *  coral, butter — a pale night garden) and IMG_1587 (deep greens, moss, poppies, delphiniums, peach — a darker one).
+ *  "green" = the old single green (the 식생 색 knob, darker and lighter). */
+const PALETTES: Record<Exclude<ResiduePalette, "green">, { leaves: string[]; flowers: string[] }> = {
+  garden: { leaves: ["#8fb39a", "#b9b65e", "#a294d6", "#7fa58a", "#c8c97a", "#9fc3b0"], flowers: ["#f07a86", "#e3a0b6", "#f2d572", "#ff5fa2", "#b08ce0"] },
+  night: { leaves: ["#3f6f4a", "#6f9a5e", "#a8c48a", "#7d8f6a", "#5a7f6f", "#c0b090"], flowers: ["#ff6a3d", "#6c63e0", "#ffb38a", "#ff4f6d", "#f5e06a"] },
+};
+/** A birch's stem, nearly white (IMG_1586/1587). */
+const STEM = "#e8e4dc";
 
 /** Set by the scan (future) knobs (labKnobsScanFuture.ts), read per frame here. */
 export const residueLook: ResidueLook = { ...DEFAULT_RESIDUE };
@@ -115,6 +139,8 @@ interface Pool {
   n: number;
   pos: Float32Array;
   col: Float32Array;
+  /** The colour a point takes as it blows away (C). */
+  bloom: Float32Array;
   seed: Float32Array;
   parts: { key: string; i0: number; i1: number; box: [number, number, number, number, number, number] }[];
   grid: Map<number, number[]>;
@@ -122,6 +148,7 @@ interface Pool {
 
 const VERT = /* glsl */ `
 attribute vec3 aCol;
+attribute vec3 aBloom;
 attribute float aFound;
 attribute float aDelay;
 attribute float aRel;
@@ -138,6 +165,8 @@ uniform float uRise;
 uniform float uSize;
 uniform float uRange;
 uniform float uLod;
+uniform float uSizeVar;
+uniform float uBloom;
 uniform vec3 uC0;
 uniform vec3 uC1;
 uniform vec3 uC2;
@@ -151,7 +180,9 @@ vec3 ramp(float t) {
 void main() {
   vec3 p = position;
   float a = 0.0;
-  float px = uSize;
+  // (sizes spread, unlike the present's even dots: most small, a few large)
+  float sv = fract(aSeed * 53.1);
+  float px = uSize * mix(1.0, 0.55 + 1.5 * sv * sv, uSizeVar);
   vec3 col = aCol;
   if (aFound > 0.0) {
     float age = uTime - (aFound + aDelay);
@@ -181,7 +212,11 @@ void main() {
         float sw = sin(rt * 3.1 + aSeed * 40.0) * 0.25 * k;
         p += vec3(d.x * s - d.y * sw, uRise * k * (0.5 + fract(aSeed * 5.3)), d.y * s + d.x * sw);
         a *= 1.0 - smoothstep(0.3, 1.0, k);
-        px *= 1.0 - 0.55 * k;
+        // C: as it leaves it blooms — a petal's colour for a plant, a pale pollen for what is left — swelling a
+        // little at first, then smaller as it goes
+        float bl = uBloom * smoothstep(0.0, 0.3, k);
+        col = mix(col, aBloom * (1.0 + 0.4 * uBloom), bl);
+        px *= (1.0 + 0.6 * uBloom * sin(3.14159 * min(1.0, k * 2.5))) * (1.0 - 0.55 * k);
       }
     }
   }
@@ -195,14 +230,16 @@ void main() {
 }`;
 
 const FRAG = /* glsl */ `
+uniform float uSoft;
 varying vec3 vCol;
 varying float vA;
 varying float vPx;
 void main() {
-  // a round dot with a one-pixel edge, as the lidar's
+  // a round dot: the lidar's one-pixel edge (soft 0) … a soft round glow falling off from its middle (soft 1)
   float r = length(gl_PointCoord * 2.0 - 1.0);
-  float edge = clamp((1.0 - r) * vPx * 0.5 + 0.5, 0.0, 1.0);
-  float a = vA * edge;
+  float crisp = clamp((1.0 - r) * vPx * 0.5 + 0.5, 0.0, 1.0);
+  float glow = exp(-r * r * 3.0) * (1.0 - smoothstep(0.8, 1.0, r));
+  float a = vA * mix(crisp, glow, uSoft);
   if (a <= 0.003) discard;
   gl_FragColor = vec4(vCol, a);
 }`;
@@ -216,6 +253,7 @@ function makePoints(): THREE.Points {
   };
   attr("position", 3);
   attr("aCol", 3);
+  attr("aBloom", 3);
   attr("aFound", 1);
   attr("aDelay", 1);
   attr("aRel", 1);
@@ -235,6 +273,9 @@ function makePoints(): THREE.Points {
       uSize: { value: 2 },
       uRange: { value: 22 },
       uLod: { value: 12 },
+      uSizeVar: { value: 0.6 },
+      uBloom: { value: 0.8 },
+      uSoft: { value: 0.6 },
       uC0: { value: new THREE.Color("#5ff0c8") },
       uC1: { value: new THREE.Color("#c6f06a") },
       uC2: { value: new THREE.Color("#ffb86b") },
@@ -253,10 +294,24 @@ function makePoints(): THREE.Points {
 
 /** The pool from one reading of the future: the parts' faces, the trees, the plant clouds, the mounds, the dark earth. */
 function buildPool(r: PresenceResult, unit: number, look: ResidueLook, plantHex: string): Pool {
-  const pos = new Float32Array(CAP * 3), col = new Float32Array(CAP * 3), seed = new Float32Array(CAP);
+  const pos = new Float32Array(CAP * 3), col = new Float32Array(CAP * 3), bloom = new Float32Array(CAP * 3), seed = new Float32Array(CAP);
   const parts: Pool["parts"] = [];
   let n = 0;
-  const white = new THREE.Color(look.colour), green = new THREE.Color(plantHex);
+  const white = new THREE.Color(look.colour), stem = new THREE.Color(STEM);
+  // the plants' families and flowers (A), saturated by `sat` (around their own lightness)
+  const satd = (hex: string, mul = 1) => {
+    const c = new THREE.Color(hex).multiplyScalar(mul);
+    const l = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b, s = Math.max(0, look.sat);
+    return c.setRGB(l + (c.r - l) * s, l + (c.g - l) * s, l + (c.b - l) * s);
+  };
+  const pal = look.palette === "green" ? { leaves: [plantHex, plantHex, plantHex], flowers: [plantHex] } : PALETTES[look.palette] ?? PALETTES.garden;
+  const leaves = look.palette === "green" ? [satd(plantHex, 0.55), satd(plantHex), satd(plantHex, 1.3)] : pal.leaves.map((h) => satd(h));
+  const flowers = look.palette === "green" ? [satd(plantHex, 1.5)] : pal.flowers.map((h) => satd(h));
+  // (C: what each point turns as it blows away — a petal's colour for the plants, a pale pollen of the whole palette
+  // for what is left)
+  const petals = flowers, pollen = [...flowers, ...leaves].map((c) => c.clone().lerp(new THREE.Color(1, 1, 1), 0.35));
+  const pick = <T,>(list: T[], u: number): T => list[Math.min(list.length - 1, Math.floor(u * list.length))];
+  const tmp = new THREE.Color();
   let part: Pool["parts"][number] | null = null;
   const open = (tag: string) => {
     part = { key: tag, i0: n, i1: n, box: [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity] };
@@ -270,7 +325,7 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook, plantHex:
     p.key = `${p.key}:${Math.round(b[0] * 100)},${Math.round(b[1] * 100)},${Math.round(b[2] * 100)},${Math.round(b[3] * 100)},${Math.round(b[4] * 100)},${Math.round(b[5] * 100)}`;
     parts.push(p);
   };
-  const add = (x: number, y: number, z: number, c: THREE.Color, k: number, s: number): boolean => {
+  const add = (x: number, y: number, z: number, c: THREE.Color, k: number, s: number, bc: THREE.Color): boolean => {
     if (n >= CAP || !part) return false;
     const p = part as Pool["parts"][number];
     pos[n * 3] = x;
@@ -279,6 +334,9 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook, plantHex:
     col[n * 3] = c.r * k;
     col[n * 3 + 1] = c.g * k;
     col[n * 3 + 2] = c.b * k;
+    bloom[n * 3] = bc.r;
+    bloom[n * 3 + 1] = bc.g;
+    bloom[n * 3 + 2] = bc.b;
     seed[n] = s;
     const b = p.box;
     if (x < b[0]) b[0] = x;
@@ -300,7 +358,7 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook, plantHex:
       open("p");
     }
     const k = (r.partSteel[cur] ? 1 : look.concrete) * (0.82 + 0.36 * hash(i, cur, 31));
-    add(S[o], S[o + 1], S[o + 2], white, k, hash(i, cur, 37));
+    add(S[o], S[o + 1], S[o + 2], white, k, hash(i, cur, 37), pick(pollen, hash(i, cur, 41)));
   }
   close();
   // THE TREES: their points, one part a cell
@@ -312,9 +370,16 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook, plantHex:
     if (l) l.push(o);
     else trees.set(q, [o]);
   }
-  for (const list of trees.values()) {
+  for (const [q, list] of trees) {
+    // (a tree its own family: the crown in it, the stem a birch's near-white)
+    const crown = pick(leaves, hash(q, 17, 3)), alt = pick(leaves, hash(q, 19, 5));
     open("t");
-    for (const o of list) add(T[o], T[o + 1] * unit, T[o + 2], green, 0.6 + 0.8 * T[o + 3], hash(Math.round(T[o] * 97), Math.round(T[o + 2] * 89), o));
+    for (const o of list) {
+      const s = hash(Math.round(T[o] * 97), Math.round(T[o + 2] * 89), o);
+      const isStem = T[o + 3] < 0.2;
+      const c = isStem ? stem : tmp.copy(crown).lerp(alt, 0.35 * hash(o, q, 7));
+      add(T[o], T[o + 1] * unit, T[o + 2], c, isStem ? 0.85 : 0.75 + 0.6 * T[o + 3], s, pick(petals, hash(o, q, 9)));
+    }
     close();
   }
   // THE PLANT CLOUDS (grass and scrub: x, z, foot, radius, height …): points in a low dome over their ground
@@ -323,11 +388,15 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook, plantHex:
     const x = PC[o], z = PC[o + 1], foot = PC[o + 2] * unit, R = Math.max(0.05, PC[o + 3]), H = PC[o + 4] * unit;
     const cnt = Math.max(4, Math.min(80, Math.round(Math.PI * R * R * look.plantDensity)));
     const sx = Math.round(x * 100), sz = Math.round(z * 100);
+    // (a cloud its own family, a little of a neighbour's in it; a meadow flowers by its own share — PC[o + 6] — × 꽃)
+    const fam = pick(leaves, hash(sx, sz, 97)), nb = pick(leaves, hash(sz, sx, 101)), fl = Math.min(1, PC[o + 6] * look.flower * 1.6);
     open("g");
     for (let i = 0; i < cnt; i++) {
       const a = hash(sx, sz, i * 3 + 1) * Math.PI * 2, rr = R * Math.sqrt(hash(sx, sz, i * 3 + 2));
       const y = foot + 0.02 + H * (1 - (rr / R) * (rr / R)) * (0.3 + 0.7 * hash(sx, sz, i * 3 + 3));
-      add(x + Math.cos(a) * rr, y, z + Math.sin(a) * rr, green, 0.75 + 0.5 * hash(sz, sx, i), hash(sx, i, sz));
+      const flowering = hash(sx, sz, i * 7 + 5) < fl;
+      const c = flowering ? pick(flowers, hash(sx, i, 103)) : tmp.copy(fam).lerp(nb, 0.3 * hash(sz, i, 107));
+      add(x + Math.cos(a) * rr, y, z + Math.sin(a) * rr, c, flowering ? 1.1 : 0.75 + 0.5 * hash(sz, sx, i), hash(sx, i, sz), pick(petals, hash(i, sz, 109)));
     }
     close();
   }
@@ -339,7 +408,7 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook, plantHex:
     open("m");
     for (let i = 0; i < cnt; i++) {
       const u1 = hash(sd, i, 1), th = hash(sd, i, 2) * Math.PI * 2, rr = R * Math.sqrt(u1);
-      add(x + Math.cos(th) * rr, 0.02 + H * (1 - u1), z + Math.sin(th) * rr, white, 0.75 + 0.2 * hash(sd, i, 3), hash(sd, i, 4));
+      add(x + Math.cos(th) * rr, 0.02 + H * (1 - u1), z + Math.sin(th) * rr, white, 0.75 + 0.2 * hash(sd, i, 3), hash(sd, i, 4), pick(pollen, hash(sd, i, 8)));
     }
     close();
   }
@@ -350,7 +419,7 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook, plantHex:
     open("e");
     for (let i = 0; i < cnt; i++) {
       const th = hash(sd, i, 5) * Math.PI * 2, rr = CELL_SIZE * 0.4 * Math.sqrt(hash(sd, i, 6));
-      add(x + Math.cos(th) * rr, 0.02, z + Math.sin(th) * rr, white, 0.4, hash(sd, i, 7));
+      add(x + Math.cos(th) * rr, 0.02, z + Math.sin(th) * rr, white, 0.4, hash(sd, i, 7), pick(pollen, hash(sd, i, 9)));
     }
     close();
   }
@@ -367,7 +436,7 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook, plantHex:
         else grid.set(q, [i]);
       }
   });
-  return { n, pos, col, seed, parts, grid };
+  return { n, pos, col, bloom, seed, parts, grid };
 }
 
 export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getWorldSec, getLive, cfg }: { log: EventLog; meRef: React.MutableRefObject<{ id: string }>; getS: () => number; playerPosRef: React.MutableRefObject<{ x: number; z: number }>; getEpochMs: () => number; getWorldSec: () => number; getLive: () => boolean; cfg: FuturePresenceVisual }) {
@@ -516,6 +585,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
           const i0 = pool.n;
           pool.pos.set(old.pos.subarray(p.i0 * 3, p.i1 * 3), i0 * 3);
           pool.col.set(old.col.subarray(p.i0 * 3, p.i1 * 3), i0 * 3);
+          pool.bloom.set(old.bloom.subarray(p.i0 * 3, p.i1 * 3), i0 * 3);
           pool.seed.set(old.seed.subarray(p.i0, p.i1), i0);
           pool.n += p.i1 - p.i0;
           pool.parts.push({ key: p.key, i0, i1: pool.n, box: p.box });
@@ -529,6 +599,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       const fPos = A("position").array as Float32Array, fCol = A("aCol").array as Float32Array, fSeed = A("aSeed").array as Float32Array, fDie = A("aDie").array as Float32Array;
       fPos.set(pool.pos.subarray(0, pool.n * 3));
       fCol.set(pool.col.subarray(0, pool.n * 3));
+      (A("aBloom").array as Float32Array).set(pool.bloom.subarray(0, pool.n * 3));
       fSeed.set(pool.seed.subarray(0, pool.n));
       for (const p of pool.parts) {
         const ps = s.states.get(p.key);
@@ -550,7 +621,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       }
       // (the buckets were made from the new parts only; the carried ones cannot be found again)
       s.pool = pool;
-      for (const at of ["position", "aCol", "aSeed", "aDie", "aFound", "aDelay", "aRel", "aDir"]) {
+      for (const at of ["position", "aCol", "aBloom", "aSeed", "aDie", "aFound", "aDelay", "aRel", "aDir"]) {
         const a = A(at);
         a.clearUpdateRanges();
         a.addUpdateRange(0, pool.n * a.itemSize);
@@ -633,9 +704,20 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     u.uStagger.value = L.stagger;
     u.uDist.value = L.scatterDist;
     u.uRise.value = L.rise;
-    u.uSize.value = L.dot * state.viewport.dpr;
     u.uRange.value = lidarLook.range;
     u.uLod.value = lidarLook.lod;
+    u.uSizeVar.value = L.sizeVar;
+    u.uBloom.value = L.bloom;
+    u.uSoft.value = L.soft;
+    // (where they overlap they add up to light — on the black, as many small lights do; a soft dot is larger, so a
+    // little bigger on screen to keep its weight)
+    const M = P.material as THREE.ShaderMaterial, blend = L.glow ? THREE.AdditiveBlending : THREE.NormalBlending;
+    if (M.blending !== blend) {
+      M.blending = blend;
+      M.depthWrite = !L.glow;
+      M.needsUpdate = true;
+    }
+    u.uSize.value = L.dot * state.viewport.dpr * (1 + 0.6 * L.soft);
     (u.uC0.value as THREE.Color).set(lidarLook.c0);
     (u.uC1.value as THREE.Color).set(lidarLook.c1);
     (u.uC2.value as THREE.Color).set(lidarLook.c2);
