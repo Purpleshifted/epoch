@@ -13,6 +13,7 @@ import { LAB_GROUP, labLists } from "./mobileLab";
 import { DEFAULT_PRESENCE } from "@/lib/parliament/futurePresence";
 import type { PresenceMode } from "./FuturePresence";
 import { COLOUR_PROFILES, DEFAULT_RESIDUE, RESIDUE_PRESETS, residueTiming, setResidueLook, type ResidueShowWhen } from "./FutureResidue";
+// (each kind's folders: · 점, · 거리 (its own far and near — futureLayer.ts), · 나타남, · 장노출 · 글리치, · 흩날림)
 
 /** The three kinds' everything as it starts (FutureResidue.tsx DEFAULT_RESIDUE): parts, plants, stems. */
 const K = DEFAULT_RESIDUE.kinds;
@@ -113,6 +114,19 @@ export function useScanFutureKnobs(isV2: boolean) {
             },
             { collapsed: true },
           ),
+          // (the artist, 2026-11-27: "미래랑 현재는 거리 따라 lod/흐림/뭉침 적용하는 정도 따로": the future's own — the
+          // present's are scan (present)'s 먼 점 뭉치기 and the photograph's softening)
+          "건물 부재 (둔덕 · 흙 포함) · 거리 (멀리 성김 · 뭉침 · 흐림)": folder(
+            {
+              kpFar: { value: K.part.far, min: 0, max: 40, step: 0.5, label: "멀리 — 시작 거리 (월드; 0 = 끔)" },
+              kpThinD: { value: K.part.thinD, min: 0, max: 3, step: 0.05, label: "멀리 성기게 — 정도 (0 = 그대로, 1 = 현재처럼)" },
+              kpClump: { value: K.part.clump, min: 0, max: 2, step: 0.05, label: "멀리 뭉치기 (점 커짐) — 정도 (0 = 그대로, 1 = 현재처럼)" },
+              kpFocus: { value: K.part.focus, min: 0.5, max: 30, step: 0.5, label: "흐림 — 또렷한 거리 (월드)" },
+              kpBlurN: { value: K.part.blurN, min: 0, max: 2, step: 0.05, label: "흐림 — 가까이 (눈앞에서; 0 = 없음)" },
+              kpBlurF: { value: K.part.blurF, min: 0, max: 2, step: 0.05, label: "흐림 — 멀리 (보이는 거리 끝에서; 0 = 없음)" },
+            },
+            { collapsed: true },
+          ),
           "건물 부재 (둔덕 · 흙 포함) · 나타남": folder(
             {
               kpSpread: { value: K.part.spread, min: 0.5, max: 30, step: 0.5, label: "찾은 자리에서 번지는 속도 (월드/s)" },
@@ -157,6 +171,19 @@ export function useScanFutureKnobs(isV2: boolean) {
               ksSizeVar: { value: K.stem.sizeVar, min: 0, max: 1, step: 0.05, label: "점 크기 편차 (0 = 고르게)" },
               ksSoft: { value: K.stem.soft, min: 0, max: 1, step: 0.05, label: "점 부드러움 (0 = 또렷)" },
               ksDensity: { value: K.stem.density, min: 0, max: 4, step: 0.05, label: "점 수 (× — 1 = 지금, 0 = 없음)" },
+            },
+            { collapsed: true },
+          ),
+          // (the artist, 2026-11-27: "미래랑 현재는 거리 따라 lod/흐림/뭉침 적용하는 정도 따로": the future's own — the
+          // present's are scan (present)'s 먼 점 뭉치기 and the photograph's softening)
+          "줄기 · 거리 (멀리 성김 · 뭉침 · 흐림)": folder(
+            {
+              ksFar: { value: K.stem.far, min: 0, max: 40, step: 0.5, label: "멀리 — 시작 거리 (월드; 0 = 끔)" },
+              ksThinD: { value: K.stem.thinD, min: 0, max: 3, step: 0.05, label: "멀리 성기게 — 정도 (0 = 그대로, 1 = 현재처럼)" },
+              ksClump: { value: K.stem.clump, min: 0, max: 2, step: 0.05, label: "멀리 뭉치기 (점 커짐) — 정도 (0 = 그대로, 1 = 현재처럼)" },
+              ksFocus: { value: K.stem.focus, min: 0.5, max: 30, step: 0.5, label: "흐림 — 또렷한 거리 (월드)" },
+              ksBlurN: { value: K.stem.blurN, min: 0, max: 2, step: 0.05, label: "흐림 — 가까이 (눈앞에서; 0 = 없음)" },
+              ksBlurF: { value: K.stem.blurF, min: 0, max: 2, step: 0.05, label: "흐림 — 멀리 (보이는 거리 끝에서; 0 = 없음)" },
             },
             { collapsed: true },
           ),
@@ -253,6 +280,19 @@ export function useScanFutureKnobs(isV2: boolean) {
             },
             { collapsed: true },
           ),
+          // (the artist, 2026-11-27: "미래랑 현재는 거리 따라 lod/흐림/뭉침 적용하는 정도 따로": the future's own — the
+          // present's are scan (present)'s 먼 점 뭉치기 and the photograph's softening)
+          "식생 (잎 · 풀 · 꽃) · 거리 (멀리 성김 · 뭉침 · 흐림)": folder(
+            {
+              klFar: { value: K.leaf.far, min: 0, max: 40, step: 0.5, label: "멀리 — 시작 거리 (월드; 0 = 끔)" },
+              klThinD: { value: K.leaf.thinD, min: 0, max: 3, step: 0.05, label: "멀리 성기게 — 정도 (0 = 그대로, 1 = 현재처럼)" },
+              klClump: { value: K.leaf.clump, min: 0, max: 2, step: 0.05, label: "멀리 뭉치기 (점 커짐) — 정도 (0 = 그대로, 1 = 현재처럼)" },
+              klFocus: { value: K.leaf.focus, min: 0.5, max: 30, step: 0.5, label: "흐림 — 또렷한 거리 (월드)" },
+              klBlurN: { value: K.leaf.blurN, min: 0, max: 2, step: 0.05, label: "흐림 — 가까이 (눈앞에서; 0 = 없음)" },
+              klBlurF: { value: K.leaf.blurF, min: 0, max: 2, step: 0.05, label: "흐림 — 멀리 (보이는 거리 끝에서; 0 = 없음)" },
+            },
+            { collapsed: true },
+          ),
           "식생 (잎 · 풀 · 꽃) · 나타남": folder(
             {
               klSpread: { value: K.leaf.spread, min: 0.5, max: 30, step: 0.5, label: "찾은 자리에서 번지는 속도 (월드/s)" },
@@ -345,9 +385,9 @@ export function useScanFutureKnobs(isV2: boolean) {
     plantContrast: v.resPlantContrast,
     // (each kind's own everything, its 점 수 included)
     kinds: {
-      part: { dot: v.kpDot, sizeVar: v.kpSizeVar, soft: v.kpSoft, density: v.kpDensity, spread: v.kpSpread, develop: v.kpDevelop, jitter: v.kpJitter, ghostAlpha: v.kpGhostAlpha, ghostLife: v.kpGhostLife, bleed: v.kpBleed, tear: v.kpTear, drip: v.kpDrip, block: v.kpBlock, thin: v.kpThin, blow: { time: v.kpBlowTime, dist: v.kpBlowDist, rise: v.kpBlowRise, turb: v.kpBlowTurb, bloom: v.kpBlowBloom }, smear: v.kpSmear, smearAlpha: v.kpSmearAlpha },
-      leaf: { dot: v.klDot, sizeVar: v.klSizeVar, soft: v.klSoft, density: v.klDensity, spread: v.klSpread, develop: v.klDevelop, jitter: v.klJitter, ghostAlpha: v.klGhostAlpha, ghostLife: v.klGhostLife, bleed: v.klBleed, tear: v.klTear, drip: v.klDrip, block: v.klBlock, thin: v.klThin, blow: { time: v.klBlowTime, dist: v.klBlowDist, rise: v.klBlowRise, turb: v.klBlowTurb, bloom: v.klBlowBloom }, smear: v.klSmear, smearAlpha: v.klSmearAlpha },
-      stem: { dot: v.ksDot, sizeVar: v.ksSizeVar, soft: v.ksSoft, density: v.ksDensity, spread: v.ksSpread, develop: v.ksDevelop, jitter: v.ksJitter, ghostAlpha: v.ksGhostAlpha, ghostLife: v.ksGhostLife, bleed: v.ksBleed, tear: v.ksTear, drip: v.ksDrip, block: v.ksBlock, thin: v.ksThin, blow: { time: v.ksBlowTime, dist: v.ksBlowDist, rise: v.ksBlowRise, turb: v.ksBlowTurb, bloom: v.ksBlowBloom }, smear: v.ksSmear, smearAlpha: v.ksSmearAlpha },
+      part: { dot: v.kpDot, sizeVar: v.kpSizeVar, soft: v.kpSoft, density: v.kpDensity, far: v.kpFar, thinD: v.kpThinD, clump: v.kpClump, focus: v.kpFocus, blurN: v.kpBlurN, blurF: v.kpBlurF, spread: v.kpSpread, develop: v.kpDevelop, jitter: v.kpJitter, ghostAlpha: v.kpGhostAlpha, ghostLife: v.kpGhostLife, bleed: v.kpBleed, tear: v.kpTear, drip: v.kpDrip, block: v.kpBlock, thin: v.kpThin, blow: { time: v.kpBlowTime, dist: v.kpBlowDist, rise: v.kpBlowRise, turb: v.kpBlowTurb, bloom: v.kpBlowBloom }, smear: v.kpSmear, smearAlpha: v.kpSmearAlpha },
+      leaf: { dot: v.klDot, sizeVar: v.klSizeVar, soft: v.klSoft, density: v.klDensity, far: v.klFar, thinD: v.klThinD, clump: v.klClump, focus: v.klFocus, blurN: v.klBlurN, blurF: v.klBlurF, spread: v.klSpread, develop: v.klDevelop, jitter: v.klJitter, ghostAlpha: v.klGhostAlpha, ghostLife: v.klGhostLife, bleed: v.klBleed, tear: v.klTear, drip: v.klDrip, block: v.klBlock, thin: v.klThin, blow: { time: v.klBlowTime, dist: v.klBlowDist, rise: v.klBlowRise, turb: v.klBlowTurb, bloom: v.klBlowBloom }, smear: v.klSmear, smearAlpha: v.klSmearAlpha },
+      stem: { dot: v.ksDot, sizeVar: v.ksSizeVar, soft: v.ksSoft, density: v.ksDensity, far: v.ksFar, thinD: v.ksThinD, clump: v.ksClump, focus: v.ksFocus, blurN: v.ksBlurN, blurF: v.ksBlurF, spread: v.ksSpread, develop: v.ksDevelop, jitter: v.ksJitter, ghostAlpha: v.ksGhostAlpha, ghostLife: v.ksGhostLife, bleed: v.ksBleed, tear: v.ksTear, drip: v.ksDrip, block: v.ksBlock, thin: v.ksThin, blow: { time: v.ksBlowTime, dist: v.ksBlowDist, rise: v.ksBlowRise, turb: v.ksBlowTurb, bloom: v.ksBlowBloom }, smear: v.ksSmear, smearAlpha: v.ksSmearAlpha },
     },
   });
 

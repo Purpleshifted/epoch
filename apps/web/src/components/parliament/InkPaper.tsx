@@ -21,6 +21,7 @@ import { LongExposure, setExposureWeight } from "./longExposure";
 import { EXPOSE_GLSL, EXPOSURE_LAYER } from "./paperLook";
 import { lidarActive } from "./LidarScan";
 import { PICTO_LAYER } from "./framePeople";
+import { FUTURE_LAYER, presentDepth } from "./futureLayer";
 export { EXPOSURE_LAYER };
 
 export interface InkPaperLook {
@@ -273,6 +274,25 @@ export function InkPaper({ look = DEFAULT_INK, fogFar }: { look?: InkPaperLook; 
     setUniforms(u, { uScene: sceneRT.texture, uNear: nB.texture, uWide: wB.texture, uFeed: exposure.texture, uFeedSoft: look.halo > 0 ? fB.texture : exposure.texture, uHalo: look.halo, uBurn: look.burn, uDepth: sceneRT.depthTexture, uCamNear: pc.near, uCamFar: pc.far, uFogFar: fogFar, uTime: state.clock.elapsedTime, uDensity: look.density, uFade: look.fade, uGrain: look.grain, uRolloff: look.rolloff, uSharp: lidarActive() ? 1 : 0 });
     gl.setRenderTarget(null);
     gl.render(quad.sCompose, quad.cam);
+    // 4b. the future's residue (FutureResidue, FUTURE_LAYER — only while the scan is the place): over the composed
+    // frame, not softened by depth with the present — its far and near are its own, in its shader (2026-11-27: "미래랑
+    // 현재는 거리 따라 lod/흐림/뭉침 적용하는 정도 따로"); behind the present where the scene's depth is nearer
+    if (lidarActive()) {
+      camera.layers.set(FUTURE_LAYER);
+      const bgF = scene.background;
+      setBackground(scene, null);
+      const autoF = gl.autoClear;
+      setAutoClear(gl, false);
+      presentDepth.uPresentDepth.value = sceneRT.depthTexture;
+      presentDepth.uPresentRes.value.set(w, h);
+      presentDepth.uOcclude.value = 1;
+      gl.render(scene, camera);
+      presentDepth.uOcclude.value = 0;
+      // (the pictograms find the depth as they did: clear)
+      gl.clearDepth();
+      setAutoClear(gl, autoF);
+      setBackground(scene, bgF);
+    }
     // 5. the pictograms (FramePeopleLayer, PICTO_LAYER): over the composed frame as they are drawn — not softened with
     // the scene, not exposed; their blur is their own (2026-11-24: "픽토그램에는 블러 적용 따로 되도록")
     camera.layers.set(PICTO_LAYER);
