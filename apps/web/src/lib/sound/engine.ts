@@ -18,10 +18,13 @@
  * models (magenta.ts) are loaded a few seconds after that and only used when they have answered.
  */
 
-import { chordName, magentaChordName, type WorldKey } from "./harmony";
+import { chordName, magentaChordName, type PlaceChord, type WorldKey } from "./harmony";
+import { stayingChord, walkingChord } from "./colour";
+import { apartShift, bassUnder, callsOn, endClosed, endOpen, interlock, landWith, octaveToward, placeApart, rotate, shiftNotes } from "./dialogue";
+import { wordMotifOf } from "@/lib/parliament/glyph";
 import { Magenta } from "./magenta";
-import { makeMotif, midiToHz, realize, type Motif } from "./motif";
-import { ARRIVAL_IDLE, barClock, lockOf, nextArrival, planBar, type ArrivalState, type BarPlan } from "./sequencer";
+import { midiToHz, realize, type Motif, type MotifNote } from "./motif";
+import { ARRIVAL_COOLDOWN, ARRIVAL_IDLE, barClock, lockOf, nextArrival, planBar, type ArrivalState, type BarPlan } from "./sequencer";
 import { bestKey, keyName, zoneChord, zoneOf } from "./tonality";
 import type { KnobSources } from "./noisecraftKnobs";
 import { applyOutput, makeLimiter, onOutputChange } from "./output";
@@ -138,6 +141,43 @@ export interface SoundParams {
    * name's voice — this times the level the name sounds at (1 = as loud as the name, 0 = not heard).
    */
   foundLevel: number;
+  /**
+   * ASKING AND ANSWERING AS COUNTERPOINT (§13d, the artist 2026-11-27; on the redesigned personal view only — useSound
+   * passes false elsewhere): while a question is open the asker calls one bar and leaves the next empty (its phrase ends
+   * open, an octave apart from mine), nobody else sings; my answer = my line closing on the tonic with theirs meshed into
+   * it a register away, then the new word in octaves in both voices — and from then on my motif IS that word.
+   */
+  askCounterpoint: boolean;
+  /**
+   * BUILDING TOGETHER AS AN ENSEMBLE (§13e, the artist 2026-11-27: "합주도 넣어보자"; the redesigned view only): while
+   * the record says 합주 (witness ensemble), my motif every bar and up to three of those building with me each a part —
+   * entering one bar after another (a canon half a bar late, a bass under all, an inner line), each in its own register,
+   * meshed into the others, landing together on an arrival's tonic; the rest keep quiet.
+   */
+  ensembleCounterpoint: boolean;
+  /**
+   * The hall and the pad while the ensemble plays (×, 1 = as when merely staying with someone — never less): the artist,
+   * 2026-11-27, first "같이 지으면 오히려 홀이랑 패드는 강해져야" (they had been made smaller), then "리버브 엄청 키울 필요
+   * 없는듯 … 줄이지만 않으면 돼" — so 1 by default, the knob for more (§13e).
+   */
+  ensembleSwell: number;
+  /**
+   * How much the lines of a dialogue or an ensemble keep out of each other's way (0 … 1): 1 = an octave apart and every
+   * shared step dodged; 0 = the same register, the same beats, whatever falls (the artist, 2026-11-27: "같은 음역대에 좀
+   * 겹치면 어때 꼭 대위적으로 서로 피해갈 이유는 없음"; §13d–e).
+   */
+  apartness: number;
+  /**
+   * MORE TURNS IN THE HARMONY (colour.ts, §13f — the artist, 2026-11-27: "화성이 좀 더 ... 진행이 다양했으면 좋겠고 (지금은
+   * 오묘한 구간은 없고 살짝 고조되다 금방 풀림)"; the redesigned view only): staying moves through a progression of the
+   * place's own that leaves the mode, walking bars are now and then suspended or opened, and an arrival builds longer
+   * (a pre-dominant, the dominant, sometimes a deceptive turn, then home).
+   */
+  harmonyTurns: boolean;
+  /** How much of the staying progression moves (0 = the place's chord held, as before; 1 = every step). */
+  turnAmount: number;
+  /** Which share of the walking bars is suspended or opened (sus4 · sus2 · add9). */
+  colourAmount: number;
   /** How much of my motif goes into the long open space (0..1): the signal sent out, its tail. */
   motifVerb: number;
   /** How much of the building's dullness the patch gets (0 = none, 1 = as everything else). */
@@ -217,6 +257,13 @@ export const DEFAULT_SOUND: SoundParams = {
   afterlifeTail: 5, // 10 before A5e: the artist found it too long
   afterglow: 0.12,
   foundLevel: 1,
+  askCounterpoint: true,
+  ensembleCounterpoint: true,
+  ensembleSwell: 1,
+  apartness: 0.3,
+  harmonyTurns: true,
+  turnAmount: 0.8,
+  colourAmount: 0.3,
   ncDull: 0.7,
   ncMap: true,
   ncMapDepth: 0.8,
@@ -245,6 +292,16 @@ const OTHER_FADE_SEC = 1.5;
 const ASKER_LEVEL = 2.2;
 /** My answer to a call: how loud it is said against my ordinary motif (the artist, 2026-11-10: it must leap out, to anyone). */
 const ANSWER_VEL = 2.2;
+/**
+ * The other line of a dialogue (askCounterpoint): as present as mine, wherever they stand — its level undoes the
+ * distance's fall-off (inverse, from 1.5) up to 4× and settles a little behind my own voice (§13d; 13 dB behind before).
+ */
+const PAIR_LEVEL = 0.9;
+/** A featured voice's head hop (hopOf): how long one hop lasts from its note (s) — a sixteenth at the 2 s bar. */
+const HOP_SEC = 0.24;
+/** The ensemble's parts: at most this many besides me, the nearest within this share of the hearing radius. */
+const ENSEMBLE_PARTS = 3;
+const ENSEMBLE_NEAR = 0.6;
 const MAGENTA_AFTER_MS = 4000;
 /** The others heard at once (nearest first): an HRTF panner per bot was what lagged with a dozen bots (v4 A1). */
 const MAX_VOICES = 4;
@@ -292,6 +349,8 @@ export interface SoundDebug {
   place: string;
   /** The found words' melodies so far (found()): how many have sounded, and the last one — whose, on which bar. */
   found: { played: number; last: string; waiting: string | null };
+  /** Asking and answering as counterpoint (§13d): the last bar it shaped — "부름 v_x @12", "빈 마디 v_x @13", "대답 v_x @14 → 새 어휘"; empty when none. */
+  dialogue: string;
 }
 
 export class SoundEngine {
@@ -382,6 +441,23 @@ export class SoundEngine {
   /** 1 right after an arrival's tonic, fading: the hall stays open a moment. */
   private arrivalGlow = 0;
   private arrivalAt = 0;
+  // ── asking and answering as counterpoint (§13d) ──
+  /** The open question: whose, and the bar its first call is on (bars from there: call, empty, call, …). */
+  private question: { id: string; fromBar: number } | null = null;
+  /** The answer's two bars (context seconds): my motif and the others keep quiet while it sounds. */
+  private answerQuiet: { from: number; to: number } | null = null;
+  /** The new word, my motif from the bar after the answer on (this life only). */
+  private nextMotif: { motif: Motif; at: number } | null = null;
+  /** Whom I answered, still the other line of the dialogue until then (level, no blur, HRTF). */
+  private partner: { id: string; until: number } | null = null;
+  private dialogueLine = "";
+  // ── the ensemble (§13e) ──
+  /** Who plays a part while the record says 합주 (update decides, tick plays): in order — canon, bass, inner line. */
+  private ensembleIds: string[] = [];
+  /** The ensemble's first bar and the bar each part entered on (one after another). */
+  private ens: { from: number; entries: Map<string, number> } | null = null;
+  /** The featured voices' note onsets (context s): the asker, whom I answer, the parts — the heads hop on them (hopOf). */
+  private featured = new Map<string, number[]>();
 
   get running(): boolean {
     return !!this.ctx && this.ctx.state === "running";
@@ -416,6 +492,7 @@ export class SoundEngine {
       nc: this.ncStatus + (this.nc ? " → engine" : ""),
       place: this.placeLine + (this.lastPlan?.arrival ? ` · 도착 ${this.lastPlan.arrival}` : ""),
       found: { played: this.foundPlayed, last: this.foundLast, waiting: this.foundWaiting?.id ?? null },
+      dialogue: this.dialogueLine,
     };
   }
 
@@ -513,10 +590,49 @@ export class SoundEngine {
     const ctx = this.ctx;
     if (!ctx || !this.running || !this.me || !this.key || this.params.dead || this.afterlife) return;
     const chord = this.plans.get(this.planned)?.chord ?? null;
-    const theirs = this.motifs.get(other) ?? makeMotif(other);
+    const theirs = this.motifOf(other);
     const cycleSec = (word.steps * stepMs) / 1000;
     const at0 = ctx.currentTime + Math.max(0, startPerfMs - performance.now()) / 1000;
     const their = this.voices.get(other);
+    if (this.params.askCounterpoint) {
+      // AS COUNTERPOINT (§13d): bar 1 — my line, closing on the tonic, and theirs an octave or more away, meshed into
+      // mine (their notes step aside from mine): plainly two. Bar 2 — the new word in both voices an octave apart, in
+      // one rhythm: plainly one. Then the new word is my motif; nothing else sings over these two bars.
+      const key = this.zoneKey ?? this.key;
+      // my register knob moves only what goes out as mine (note(…, mine)); their line, when they are within earshot,
+      // goes out through their own voice as it is — so the octaves are compared as heard
+      const T = this.params.motifTranspose;
+      const viaMe = !their;
+      const mineLine = endClosed(realize(this.me.motif, key, chord, 1, this.planned), key);
+      const raw = realize(theirs, key, chord, 1, this.planned);
+      // (how far apart they keep: the artist's 서로 피하는 정도 — an octave only when nearly on top of each other at 0.3)
+      const ap = this.params.apartness;
+      const shift = apartShift(mineLine, raw, viaMe ? 0 : T, 12 * ap);
+      const theirLine = interlock(mineLine, shiftNotes(raw, shift), 8, ap, this.planned);
+      const theirDest = their?.filt ?? this.me.filt;
+      for (const n of mineLine) this.note(this.me.filt, n.freq, at0 + n.at * cycleSec, n.len * cycleSec, ANSWER_VEL, this.me.motif.timbre, 0, true);
+      for (const n of theirLine) {
+        this.note(theirDest, n.freq, at0 + n.at * cycleSec, n.len * cycleSec, ANSWER_VEL, theirs.timbre, 0, viaMe);
+        this.feature(other, at0 + n.at * cycleSec);
+      }
+      const wordLine = realize(word, key, chord, 1, this.planned + 1);
+      const heard = (ns: readonly { pitch: number }[], k: number) => (ns.length ? ns.reduce((s, n) => s + n.pitch, 0) / ns.length + k : 60 + T);
+      const s = octaveToward(shiftNotes(wordLine, T), heard(theirLine, viaMe ? T : 0));
+      const octave = shiftNotes(wordLine, viaMe ? s : T + s);
+      const at1 = at0 + cycleSec;
+      for (const n of wordLine) this.note(this.me.filt, n.freq, at1 + n.at * cycleSec, n.len * cycleSec, ANSWER_VEL, this.me.motif.timbre, 0, true);
+      for (const n of octave) {
+        this.note(theirDest, n.freq, at1 + n.at * cycleSec, n.len * cycleSec, ANSWER_VEL * 0.8, theirs.timbre, 0, viaMe);
+        this.feature(other, at1 + n.at * cycleSec);
+      }
+      this.answerQuiet = { from: at0, to: at0 + 2 * cycleSec };
+      this.nextMotif = { motif: word, at: at0 + 2 * cycleSec };
+      this.partner = { id: other, until: at0 + 2 * cycleSec + 0.5 };
+      this.question = null;
+      this.dialogueLine = `대답 ${other} (${shift ? (shift > 0 ? "+" : "") + shift / 12 + "옥타브" : "제자리"}) → 새 어휘`;
+      this.answersPlayed++;
+      return;
+    }
     for (const n of realize(this.me.motif, this.key, chord, 1, this.planned)) this.note(this.me.filt, n.freq, at0 + n.at * cycleSec, n.len * cycleSec, ANSWER_VEL, this.me.motif.timbre, 0, true);
     for (const n of realize(theirs, this.key, chord, 1, this.planned)) this.note(their?.filt ?? this.me.filt, n.freq, at0 + n.at * cycleSec, n.len * cycleSec, ANSWER_VEL, theirs.timbre, 0, !their);
     for (const n of realize(word, this.key, chord, 1, this.planned + 1)) this.note(this.me.filt, n.freq, at0 + cycleSec + n.at * cycleSec, n.len * cycleSec, ANSWER_VEL, this.me.motif.timbre, 0, true);
@@ -589,7 +705,8 @@ export class SoundEngine {
     if (this.seenSlabs) for (const k of near) if (!this.seenSlabs.has(k)) born = true;
     this.seenSlabs = new Set(near);
     const together = this.forceTogether || (sig.coBuilders?.length ?? 0) > 0;
-    const step = nextArrival(this.arrivalState, bar, together, born && sig.stay > 0.5 && sig.neighbours.length > 0);
+    // (longer with more turns: a pre-dominant, the dominant, sometimes a deceptive turn, then home — §13f)
+    const step = nextArrival(this.arrivalState, bar, together, born && sig.stay > 0.5 && sig.neighbours.length > 0, ARRIVAL_COOLDOWN, p.harmonyTurns);
     if (this.forceTogether && step.phase === "dominant") this.forceTogether = false;
     this.arrivalState = step.state;
     const arrival = p.arrival ? step.phase : null;
@@ -602,6 +719,12 @@ export class SoundEngine {
       sig,
       key,
       place: this.placeFor(sig),
+      // (more turns, §13f: staying, the place's own progression — the place = its building's key or the world's band and
+      // its chord; walking, a suspension or an added ninth now and then; read after placeFor has set the zone's key)
+      colour: p.harmonyTurns
+        ? (c: PlaceChord) =>
+            sig.stay > 0.5 ? stayingChord(c, `${this.zoneKey ? keyName(this.zoneKey) : "w"}#${c.band}#${c.rootClass}`, bar, p.turnAmount) : walkingChord(c, bar, p.colourAmount)
+        : null,
       arrival,
       me: this.me.motif,
       others: this.motifs,
@@ -896,12 +1019,114 @@ export class SoundEngine {
     this.foundLast = `${id} @${bar}`;
   }
 
-  private motifOf(id: string): Motif {
-    let m = this.motifs.get(id);
-    if (!m) {
-      m = makeMotif(id);
-      this.motifs.set(id, m);
+  /** A featured voice's note at `at` (context s): its head hops on it (hopOf). Keeps the last two seconds, in order. */
+  private feature(id: string, at: number): void {
+    let a = this.featured.get(id);
+    if (!a) {
+      a = [];
+      this.featured.set(id, a);
     }
+    let i = a.length;
+    while (i > 0 && a[i - 1] > at) i--;
+    a.splice(i, 0, at);
+    const old = (this.ctx?.currentTime ?? 0) - 2;
+    while (a.length && a[0] < old) a.shift();
+  }
+
+  /**
+   * HOW HIGH A FEATURED VOICE'S HEAD IS NOW (the artist, 2026-11-27: "나한테 말 거는 애 머리 통통 튀게 … 블롭 창도 같이
+   * 커졌다 작아졌다"): 0 … 1, a bounce from each of its notes AS HEARD (the output's latency taken off) — up fast, down
+   * over HOP_SEC; 0 between notes and for every voice not featured (the asker, whom I answer, the ensemble's parts).
+   * null when the sound is not running: the picture keeps its own bar then (musicClock.ts voiceHop). Cheap: every frame.
+   */
+  hopOf(id: string): number | null {
+    const ctx = this.ctx;
+    if (!ctx || !this.timer || ctx.state !== "running") return null;
+    const a = this.featured.get(id);
+    if (!a || !a.length) return 0;
+    const lat = (ctx as AudioContext & { outputLatency?: number }).outputLatency || ctx.baseLatency || 0;
+    const t = ctx.currentTime - lat;
+    for (let i = a.length - 1; i >= 0; i--) {
+      const age = t - a[i];
+      if (age < 0) continue;
+      return age < HOP_SEC ? Math.sin(Math.PI * Math.sqrt(age / HOP_SEC)) : 0;
+    }
+    return 0;
+  }
+
+  /**
+   * One bar of THE ENSEMBLE (§13e) from `at`: my motif as the lead (every bar), then each part that has entered, by the
+   * order they entered in — the first its own melody half a bar late (a canon's entry), the second a bass under all
+   * (its first two notes on the 1 and the half bar), the third an inner line — each its own register (by octaves),
+   * the melodic parts meshed into my line (their notes step aside from mine); on an arrival's tonic every line's first
+   * note lands on the downbeat together. Through their own voices, unblurred; their heads hop on these notes.
+   * UNDER A DIALOGUE (`solo`: a question open, an answer sounding — the artist, 2026-11-27: "대화랑 합주 구분이 잘 안 됨"):
+   * the band plays on, softer, without the asker / whom I answer and without my line — their duet is the solo on top.
+   */
+  private playEnsemble(plan: BarPlan, at: number, barSec: number, bar: number, mineToo: boolean, solo: { without: (string | undefined)[] } | null): void {
+    const key = this.zoneKey ?? this.key;
+    const ens = this.ens;
+    if (!this.me || !key || !ens) return;
+    const tonic = plan.arrival === "tonic";
+    const lock = tonic ? 1 : Math.max(0.85, plan.lock);
+    const ap = this.params.apartness;
+    const vel = solo ? 0.5 : 0.9;
+    const mine = realize(this.me.motif, key, plan.chord, lock, bar);
+    if (mineToo && !solo) for (const n of mine) this.note(this.me.filt, n.freq, at + n.at * barSec, n.len * barSec, 1, this.me.motif.timbre, 0, true);
+    // (placed by the pitches heard: my register knob moves mine)
+    const heardMine = shiftNotes(mine, this.params.motifTranspose);
+    const lines: MotifNote[][] = [heardMine];
+    const live = this.ensembleIds
+      .filter((id) => (ens.entries.get(id) ?? Infinity) <= bar && this.voices.has(id) && !solo?.without.includes(id))
+      .sort((a, b) => ens.entries.get(a)! - ens.entries.get(b)! || (a < b ? -1 : 1));
+    live.forEach((id, i) => {
+      const v = this.voices.get(id)!;
+      const m = this.motifOf(id);
+      const raw = realize(m, key, plan.chord, lock, bar);
+      let line: MotifNote[];
+      if (i === 1) line = bassUnder(lines, raw);
+      else {
+        // (each its own register only as far as the artist's 서로 피하는 정도 asks — they may share one)
+        const l = i === 0 && !tonic ? rotate(raw) : raw;
+        const moved = shiftNotes(l, placeApart(lines, l, 9 * ap));
+        line = tonic ? landWith(heardMine, moved, 8, ap, bar * 7 + i) : interlock(heardMine, moved, 8, ap, bar * 7 + i);
+      }
+      for (const n of line) {
+        this.note(v.filt, n.freq, at + n.at * barSec, n.len * barSec, vel, m.timbre, 0);
+        this.feature(id, at + n.at * barSec);
+      }
+      lines.push(line);
+    });
+    const what = `합주 ${live.length + (solo ? 0 : 1)}성부${tonic ? " · 같이 착지" : ""}`;
+    this.dialogueLine = solo ? `${this.dialogueLine} · 밑에 ${what}` : `${what} @${bar}`;
+  }
+
+  /**
+   * The asker's CALL (§13d), one bar from `at`: the melody the record writes for this question (`word` — for a question
+   * asked again, theirs with mine in it, glyph.ts newWordMotifOf; null = their own) on the place's chord, ending OPEN above
+   * the note before it, an octave or more from where mine sits; through their voice, unblurred (update: the pair's level).
+   */
+  private playCall(id: string, word: Motif | null, plan: BarPlan, at: number, barSec: number, bar: number): void {
+    const v = this.voices.get(id);
+    const key = this.zoneKey ?? this.key;
+    if (!v || !this.me || !key) {
+      this.dialogueLine = `부름 ${id} @${bar} (목소리 없음)`;
+      return;
+    }
+    const m = word ?? v.motif;
+    const call = endOpen(realize(m, key, plan.chord, 1, bar), key);
+    const shift = apartShift(realize(this.me.motif, key, plan.chord, 1, bar), call, this.params.motifTranspose, 12 * this.params.apartness);
+    for (const n of shiftNotes(call, shift)) {
+      this.note(v.filt, n.freq, at + n.at * barSec, n.len * barSec, 1, m.timbre, 0);
+      this.feature(id, at + n.at * barSec);
+    }
+    this.dialogueLine = `부름 ${id} @${bar}${shift ? ` (${shift > 0 ? "+" : ""}${shift / 12}옥타브)` : ""}`;
+  }
+
+  /** A being's melody NOW (glyph.ts wordMotifOf): the word its newest answer gave, else its own — §13d "모두 반영". */
+  private motifOf(id: string): Motif {
+    const m = wordMotifOf(id);
+    this.motifs.set(id, m);
     return m;
   }
 
@@ -967,6 +1192,12 @@ export class SoundEngine {
 
     if (!this.me || this.me.motif.id !== myId) {
       if (this.me) this.dropVoice("me", this.me);
+      // a new life: its own motif again (a word an answer gave belonged to the last one), no question, no answer
+      this.question = null;
+      this.answerQuiet = null;
+      this.nextMotif = null;
+      this.partner = null;
+      this.dialogueLine = "";
       this.me = this.newVoice(myId, 0, false);
       this.me.gain.gain.setTargetAtTime(1, t, 0.5);
       this.me.gain.connect(this.echo.send);
@@ -1002,10 +1233,25 @@ export class SoundEngine {
     const company = Math.min(1, sig.neighbours.length / 2);
     // the arrival opens the hall at once and lets it close over ~6 s
     const glow = this.arrivalGlow * Math.exp(-(t - this.arrivalAt) / 6);
-    const hall = Math.max(params.reverbMax * sig.stay * company, params.reverbMax * params.arrivalHall * glow);
+    // THE ENSEMBLE (§13e): while the record says 합주, the nearest of those around me (who really build with me first)
+    // each take a part; the hall and the pad are never made smaller for it (the artist, 2026-11-27: "줄이지만 않으면 돼"),
+    // times ensembleSwell (1 = as when staying with someone)
+    if (params.ensembleCounterpoint && sig.ensemble) {
+      const near = sig.neighbours.filter((n) => n.dist <= params.hearRadius * ENSEMBLE_NEAR);
+      const co = sig.coBuilders ?? [];
+      const rank = (o: string) => (co.includes(o) ? co.indexOf(o) : co.length + 1);
+      this.ensembleIds = near
+        .slice()
+        .sort((a, b) => rank(a.o) - rank(b.o) || a.dist - b.dist)
+        .slice(0, ENSEMBLE_PARTS)
+        .map((n) => n.o);
+    } else this.ensembleIds = [];
+    const staying = params.reverbMax * sig.stay * company;
+    const hall = Math.max(this.ensembleIds.length ? staying * Math.max(1, params.ensembleSwell) : staying, params.reverbMax * params.arrivalHall * glow);
     this.rooms.hall.gain.setTargetAtTime(hall, t, glow > 0.3 ? 0.15 : 0.8);
-    this.rooms.concrete.gain.setTargetAtTime(0.35 * sig.sealed * (1 - hall), t, 0.4);
-    this.rooms.open.gain.setTargetAtTime(0.12 * (1 - sig.sealed) * (1 - hall), t, 0.4);
+    const dryRooms = 1 - Math.min(1, hall);
+    this.rooms.concrete.gain.setTargetAtTime(0.35 * sig.sealed * dryRooms, t, 0.4);
+    this.rooms.open.gain.setTargetAtTime(0.12 * (1 - sig.sealed) * dryRooms, t, 0.4);
 
     // who is within earshot: a voice each, the nearest MAX_VOICES only, with a level of detail in the panning
     // (v4 A1): the nearest one is placed by HRTF (a convolution per panner), the others by equal-power panning;
@@ -1015,6 +1261,15 @@ export class SoundEngine {
     // who speaks to me is always heard, however many are nearer
     const asking = sig.asker ? sig.neighbours.find((n) => n.o === sig.asker) : undefined;
     if (asking && !heard.includes(asking)) heard.push(asking);
+    // …and whom I am answering, until the answer has sounded (its notes go out through their voice) — §13d
+    const pairId = params.askCounterpoint && this.partner && t < this.partner.until ? this.partner.id : null;
+    const answering = pairId ? sig.neighbours.find((n) => n.o === pairId) : undefined;
+    if (answering && !heard.includes(answering)) heard.push(answering);
+    // …and the ensemble's parts (§13e)
+    for (const o of this.ensembleIds) {
+      const n = sig.neighbours.find((x) => x.o === o);
+      if (n && !heard.includes(n)) heard.push(n);
+    }
     heard.forEach((n, rank) => {
       alive.add(n.o);
       let v = this.voices.get(n.o);
@@ -1023,8 +1278,14 @@ export class SoundEngine {
         this.voices.set(n.o, v);
       }
       v.seen = t;
-      const calls = n.o === sig.asker;
-      v.level = calls ? params.othersLevel * ASKER_LEVEL : params.othersLevel;
+      // (their newest word once they have answered someone — learnt from the log, glyph.ts)
+      v.motif = this.motifOf(n.o);
+      // the other line of a dialogue (§13d): as present as mine wherever they stand — the distance's fall-off undone
+      // (an ensemble's part: as present, unblurred — but HRTF only by the nearest-first rule: a panner each is costly)
+      const part = this.ensembleIds.includes(n.o);
+      const pair = (params.askCounterpoint && (n.o === sig.asker || n.o === pairId)) || part;
+      const calls = n.o === sig.asker || (pair && !part);
+      v.level = pair ? PAIR_LEVEL * Math.min(4, Math.max(1, n.dist / 1.5)) : calls ? params.othersLevel * ASKER_LEVEL : params.othersLevel;
       v.gain.gain.setTargetAtTime(v.level, t, calls ? 0.1 : 0.4);
       if (v.panner) {
         // who speaks is placed by HRTF too (the artist, 2026-11-10: out of sight it could not be told where the call
@@ -1034,7 +1295,7 @@ export class SoundEngine {
         v.panner.positionX.setTargetAtTime(Math.sin(n.angle) * n.dist, t, 0.1);
         v.panner.positionZ.setTargetAtTime(Math.cos(n.angle) * n.dist, t, 0.1);
       }
-      v.filt.frequency.setTargetAtTime(v.blur > 0 && !calls ? 4000 * Math.pow(0.12, v.blur) : 4000, t, calls ? 0.05 : 0.3);
+      v.filt.frequency.setTargetAtTime(v.blur > 0 && !calls && !part ? 4000 * Math.pow(0.12, v.blur) : 4000, t, calls ? 0.05 : 0.3);
       const near = n.dist < params.hearRadius * 0.5;
       this.closeness.set(n.o, Math.max(0, Math.min(1, (this.closeness.get(n.o) ?? 0) + dt * (near ? 0.12 : -0.08))));
     });
@@ -1484,10 +1745,33 @@ export class SoundEngine {
     if (nextStart > now + LOOKAHEAD) return;
     this.planned = next;
 
+    // §13d: the new word an answer gave is my motif from the bar after the answer on (before this bar is planned)
+    if (this.nextMotif && nextStart >= this.nextMotif.at - barSec / 4) {
+      this.me.motif = this.nextMotif.motif;
+      this.nextMotif = null;
+    }
     const plan = this.planFor(next);
     if (!plan) return;
     const jitter = p.jitterMax * (1 - plan.lock);
     const human = () => (jitter > 0 ? (Math.random() * 2 - 1) * jitter : 0);
+
+    // ASKING AS COUNTERPOINT (§13d): an open question's bars from its first — the asker calls, then leaves a bar empty
+    // (the visitor's turn), and so on; nobody else's melody, mine included, sounds over either. An arrival's cadence keeps
+    // its bars. The answer's two bars (playAnswer) are its own: the ordinary melodies keep quiet under them too.
+    // (the answer's bars, edge to edge: the page's clock and the context's can differ by a few ms — a quarter bar of slack.
+    // While they sound the question is over, even if the record's close has not reached the signals yet.)
+    const slack = barSec / 4;
+    const quiet = !!this.answerQuiet && nextStart >= this.answerQuiet.from - slack && nextStart < this.answerQuiet.to - slack;
+    if (this.answerQuiet && nextStart >= this.answerQuiet.to - slack) this.answerQuiet = null;
+    const askId = p.askCounterpoint && !quiet ? sig.asker ?? null : null;
+    if (askId !== (this.question?.id ?? null)) this.question = askId ? { id: askId, fromBar: next } : null;
+    const q = this.question;
+    const k = q && !plan.arrival ? next - q.fromBar : -1;
+    const hush = k >= 0 || quiet;
+    if (q && k >= 0) {
+      if (callsOn(k)) this.playCall(q.id, sig.askerWord ?? null, plan, nextStart, barSec, next);
+      else this.dialogueLine = `빈 마디 ${q.id} @${next}`;
+    }
 
     // a found word takes this bar (found()): in my voice, so my motif keeps quiet; an arrival's two bars stay the
     // cadence's (the word waits for the bar after), and a word that has waited longer than a few bars is let go
@@ -1500,8 +1784,24 @@ export class SoundEngine {
       foundBar = true;
     }
 
-    if (!foundBar) for (const n of plan.me) this.note(this.me.filt, n.freq, nextStart + n.at * barSec + human(), n.len * barSec, 1, this.me.motif.timbre, 0, true);
-    for (const vb of plan.others) {
+    // THE ENSEMBLE (§13e): while the record says 합주 (really building together) — the parts enter one bar after another
+    // (in the order they joined), and the ordinary melodies keep quiet under them. A question or an answer in the middle
+    // of it is a SOLO over the band: the band plays on, softer, without the two who talk and without my line
+    const ensembleOn = this.ensembleIds.length > 0;
+    if (ensembleOn) {
+      if (!this.ens) this.ens = { from: next, entries: new Map() };
+      for (const id of this.ensembleIds) {
+        if (this.ens.entries.has(id)) continue;
+        let last = this.ens.from;
+        for (const b of this.ens.entries.values()) last = Math.max(last, b);
+        this.ens.entries.set(id, Math.max(next, last + 1));
+      }
+      const partnerNow = this.partner && now < this.partner.until ? this.partner.id : undefined;
+      this.playEnsemble(plan, nextStart, barSec, next, !foundBar, hush ? { without: [q?.id, partnerNow] } : null);
+    } else this.ens = null;
+
+    if (!foundBar && !hush && !ensembleOn) for (const n of plan.me) this.note(this.me.filt, n.freq, nextStart + n.at * barSec + human(), n.len * barSec, 1, this.me.motif.timbre, 0, true);
+    if (!hush && !ensembleOn) for (const vb of plan.others) {
       const v = this.voices.get(vb.o);
       if (!v || v.level <= 0.001) continue;
       // who speaks to me (the artist, 2026-11-10: heard at once, like a call, plainly the pattern): their melody on the
@@ -1510,6 +1810,7 @@ export class SoundEngine {
       for (const n of vb.notes) {
         const at = nextStart + n.at * barSec + (calls ? 0 : human() * 0.5);
         this.note(v.filt, n.freq, at, n.len * barSec, plan.answer || calls ? 1 : 0.8, v.motif.timbre, calls ? 0 : v.blur);
+        if (calls) this.feature(vb.o, at); // (its head hops on what is heard — hopOf)
       }
     }
     // the arrival's wave and breath (v4 A4c): the swell rises through the dominant bar; everything dips for a
@@ -1525,6 +1826,8 @@ export class SoundEngine {
     // the arrival's tonic bar: the heartbeat must not duck the voices on the downbeat they bloom on (10/31: with the
     // breath it read as the sound being eaten at the wave's peak)
     if (!alone) for (const b of plan.bass) this.bassNote(b.pitch, nextStart + b.at * barSec, b.level, plan.arrival === "tonic" && b.at < 0.05 ? 0 : 1);
-    this.setPad(plan.pad.pitches, alone ? 0 : plan.pad.level, nextStart, plan.arrival === "tonic");
+    // (the ensemble never makes the pad smaller; ensembleSwell above 1 makes it fuller — §13e)
+    const padLevel = ensembleOn ? plan.pad.level * Math.max(1, p.ensembleSwell) : plan.pad.level;
+    this.setPad(plan.pad.pitches, alone ? 0 : padLevel, nextStart, plan.arrival === "tonic");
   }
 }

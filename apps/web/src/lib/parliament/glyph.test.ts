@@ -57,3 +57,28 @@ describe("the glyph", () => {
     expect(stepAt(2000)).toBe(0);
   });
 });
+
+describe("a being's current word (learnWords — sound-logic §13d)", () => {
+  it("an answer's seed head gives the answerer its new word everywhere; the newest answer wins; the birth glyph stays", async () => {
+    const { birthGlyphOf, glyphDots: dotsOf, learnWords, newWordMotifOf, wordKeyOf, wordMotifOf } = await import("./glyph");
+    const a = "v_answers";
+    const birth = dotsOf(makeMotif(a));
+    expect(glyphOf(a)).toEqual(birth);
+    expect(wordKeyOf(a)).toBe("");
+    // a presence event and a seed head without a word teach nothing
+    learnWords([{ k: "p", o: a, s: 1, to: "bot7", seed: 3 }, { k: "s", o: a, s: 2 }]);
+    expect(wordKeyOf(a)).toBe("");
+    learnWords([{ k: "s", o: a, s: 10, to: "bot7", seed: 12 }]);
+    const w1 = newWordMotifOf(a, "bot7", 12);
+    expect(wordMotifOf(a)).toEqual(w1);
+    expect(glyphOf(a)).toEqual(dotsOf(w1));
+    expect(rhythmOf(a)).toEqual(Array.from({ length: 8 }, (_, i) => w1.onsets.includes(i)));
+    expect(birthGlyphOf(a)).toEqual(birth);
+    expect(wordKeyOf(a)).toBe("bot7~12");
+    // an older answer read later does not undo the newer one; a newer one replaces it
+    learnWords([{ k: "s", o: a, s: 5, to: "bot2", seed: 4 }]);
+    expect(wordKeyOf(a)).toBe("bot7~12");
+    learnWords([{ k: "s", o: a, s: 20, to: "bot2", seed: 21 }]);
+    expect(glyphOf(a)).toEqual(dotsOf(newWordMotifOf(a, "bot2", 21)));
+  });
+});

@@ -632,6 +632,9 @@ export function PointPeople({
       onLifeEvent((e) => {
         if ((e.kind === "word.new" || e.kind === "word.asked") && e.who) asking.current.set(e.who, performance.now() + DEFAULT_WITNESS.askOpenSec * 1000);
         else if (e.kind === "word.answered" && e.who) asking.current.delete(e.who);
+        // (a life that ends with a question open: nobody is asking any more — its bubble, its hold and its box go; the
+        // artist, 2026-11-27: "죽을 때 응답 안 하면 블롭이 남음")
+        else if (e.kind === "ended" || e.kind === "life.begin") asking.current.clear();
       }),
     [],
   );

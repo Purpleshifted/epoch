@@ -10,6 +10,7 @@
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
+import type { Motif } from "./motif";
 import { grassDensity, wrapCell, wrapDelta, wrapDist, type NatureConfig, type PEvent, type Slab, type Snapshot } from "@/lib/parliament";
 
 export interface SignalConfig {
@@ -80,6 +81,16 @@ export interface PersonalSignals {
    * 2026-11-10; brought into the redesign 2026-11-22.
    */
   asker?: string | null;
+  /**
+   * What the asker's question says, as the record writes it (§13d): for a question asked again, their melody with mine
+   * in it (glyph.ts newWordMotifOf — the `word.asked` line's sign); null = their own melody (`word.new`).
+   */
+  askerWord?: Motif | null;
+  /**
+   * The record says 합주 — "합주 중… 함께 집을 짓습니다." (witness `ensemble.start` … `ensemble.end`): I stay and someone near
+   * stays too. The sound plays it as an ensemble (engine §13e) — the same moment the picture boxes the builders.
+   */
+  ensemble?: boolean;
 }
 
 /** A BUILDING: sealed slabs that touch, as one; its harmonic zone grows with its mass (tonality.ts). */

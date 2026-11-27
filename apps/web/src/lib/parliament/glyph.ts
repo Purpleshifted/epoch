@@ -4,7 +4,8 @@
  * and 8 rows of pitch, each note a bar as long as it lasts; a high voice sits high in the box. Read-only: nothing here
  * changes the sound.
  *
- *   glyphOf(id)          the dots of a being's own melody
+ *   glyphOf(id)          the dots of a being's melody as it is now (its newest word once it has answered — learnWords)
+ *   birthGlyphOf(id)     the dots of the melody it was born with
  *   newWordOf(a, b, s)   the dots of a's melody with some of b's in it (sound/variation.ts blend, for display)
  *   rhythmOf(id)         which of the 8 steps it sounds on: how its square blinks
  *   individualNo(id)     the four digits the record calls it by ("개체 0417")
@@ -42,11 +43,69 @@ export function glyphDots(m: Pick<Motif, "base" | "degrees" | "onsets">): GlyphD
 
 const glyphs = new Map<string, GlyphDot[]>();
 
+// ── A BEING'S CURRENT WORD (the artist, 2026-11-27: "모두 반영되도록" — sound-logic §13d) ──
+// An answer gives the answerer a new word (newWordMotifOf), and from then on that word is their melody: what their
+// voice sings, how their square blinks, the glyph the wall and the record draw. The seed head the answer leaves (a
+// `k = "s"` event) carries whom they answered and the word's seed (PEvent.to / .seed, written on the redesigned
+// personal view only), so every page that reads the log learns it (learnWords) — the same browser's wall included.
+// The newest answer wins. Before any answer, and for every id without one, the word IS the id's own melody.
+
+const words = new Map<string, { s: number; to: string; seed: number }>();
+const wordMotifs = new Map<string, Motif>();
+let wordsSeen = 0;
+
+/** Learn the answers in `events` (their seed heads): each answerer's newest word. Cheap to call on every fold. */
+export function learnWords(events: Iterable<{ k: string; o: string; s: number; to?: string; seed?: number }>): void {
+  for (const e of events) {
+    if (e.k !== "s" || typeof e.to !== "string" || !Number.isFinite(e.seed)) continue;
+    const had = words.get(e.o);
+    if (had && had.s >= e.s) continue;
+    words.set(e.o, { s: e.s, to: e.to, seed: e.seed! });
+    wordMotifs.delete(e.o);
+    glyphs.delete(e.o);
+    rhythms.delete(e.o);
+    wordsSeen++;
+  }
+}
+
+/** Changes whenever a word is learnt: for what is cached outside this module (a texture, a memo). */
+export const wordsVersion = (): number => wordsSeen;
+
+/** Which word an id speaks now: "" = its own melody; else whom it answered and the seed (a cache key). */
+export function wordKeyOf(id: string): string {
+  const w = words.get(id);
+  return w ? `${w.to}~${w.seed}` : "";
+}
+
+/** The melody an id has NOW: the word its newest answer gave, else its own (makeMotif). */
+export function wordMotifOf(id: string): Motif {
+  let m = wordMotifs.get(id);
+  if (!m) {
+    const w = words.get(id);
+    m = w ? newWordMotifOf(id, w.to, w.seed) : makeMotif(id);
+    wordMotifs.set(id, m);
+  }
+  return m;
+}
+
+/** The dots of a being's melody as it is NOW (its newest word, else its own). */
 export function glyphOf(id: string): GlyphDot[] {
   let g = glyphs.get(id);
   if (!g) {
-    g = glyphDots(makeMotif(id));
+    g = glyphDots(wordMotifOf(id));
     glyphs.set(id, g);
+  }
+  return g;
+}
+
+const births = new Map<string, GlyphDot[]>();
+
+/** The dots of the melody a being was BORN with — the record's "고유 어휘", whatever it has become since. */
+export function birthGlyphOf(id: string): GlyphDot[] {
+  let g = births.get(id);
+  if (!g) {
+    g = glyphDots(makeMotif(id));
+    births.set(id, g);
   }
   return g;
 }
@@ -77,11 +136,11 @@ export function newWordMotifOf(a: string, b: string, seed: number): Motif {
 
 const rhythms = new Map<string, boolean[]>();
 
-/** The steps a being's melody sounds on. */
+/** The steps a being's melody sounds on (its newest word's, once it has answered someone). */
 export function rhythmOf(id: string): boolean[] {
   let r = rhythms.get(id);
   if (!r) {
-    const m = makeMotif(id);
+    const m = wordMotifOf(id);
     r = Array.from({ length: m.steps }, (_, i) => m.onsets.includes(i));
     rhythms.set(id, r);
   }

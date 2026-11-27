@@ -9,7 +9,10 @@
 import * as THREE from "three";
 import { ATLAS_GLSL, type SpriteIndex } from "./spritePeople";
 import { rhythmOf } from "@/lib/parliament";
-import { musicNow } from "./musicClock";
+import { musicNow, voiceHop } from "./musicClock";
+
+/** How high (a share of its height) a figure singing to me leaves the ground on each note (voiceHop). */
+export const SING_BOUNCE = 0.12;
 
 export const MAX_CARDS = 4096;
 /** The pictograms' own layer: the street's softening (InkPaper's blur by depth, its exposure) leaves it out and draws it
@@ -238,6 +241,12 @@ export interface Walker {
   fade?: number;
   // walking across my view now (in profile), kept a little past the threshold
   sideNow?: boolean;
+  /**
+   * The body now AS DRAWN this frame (the card writer fills it): its card's height (world), how far it is lifted (world —
+   * the clip's lift and a singer's bounce) and its width factor — the tracking box is built from these, so it holds the
+   * figure the card actually shows (the artist, 2026-11-27: "가끔 봇이 옆으로 기울어서 블롭 선 밖으로 넘어갈 때가 있음").
+   */
+  drawn?: { h: number; lift: number; width: number };
 }
 
 export const VERT = /* glsl */ `
@@ -955,11 +964,20 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
     // (the pictogram has no colour flowing: "이럴거면 색 효과 넣을 필요 없음")
     Ff[n * 4 + 1] = L.pix ? 0 : Q.grad * G2.amt;
     // (talking: the head hops on each note of their melody — up two cells, then one, then down, within the step)
+    // SINGING TO ME (the artist, 2026-11-27: "나한테 말 거는 애 머리 통통 튀게"): while the sound runs, whoever sings to
+    // me — the asker, whom I answer, an ensemble's part — BOUNCES on each note as it is heard (lib/sound engine hopOf):
+    // the head hops and the whole figure leaves the ground a little (the head alone has no room above it in the card)
     let hop = 0;
-    if (L.pix && (stateOf(w) === "talk" || w.talking)) {
-      // (on the music's own bar when it sounds — musicClock.ts; the screen's fixed bar when silent)
-      const m = musicNow();
-      if (rhythmOf(w.id ?? String(Math.round(w.hash * 1e6)))[m.step]) hop = m.into < 0.35 ? 2 : m.into < 0.7 ? 1 : 0;
+    if (L.pix) {
+      const sung = voiceHop(w.id ?? "");
+      if (sung !== null) {
+        hop = 2 * sung;
+        if (u === 0 && sung > 0) C[n * 4 + 3] += SING_BOUNCE * sung * A[n * 4 + 2];
+      } else if (stateOf(w) === "talk" || w.talking) {
+        // (no sound: on the screen's fixed bar)
+        const m = musicNow();
+        if (rhythmOf(w.id ?? String(Math.round(w.hash * 1e6)))[m.step]) hop = m.into < 0.35 ? 2 : m.into < 0.7 ? 1 : 0;
+      }
     }
     Ff[n * 4 + 3] = hop;
     Gg[n * 4] = G2.dir;
@@ -977,6 +995,8 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
     Ee[n * 4 + 1] = set?.tint[1] ?? 0;
     Ee[n * 4 + 2] = set?.tint[2] ?? 0;
     Ee[n * 4 + 3] = L.unify ? 1 : set?.width ?? 1;
+    // (the body now as drawn: the tracking box is built from it — Walker.drawn)
+    if (u === 0) w.drawn = { h: A[n * 4 + 2], lift: C[n * 4 + 3], width: Ee[n * 4 + 3] };
     n++;
   };
   const lerpStamp = (a: Stamp, b: Stamp, f: number): Stamp => {

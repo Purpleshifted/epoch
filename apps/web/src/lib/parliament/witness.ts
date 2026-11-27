@@ -142,6 +142,8 @@ export interface Observation {
    * life there (they stayed there: their cells are in the layer) or only looked. Absent = never.
    */
   future?: { id: string; found: boolean } | null;
+  /** Whom I am really building with (the sound's coBuilders: others' work in the slabs my weight counts on); absent = unknown. */
+  building?: string[];
 }
 
 export interface WitnessConfig {
@@ -180,6 +182,13 @@ export interface WitnessConfig {
   /** Whether the record writes the story's and the bond's lines at all: off unless who makes the log says so (the lab's
    *  new look only — the exhibition's personal view keeps its record as it was; SessionHud). */
   tales: boolean;
+  /**
+   * 합주 only while really BUILDING together (the artist, 2026-11-27: "대화랑 합주 구분이 잘 안 됨. 실제 합주 조건의 문제인가"):
+   * besides staying with someone near who stays, my own weight must count on a building others built (Observation
+   * .building — the sound's coBuilders). Off = staying together is 합주, as it was (a question comes in the same moment).
+   * The lab's new look only (SessionHud).
+   */
+  builtOnly: boolean;
   /** … and the question stays open for an answer this long. */
   askOpenSec: number;
 }
@@ -202,6 +211,7 @@ export const DEFAULT_WITNESS: WitnessConfig = {
   askEverySec: 16,
   storySec: 30, // (asks come at least wordGapSec apart: two voices within this long are "at once" for the record)
   tales: false,
+  builtOnly: false,
   askOpenSec: 7,
 };
 
@@ -224,6 +234,8 @@ export interface ObserveInputs {
   words?: readonly WordSpot[];
   /** Who is here now, whatever their assigned time (aliveOwners); absent = the last recentSec of mine. */
   alive?: ReadonlySet<string>;
+  /** Whom I am really building with (the sound's coBuilders, from the last fold): 합주 needs it when builtOnly. */
+  building?: string[];
   cfg?: WitnessConfig;
 }
 
@@ -296,7 +308,7 @@ export function observe(inp: ObserveInputs): Observation {
   }
   const speed = Math.hypot(me.vx, me.vz);
   const wordsNear = (inp.words ?? []).filter((w) => wrapDist(w.x, w.z, me.x, me.z) <= cfg.wordRadius).map((w) => w.o);
-  return { me: me.id, t: inp.t, moving: speed > cfg.moveSpeed, speed, surface, others, far, wordsNear };
+  return { me: me.id, t: inp.t, moving: speed > cfg.moveSpeed, speed, surface, others, far, wordsNear, building: inp.building };
 }
 
 /** A state that is only taken over once a new value has held for `settleSec`. */
@@ -492,8 +504,10 @@ export class WitnessLog {
       this.near.delete(o);
       w("gone", { who: { o, r: st.r }, forSec: st.missing - st.since, dots: glyphOf(o) });
     }
-    // building together: I stay, and someone near stays too, for a moment
-    const together = !obs.moving && [...this.near.values()].some((st) => st.missing === null && !st.moving.value);
+    // building together: I stay, and someone near stays too, for a moment — and (builtOnly) my weight counts on a
+    // building others built, so that 합주 is not simply the moment a conversation also begins
+    const built = !this.cfg.builtOnly || (obs.building?.length ?? 0) > 0;
+    const together = built && !obs.moving && [...this.near.values()].some((st) => st.missing === null && !st.moving.value);
     if (!this.ensemble) this.ensemble = new Settled(false, obs.t);
     const startedAt = this.ensemble.since;
     if (this.ensemble.feed(together, obs.t, this.cfg.ensembleSec)) {

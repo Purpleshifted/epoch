@@ -49,6 +49,13 @@ export interface PEvent {
    * events written before 11/20 (and the lab's): their age is estimated as before.
    */
   w?: number;
+  /**
+   * A SEED HEAD'S WORD (k = "s" only, 2026-11-27, sound-logic §13d): whom the answer was to and the new word's seed
+   * (glyph.ts newWordMotifOf(o, to, seed)) — the answerer's melody from then on (glyph.ts learnWords). Written on the
+   * redesigned personal view only; seed heads stay in the browser's own log (the bot server never gets them).
+   */
+  to?: string;
+  seed?: number;
 }
 
 export interface FoldConfig {

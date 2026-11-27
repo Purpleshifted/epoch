@@ -12,7 +12,7 @@ import * as THREE from "three";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
-import { MAX_SPOKES, dandelionShape, dandelionsIn, headState, headVariation, latestS, scatterEndSec, scatterPoints, type Dandelion, type EventLog, type HeadLife, type Scatter, type SeedJitter } from "@/lib/parliament";
+import { MAX_SPOKES, dandelionShape, dandelionsIn, headState, headVariation, latestS, learnWords, scatterEndSec, scatterPoints, type Dandelion, type EventLog, type HeadLife, type Scatter, type SeedJitter } from "@/lib/parliament";
 
 const MAX_HEADS = 160;
 /** Points of powder in the air at once. */
@@ -211,6 +211,8 @@ export function Dandelions({ log, secPerUnit, unit, look }: { log: EventLog; sec
       poll.current = 0;
       const events = log.all();
       heads.current = dandelionsIn(events);
+      // the words the answers made (a seed head carries one): the wall's melodies follow them (glyph.ts)
+      learnWords(events);
       latest.current = heads.current.length ? latestS(events) : 0;
       for (const d of heads.current) {
         if (seen.current.has(d.id)) continue;

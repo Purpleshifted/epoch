@@ -23,6 +23,7 @@ import { placeChord, type PlaceChord, type WorldKey, DEFAULT_HARMONY, diatonicCh
 import { midiToHz, realize, type Motif, type MotifNote, DEFAULT_MOTIF, hashString, rng } from "./motif";
 import type { PersonalSignals } from "./signals";
 import { CYCLES_PER_PHRASE, STEPS_PER_CYCLE, blend, stepsToCycle, type Phrase } from "./variation";
+import { deceptiveOf, predominantOf } from "./colour";
 
 export interface SequencerParams {
   /** Seconds per bar (the grid). */
@@ -62,14 +63,28 @@ export const ARRIVAL_IDLE: ArrivalState = { since: -1, together: false, last: -1
 /** Bars between two cadences at the least. */
 export const ARRIVAL_COOLDOWN = 8;
 
-export type ArrivalPhase = "dominant" | "tonic" | null;
+/**
+ * The cadence's bars: "dominant" → "tonic" as it was; LONG (colour.ts §13f, the artist 2026-11-27: "살짝 고조되다 금방
+ * 풀림") a pre-dominant first, and now and then a deceptive turn before home: "pre" → "dominant" → ("deceptive" →) "tonic".
+ */
+export type ArrivalPhase = "pre" | "dominant" | "deceptive" | "tonic" | null;
+
+/** A long cadence's bars from its first (the deceptive turn drawn from the bar it began on: about one in three). */
+export function arrivalBars(since: number, long: boolean): Exclude<ArrivalPhase, null>[] {
+  if (!long) return ["dominant", "tonic"];
+  return rng(hashString(`deceive#${since}`))() < 0.35 ? ["pre", "dominant", "deceptive", "tonic"] : ["pre", "dominant", "tonic"];
+}
 
 /** Moves the arrival state one bar on; `together` = staying among others now, `born` = a building appeared beside me. */
-export function nextArrival(prev: ArrivalState, bar: number, together: boolean, born: boolean, cooldown = ARRIVAL_COOLDOWN): { state: ArrivalState; phase: ArrivalPhase } {
+export function nextArrival(prev: ArrivalState, bar: number, together: boolean, born: boolean, cooldown = ARRIVAL_COOLDOWN, long = false): { state: ArrivalState; phase: ArrivalPhase } {
   const rising = together && !prev.together;
   const canStart = bar - prev.last >= cooldown && prev.since < 0;
-  if ((rising || (born && together)) && canStart) return { state: { since: bar, together, last: bar }, phase: "dominant" };
-  if (prev.since >= 0 && bar === prev.since + 1) return { state: { ...prev, together }, phase: "tonic" };
+  if ((rising || (born && together)) && canStart) return { state: { since: bar, together, last: bar }, phase: arrivalBars(bar, long)[0] };
+  if (prev.since >= 0) {
+    const seq = arrivalBars(prev.since, long);
+    const k = bar - prev.since;
+    if (k >= 1 && k < seq.length) return { state: { ...prev, together }, phase: seq[k] };
+  }
   return { state: { since: -1, together, last: prev.last }, phase: null };
 }
 
@@ -126,6 +141,11 @@ export interface BarInputs {
   place?: { key: WorldKey; chord: PlaceChord; zone: "in" | "ring" } | null;
   /** The arrival cadence this bar (nextArrival): the dominant leaning in, the tonic arriving, or nothing. */
   arrival?: ArrivalPhase;
+  /**
+   * MORE TURNS (colour.ts, §13f): the bar's chord as coloured — a progression while staying, a suspension or an added
+   * ninth now and then while walking. Applied to the place's chord outside an arrival; absent = the chord as it was.
+   */
+  colour?: ((chord: PlaceChord) => PlaceChord) | null;
 }
 
 /** Place a motif's cycle into a bar at the density: 0.5 = only even bars, 1 = once, 2 = twice (compressed). */
@@ -145,9 +165,14 @@ export function planBar(inp: BarInputs): BarPlan {
   const hcfg = { ...DEFAULT_HARMONY, bandCells: p.bandCells ?? DEFAULT_HARMONY.bandCells };
   const arrival = inp.arrival ?? null;
   let chord = inp.place ? inp.place.chord : placeChord(key, sig.x, sig.z, hcfg);
-  // the cadence: a bar of the dominant leaning in, then the tonic (the place's own chord) arriving
-  if (arrival === "dominant") chord = dominantOf(key, chord);
-  const lock = arrival === "tonic" ? 1 : lockOf(sig);
+  // (more turns: the place's chord coloured — a progression while staying, a suspension now and then — §13f)
+  if (inp.colour && !arrival) chord = inp.colour(chord);
+  // the cadence: a bar of the dominant leaning in, then the tonic (the place's own chord) arriving — longer, a
+  // pre-dominant first, now and then a deceptive turn before home (§13f)
+  if (arrival === "pre") chord = predominantOf(key, bar, chord.band);
+  else if (arrival === "dominant") chord = dominantOf(key, chord);
+  else if (arrival === "deceptive") chord = deceptiveOf(key, chord.band);
+  const lock = arrival === "tonic" ? 1 : arrival === "deceptive" ? Math.max(0.9, lockOf(sig)) : lockOf(sig);
   const d = density(sig.speed, p.speedMax);
   const company = Math.min(1, sig.neighbours.length / 2);
   const staying = sig.stay > 0.5 && sig.neighbours.length > 0;
@@ -216,7 +241,9 @@ export function planBar(inp: BarInputs): BarPlan {
 
   // pad: the chord held while building; the cadence brings it in at once (the dominant leaning, the tonic full)
   let padLevel = sig.stay * company;
+  if (arrival === "pre") padLevel = Math.max(padLevel, 0.5);
   if (arrival === "dominant") padLevel = Math.max(padLevel, 0.7);
+  if (arrival === "deceptive") padLevel = Math.max(padLevel, 0.85);
   if (arrival === "tonic") padLevel = 1;
   const pad = padLevel > 0.2 ? { pitches: [36 + chord.rootClass, ...chord.classes.map((c) => 48 + c)], level: padLevel } : { pitches: [], level: 0 };
 

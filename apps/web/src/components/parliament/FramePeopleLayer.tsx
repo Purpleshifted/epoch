@@ -14,8 +14,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { DEFAULT_WITNESS, individualNo, nearestImage, rhythmOf, type Other } from "@/lib/parliament";
-import { musicNow } from "./musicClock";
+import { DEFAULT_WITNESS, GLYPH_ROWS, glyphOf, nearestImage, rhythmOf, type Other } from "@/lib/parliament";
+import { musicNow, voiceHop } from "./musicClock";
 import { emitLifeEvent, onLifeEvent } from "./lifeEvents";
 import { savedGroup } from "./levaSave";
 import { lidarActive } from "./LidarScan";
@@ -38,6 +38,7 @@ import {
   setBlend,
   setsFromValues,
   stateOfWalker,
+  SING_BOUNCE,
   type ClipInfo,
   type Look,
   type Walker,
@@ -74,6 +75,10 @@ export interface StreetBody {
 const JUMP_M = 20;
 /** Below this pace (m/s) a bot stands. */
 const STILL_MPS = 0.15;
+/** How far the asker's box swells out on each of its notes as heard (a share of its width, each side). */
+const ASK_SWELL = 0.25;
+/** The melody glyph over a box: px a cell (8 × 8 cells). */
+const GLYPH_CELL = 3;
 
 function idHash(o: string): number {
   let h = 2166136261;
@@ -208,6 +213,8 @@ export function FramePeopleLayer({
   const together = useRef(false);
   const storyRef = useRef<{ ids: string[]; n: number; until: number } | null>(null);
   const bondsRef = useRef(new Map<string, number>());
+  /** The life is over (the end's screens): no boxes drawn. */
+  const over = useRef(false);
   useEffect(
     () =>
       onLifeEvent((e) => {
@@ -217,6 +224,10 @@ export function FramePeopleLayer({
         if (e.kind === "life.begin") bondsRef.current.clear();
         if (e.kind === "ensemble.start") together.current = true;
         else if (e.kind === "ensemble.end" || e.kind === "life.begin" || e.kind === "ended") together.current = false;
+        // (the life is over: no boxes on the end's screens — an unanswered question left its box there, the artist
+        // 2026-11-27: "죽을 때 응답 안 하면 블롭이 남음")
+        if (e.kind === "ended") over.current = true;
+        else if (e.kind === "life.begin") over.current = false;
       }),
     [],
   );
@@ -373,7 +384,7 @@ export function FramePeopleLayer({
       if (ctx) {
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, cw, ch);
-        if (track > 0 && L.pix) {
+        if (track > 0 && L.pix && !over.current) {
           const ink = L.pixWhite ? "255,255,255" : "12,12,12";
           const col = (a: number) => `rgba(${ink},${a})`;
           const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).setY(0).normalize();
@@ -385,11 +396,16 @@ export function FramePeopleLayer({
           const storyRects: Rect[] = [];
           /** The pictogram's body on the screen (its height, 10 of its card's 15 units across), padded; null off it. */
           const rectOf = (w: BotWalker): Rect | null => {
-            const h = personHeight(L, w, undefined) * (w.boost ?? 1) * unit;
-            const half = (h * 0.5 * (10 / 15)) / 2;
+            // (from the card as the writer drew it this frame — its height, its lift with any singing bounce, its width;
+            // the figure is 10 of the card's 30 units across — so the box holds what is shown, the artist 2026-11-27:
+            // "가끔 봇이 옆으로 기울어서 블롭 선 밖으로 넘어갈 때가 있음"; before a first drawing, the person's height)
+            const dr = w.drawn;
+            const h = dr ? dr.h : personHeight(L, w, undefined) * (w.boost ?? 1) * unit;
+            const half = (h * (dr?.width ?? 1)) / 6;
+            const lift = dr ? dr.lift : SING_BOUNCE * (voiceHop(w.id ?? "") ?? 0) * h;
             let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
             for (const [sx, sy] of [[-1, 0], [1, 0], [-1, 1], [1, 1]] as const) {
-              v.set(w.x + right.x * half * sx, h * sy, w.z + right.z * half * sx).project(camera);
+              v.set(w.x + right.x * half * sx, h * sy + lift, w.z + right.z * half * sx).project(camera);
               if (v.z > 1) return null;
               const px = (v.x * 0.5 + 0.5) * cw, py = (1 - (v.y * 0.5 + 0.5)) * ch;
               x0 = Math.min(x0, px);
@@ -411,6 +427,12 @@ export function FramePeopleLayer({
             }
             ctx.stroke();
           };
+          // A BEING'S NAME OVER ITS BOX = ITS MELODY (the artist, 2026-11-27: "블롭 위에 개체 번호 대신 멜로디 기호만 뜨도록
+          // 해줘 (축 없이)"): the glyph's dots alone — no number, no frame, no playhead, no leader — its foot at `foot`
+          const glyphAt = (id: string, x: number, foot: number, a: number) => {
+            ctx.fillStyle = col(a);
+            for (const dd of glyphOf(id)) ctx.fillRect(Math.round(x + dd.col * GLYPH_CELL), Math.round(foot - (GLYPH_ROWS - dd.row) * GLYPH_CELL), Math.max(1, dd.len * GLYPH_CELL - 1), GLYPH_CELL - 1);
+          };
           // who builds with me: the record's rule (I stay, and someone near stays too) — or the lab's test
           const test = (window as unknown as { __framesBuildTest?: boolean }).__framesBuildTest === true;
           const me2 = playerPosRef.current;
@@ -431,7 +453,6 @@ export function FramePeopleLayer({
             if (!r) continue;
             // THE BOND (someone I have answered before): a second line inside, and how many conversations
             const bond = bondsRef.current.get(w.id ?? "") ?? 0;
-            const tag = bond >= 2 ? `  ×${bond}` : "";
             if (bond >= 2) {
               ctx.strokeStyle = col(0.8);
               ctx.lineWidth = 1;
@@ -439,12 +460,15 @@ export function FramePeopleLayer({
             }
             if (told) storyRects.push(r);
             if (asks) {
-              // ASKING ME: bold, beating on its own melody's notes (out a little and back within the step), a line to me
+              // ASKING ME: bold, beating on its own melody's notes (out a little and back within the step), a line to me.
+              // While the sound runs it SWELLS with each note as heard — a quarter of its width out and back, with the
+              // figure's bounce (the artist, 2026-11-27: "블롭 창도 같이 커졌다 작아졌다 해서 시그널 확실히")
+              const sung = voiceHop(w.id ?? "");
               const on = rhythmOf(w.id ?? "")[step];
-              const beat = on ? Math.max(0, 1 - inStep / 0.45) : 0;
-              const g = 3 * beat;
+              const beat = sung !== null ? sung : on ? Math.max(0, 1 - inStep / 0.45) : 0;
+              const g = (sung !== null ? Math.max(4, ASK_SWELL * (r.x1 - r.x0)) : 3) * beat;
               ctx.strokeStyle = col(1);
-              ctx.lineWidth = 2 + beat;
+              ctx.lineWidth = 2 + 1.5 * beat;
               ctx.strokeRect(r.x0 - g, r.y0 - g, r.x1 - r.x0 + 2 * g, r.y1 - r.y0 + 2 * g);
               ctx.lineWidth = 1;
               ctx.strokeStyle = col(0.6);
@@ -456,23 +480,22 @@ export function FramePeopleLayer({
                 ctx.lineTo((v.x * 0.5 + 0.5) * cw, (1 - (v.y * 0.5 + 0.5)) * ch);
               } else ctx.lineTo(cw / 2, ch);
               ctx.stroke();
-              ctx.fillStyle = col(1);
-              ctx.fillText(`${individualNo(w.id ?? "")}  ♪${tag}`, r.x0 - g, r.y0 - g - 4);
+              glyphAt(w.id ?? "", r.x0 - g, r.y0 - g - 4, 1);
             } else if (told) {
-              // A VOICE OF THE STORY: a whole thin box, beating with the others on the bar
-              const bar = step % 2 === 0 ? Math.max(0, 1 - inStep / 0.45) : 0;
+              // A VOICE OF THE STORY: a whole thin box, beating with the others on the bar — on its own notes while it sings
+              // a part to me (the ensemble, sound-logic §13e)
+              const sung = voiceHop(w.id ?? "");
+              const bar = sung !== null && sung > 0 ? sung : step % 2 === 0 ? Math.max(0, 1 - inStep / 0.45) : 0;
               ctx.strokeStyle = col(0.85 + 0.15 * bar);
               ctx.lineWidth = 1 + bar;
               ctx.strokeRect(r.x0 - 2 * bar, r.y0 - 2 * bar, r.x1 - r.x0 + 4 * bar, r.y1 - r.y0 + 4 * bar);
-              ctx.fillStyle = col(0.9);
-              ctx.fillText(`${individualNo(w.id ?? "")}${tag}`, r.x0, r.y0 - 4);
+              glyphAt(w.id ?? "", r.x0 - 2 * bar, r.y0 - 2 * bar - 4, 0.9);
             } else {
               // NEAR ME: the corners only
               ctx.strokeStyle = col(0.7);
               ctx.lineWidth = 1;
               brackets(r, 0);
-              ctx.fillStyle = col(0.7);
-              ctx.fillText(`${individualNo(w.id ?? "")}  ${d.toFixed(1)}m${tag}`, r.x0, r.y0 - 4);
+              glyphAt(w.id ?? "", r.x0, r.y0 - 4, 0.7);
             }
             tracked++;
           }

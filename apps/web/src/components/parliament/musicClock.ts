@@ -16,6 +16,18 @@ export interface MusicNow {
   synced: boolean;
 }
 
+/**
+ * HOW HIGH A VOICE'S HEAD IS IN ITS HOP NOW (the artist, 2026-11-27: "나한테 말 거는 애 머리 통통 튀게 + 거기 맞춰서 블롭
+ * 창도 같이 커졌다 작아졌다"): 0 … 1 on each note that voice SINGS as heard — the asker's call, whom I answer, an
+ * ensemble's part (lib/sound/engine.ts hopOf, sound-logic §13d–e); 0 between its notes and for anyone not singing to
+ * me. null when no sound runs: the picture keeps its own bar then (rhythmOf on musicNow).
+ */
+export function voiceHop(id: string): number | null {
+  if (typeof window === "undefined" || !id) return null;
+  const e = (window as unknown as { __soundEngine?: { hopOf?: (id: string) => number | null } | null }).__soundEngine;
+  return e?.hopOf ? e.hopOf(id) : null;
+}
+
 /** Where the bar is now (cheap: read every frame). */
 export function musicNow(): MusicNow {
   if (typeof window !== "undefined") {
