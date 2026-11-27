@@ -88,6 +88,15 @@ export interface ResidueLook {
    *  turning smears nothing. `streak`: how strong the smear is. The present's lidar never has one. */
   expose: number;
   streak: number;
+  /** THE FUTURE'S LONG EXPOSURE OF ITS READINGS (the artist, 2026-11-27: "이 노출은 흩날리는 거 강조용보다는 실제 읽어오는
+   *  점 위치가 바뀌었을 때 그걸 겹쳐보이게 하려는 목적이 더 큰데"): every `layerSec` the residue is laid down anew, each
+   *  point off by a scan's error of `jitter` (world), and the layers before stay where they were, fading over `ghostLife`
+   *  seconds at `ghostAlpha` — what stays the same piles into one trembling, denser figure; what the future moved, grew or
+   *  took away shows its old place and its new one at once. */
+  layerSec: number;
+  jitter: number;
+  ghostLife: number;
+  ghostAlpha: number;
 }
 
 /** The references' palettes (read off IMG_1586 — a pale night garden — and IMG_1587 — a darker one), loaded into her
@@ -122,8 +131,12 @@ export const DEFAULT_RESIDUE: ResidueLook = {
   stagger: 1.2,
   rise: 1.2,
   turb: 1,
-  expose: 0.25,
+  expose: 0,
   streak: 0.45,
+  layerSec: 0.5,
+  jitter: 0.04,
+  ghostLife: 3,
+  ghostAlpha: 0.45,
 };
 
 /** A birch's stem, nearly white (IMG_1586/1587), and its dark marks. */
@@ -152,6 +165,9 @@ const CAP = 120_000;
 const STREAK_SEGS = 8;
 /** The most smears at once (points blowing away). */
 const STREAK_CAP = 40_000;
+/** The earlier layers kept (a ring), and the most points one of them holds (what was shown when it was laid). */
+const GHOSTS = 8;
+const GHOST_CAP = 40_000;
 /** Readings looked at in one frame (more are sampled evenly). */
 const READ_PER_FRAME = 4000;
 /** The parts' grid (world): a reading looks in its own bucket only, each part in every bucket it reaches into. */
@@ -458,6 +474,57 @@ function makeStreaks(): THREE.Mesh {
   return ms;
 }
 
+/** AN EARLIER LAYER: the residue as it was shown when that layer was laid — where it stood then, in its colour then —
+ *  fading with its age (and quickly, once the observer has gone). */
+const GHOST_VERT = /* glsl */ `
+attribute vec3 aCol;
+attribute float aSeed;
+uniform float uAge;
+uniform float uLife;
+uniform float uAlpha;
+uniform float uSize;
+uniform float uSizeVar;
+uniform float uLod;
+uniform float uReach;
+varying vec3 vCol;
+varying float vA;
+varying float vPx;
+void main() {
+  float f = clamp(1.0 - uAge / max(0.05, uLife), 0.0, 1.0);
+  float a = uAlpha * f * f;
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  float dEye = -mv.z;
+  if (uLod > 0.0 && dEye > uLod && fract(aSeed * 91.7) > (uLod / dEye) * (uLod / dEye)) a = 0.0;
+  a *= 1.0 - smoothstep(uReach * 0.55, uReach, dEye);
+  float sv = fract(aSeed * 53.1);
+  float px = uSize * mix(1.0, 0.55 + 1.5 * sv * sv, uSizeVar);
+  vA = a;
+  vCol = aCol;
+  gl_Position = projectionMatrix * mv;
+  vPx = px * clamp(3.0 / max(0.1, dEye), 1.0, 1.6);
+  gl_PointSize = a > 0.003 ? vPx : 0.0;
+}`;
+
+function makeGhost(): THREE.Points {
+  const g = new THREE.BufferGeometry();
+  for (const [name, size] of [["position", 3], ["aCol", 3], ["aSeed", 1]] as const)
+    g.setAttribute(name, new THREE.BufferAttribute(new Float32Array(GHOST_CAP * size), size).setUsage(THREE.DynamicDrawUsage));
+  g.setDrawRange(0, 0);
+  const m = new THREE.ShaderMaterial({
+    uniforms: { uAge: { value: 1e6 }, uLife: { value: 3 }, uAlpha: { value: 0.45 }, uSize: { value: 2 }, uSizeVar: { value: 0.6 }, uSoft: { value: 0.6 }, uLod: { value: 12 }, uReach: { value: 14 } },
+    vertexShader: GHOST_VERT,
+    fragmentShader: FRAG,
+    transparent: true,
+    // (its depth written, so the photograph's pass softens it by its real distance; drawn after the layer of now, so
+    // it never hides it where the two coincide)
+    depthWrite: true,
+  });
+  const p = new THREE.Points(g, m);
+  p.frustumCulled = false;
+  p.renderOrder = 6;
+  return p;
+}
+
 /** The pool from one reading of the future: the parts' faces, the trees, the plant clouds, the mounds, the dark earth. */
 function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
   const pos = new Float32Array(CAP * 3), col = new Float32Array(CAP * 3), bloom = new Float32Array(CAP * 3), seed = new Float32Array(CAP), kind = new Float32Array(CAP);
@@ -662,11 +729,12 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
   const group = useRef<THREE.Group>(null);
   const pts = useRef<THREE.Points | null>(null);
   const streaks = useRef<THREE.Mesh | null>(null);
+  const ghosts = useRef<THREE.Points[]>([]);
   const field = useRef<{ f: DensityField; dens: DensityConfig | null; version: unknown; fed: number; drops: number } | null>(null);
-  const st = useRef({ timer: 10, pool: null as Pool | null, states: new Map<string, PartState>(), tapFrame: -1, present: false, obs: null as Excavator | null, pass: null as null | { x: number; z: number; fx: number; fz: number; t0: number }, streakHead: 0, streakFilled: 0, streakUntil: 0 });
+  const st = useRef({ timer: 10, pool: null as Pool | null, states: new Map<string, PartState>(), tapFrame: -1, present: false, obs: null as Excavator | null, pass: null as null | { x: number; z: number; fx: number; fz: number; t0: number }, streakHead: 0, streakFilled: 0, streakUntil: 0, layerT: 0, ghostHead: 0, ghostBorn: new Array<number>(GHOSTS).fill(-1e9), ghostKill: 0 });
   useEffect(
     () => () => {
-      for (const o of [pts.current, streaks.current]) {
+      for (const o of [pts.current, streaks.current, ...ghosts.current]) {
         if (!o) continue;
         o.geometry.dispose();
         (o.material as THREE.Material).dispose();
@@ -679,11 +747,13 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     const on = residueActive();
     if (pts.current) pts.current.visible = on;
     if (streaks.current) streaks.current.visible = on && residueLook.expose > 0 && residueLook.streak > 0;
+    for (const gh of ghosts.current) gh.visible = on && residueLook.ghostAlpha > 0;
     if (!on) return;
     if (!pts.current && group.current) {
       pts.current = makePoints();
       streaks.current = makeStreaks();
-      group.current.add(pts.current, streaks.current);
+      ghosts.current = Array.from({ length: GHOSTS }, makeGhost);
+      group.current.add(pts.current, streaks.current, ...ghosts.current);
     }
     const P = pts.current, SM = streaks.current;
     if (!P || !SM) return;
@@ -747,7 +817,13 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     const wasPresent = s.present;
     s.present = near !== null && nearD <= (wasPresent ? L.gateR * 1.1 : L.gateR);
     if (near) s.obs = near;
-    // LET GO: the observer went — everything held blows away its way, the gust sweeping through from upwind
+    // LET GO: the observer went — everything held blows away its way, the gust sweeping through from upwind (the
+    // earlier layers fade out at once)
+    if (wasPresent && !s.present) s.ghostKill = now;
+    if (!wasPresent && s.present) {
+      s.ghostKill = 0;
+      s.ghostBorn.fill(-1e9);
+    }
     if (wasPresent && !s.present && s.pool) {
       const o = s.obs, pool = s.pool;
       let dx = o ? o.dx : 1, dz = o ? o.dz : 0;
@@ -802,6 +878,48 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       (SM.geometry as THREE.InstancedBufferGeometry).instanceCount = 0;
     }
 
+    // AN EARLIER LAYER: what is shown now (held and already appeared, where it stands now) copied into the next slot of
+    // the ring, to stay there and fade over ghostLife
+    const layGhost = () => {
+      const pool0 = s.pool, gh = ghosts.current[s.ghostHead];
+      if (!pool0 || !gh || L.ghostAlpha <= 0 || !s.present) return;
+      const GA = (name: string) => gh.geometry.getAttribute(name) as THREE.BufferAttribute;
+      const gPos = GA("position").array as Float32Array, gCol = GA("aCol").array as Float32Array, gSeed = GA("aSeed").array as Float32Array;
+      const cPos = A("position").array as Float32Array, cCol = A("aCol").array as Float32Array, cSeed = A("aSeed").array as Float32Array;
+      let m = 0;
+      for (const p of pool0.parts) {
+        const ps = s.states.get(p.key);
+        if (!ps || ps.found <= 0 || ps.rel > 0 || ps.died > 0 || (L.life > 0 && now - ps.found > L.life)) continue;
+        for (let i = p.i0; i < p.i1 && m < GHOST_CAP; i++) {
+          if (ps.found + fDelay[i] > now) continue;
+          for (let c = 0; c < 3; c++) {
+            gPos[m * 3 + c] = cPos[i * 3 + c];
+            gCol[m * 3 + c] = cCol[i * 3 + c];
+          }
+          gSeed[m] = cSeed[i];
+          m++;
+        }
+      }
+      gh.geometry.setDrawRange(0, m);
+      for (const name of ["position", "aCol", "aSeed"]) {
+        const a = GA(name);
+        a.clearUpdateRanges();
+        a.addUpdateRange(0, m * a.itemSize);
+        a.needsUpdate = true;
+      }
+      s.ghostBorn[s.ghostHead] = now;
+      s.ghostHead = (s.ghostHead + 1) % GHOSTS;
+    };
+    // A NEW LAYER: every point where the reading puts it, off by a scan's error drawn anew
+    const layNew = (pool0: Pool) => {
+      const fp = A("position").array as Float32Array, J = Math.max(0, L.jitter);
+      for (let i = 0; i < pool0.n * 3; i++) fp[i] = pool0.pos[i] + (J > 0 ? (Math.random() * 2 - 1) * J : 0);
+      const a = A("position");
+      a.clearUpdateRanges();
+      a.addUpdateRange(0, pool0.n * 3);
+      a.needsUpdate = true;
+    };
+
     // THE READING OF THE FUTURE, every few seconds: the pool built anew, what each part has been through carried by
     // its key; a part gone from the reading fades out where it was (or finishes blowing away)
     s.timer += dt;
@@ -819,11 +937,32 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       const pcfg: PresenceConfig = { band: cfg.band, ruin: cfg.ruin, unit: cfg.unit, radius: lidarLook.range + 4, maxBuildings: cfg.maxBuildings, strip: cfg.strip, lastSteel: cfg.lastSteel, lastPile: cfg.lastPile, traces: false, surface: cfg.surface, surfaceCap: 160, wild: cfg.wild };
       const r = futurePresence(h.f, meRef.current.id, K, kMe, me, pcfg, box);
       const pool = buildPool(r, cfg.unit, L);
+      // (what is shown until now stays as an earlier layer: where the new reading moves something, both are seen)
+      layGhost();
+      s.layerT = 0;
       // (what was found and has left the reading: carried over to fade, or to finish blowing away)
       const old = s.pool;
       const keys = new Set(pool.parts.map((p) => p.key));
       // (one that had faded out and is back in the reading is new: it waits to be found again)
       for (const k of keys) if ((s.states.get(k)?.died ?? 0) > 0) s.states.delete(k);
+      // (a part of the same kind where a found one stood a moment ago: the future changed it — it stays found, and the
+      // old one fades beside it)
+      if (old)
+        for (const p of pool.parts) {
+          if (s.states.has(p.key)) continue;
+          const b = p.box, list = old.grid.get((Math.floor((b[0] + b[3]) / 2 / GRID) + 32768) * 65536 + (Math.floor((b[2] + b[5]) / 2 / GRID) + 32768));
+          if (!list) continue;
+          for (const oi of list) {
+            const op = old.parts[oi];
+            if (keys.has(op.key) || op.key[0] !== p.key[0]) continue;
+            const os = s.states.get(op.key);
+            if (!os || os.found <= 0 || os.rel > 0 || os.died > 0) continue;
+            const ob = op.box;
+            if (ob[0] > b[3] || ob[3] < b[0] || ob[2] > b[5] || ob[5] < b[2] || ob[1] > b[4] + 0.3 || ob[4] < b[1] - 0.3) continue;
+            s.states.set(p.key, { ...os });
+            break;
+          }
+        }
       const gone = L.scatter * 1.25 + L.stagger + 0.5;
       if (old)
         for (const p of old.parts) {
@@ -849,7 +988,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       }
       // the GPU side anew: positions, colours, seeds, kinds, and what each part has been through
       const fPos = A("position").array as Float32Array, fDie = A("aDie").array as Float32Array;
-      fPos.set(pool.pos.subarray(0, pool.n * 3));
+      layNew(pool);
       (A("aCol").array as Float32Array).set(pool.col.subarray(0, pool.n * 3));
       (A("aBloom").array as Float32Array).set(pool.bloom.subarray(0, pool.n * 3));
       (A("aSeed").array as Float32Array).set(pool.seed.subarray(0, pool.n));
@@ -884,6 +1023,14 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       dirty1 = -1;
       g.setDrawRange(0, pool.n);
       (window as unknown as { __residue?: unknown }).__residue = { k: K, kMe, parts: pool.parts.length, points: pool.n, held: [...s.states.values()].filter((q) => q.found > 0 && q.rel <= 0).length, present: s.present, observer: Math.round(nearD * 10) / 10, ms: r.ms };
+    }
+
+    // BETWEEN READINGS, a layer every layerSec: the one shown stays behind as an earlier layer, the points laid anew
+    s.layerT += dt;
+    if (s.pool && s.present && L.layerSec > 0 && s.layerT >= L.layerSec) {
+      s.layerT = 0;
+      layGhost();
+      layNew(s.pool);
     }
 
     // FINDING: the scan's readings near a part find it — only while an observer is near
@@ -974,6 +1121,19 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     (u.uC1.value as THREE.Color).set(lidarLook.c1);
     (u.uC2.value as THREE.Color).set(lidarLook.c2);
     (u.uC3.value as THREE.Color).set(lidarLook.c3);
+    // the earlier layers: their age, and gone within a moment once the observer has left
+    const kill = s.ghostKill > 0 ? 1 - Math.min(1, (now - s.ghostKill) / 0.6) : 1;
+    ghosts.current.forEach((gh, i) => {
+      const gu = (gh.material as THREE.ShaderMaterial).uniforms;
+      gu.uAge.value = now - s.ghostBorn[i];
+      gu.uLife.value = L.ghostLife;
+      gu.uAlpha.value = L.ghostAlpha * kill;
+      gu.uSize.value = u.uSize.value;
+      gu.uSizeVar.value = L.sizeVar;
+      gu.uSoft.value = L.soft;
+      gu.uLod.value = lidarLook.lod;
+      gu.uReach.value = Math.min(L.reach, lidarLook.range);
+    });
     markSpan("residue", performance.now() - t0);
   });
 
