@@ -204,6 +204,15 @@ white. Seven buttons in the plants' palette (`프로파일 · …`), each read o
 on black; each sets the six leaves, five flowers, the parts' and the stems' colours (`FutureResidue.tsx
 COLOUR_PROFILES`). Not yet seen on screen. The :3029 server was restarted at 3 GB (standing rule); cold compile 56 s.
 
+**The plants' colours flow (acdcf74):** "컬러팔레트가 시간에 따라 유기적으로 변하게 … 다채롭고 꿈같은 느낌 … 식생에 대해서만",
+"컬러팔레트 몇개에 대비되는 색 있는 게 좋은데 그게 마지막에만 확 번져서". `FLOW_GLSL`: a slow field (sines out of step, bent by
+one another) moving through space and time carries each plant point round her palette — leaves through the six leaf
+colours, flowers (marked kind 1.25) through the five flower colours — and patches of the flower colours drift through
+the leaves, so the contrast lives with them instead of only bursting at the blowing away. The layer of now and the
+earlier layers flow alike; stems and parts keep theirs. `식생 · 색의 흐름 (시간)`: 흐르는 정도 0.6, 팔레트 한 바퀴 14 s,
+색 물결의 크기 6, 대비 색이 번지는 정도 0.35. Relayed to the main chat: her "한 데까지 푸시하고 redesign 에 넣으라고" — take the
+branch's current head.
+
 **Status (2026-11-23): PAUSED by the coordinator (machine overloaded) after the reference study; nothing built, no
 question put to the artist yet.** Code untouched (`FuturePresence.tsx`, `futurePresence.ts`, `labKnobsScanFuture.ts` =
 HEAD). Resume = put the three directions below to her and build her pick.
