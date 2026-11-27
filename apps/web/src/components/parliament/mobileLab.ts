@@ -143,9 +143,13 @@ const PREVIEW_KNOBS: readonly string[] = [
   `${LAB_GROUP["scan-present"]}.눈.walkSpeed`,
   `${LAB_GROUP["scan-present"]}.눈.eyeHeight`,
   `${LAB_GROUP["scan-present"]}.__save`,
+  // (and the frame's ceiling, 바탕 › 성능 · 상한 — the artist, 2026-11-27: "액션 프리뷰에서 랙이 심한데 프레임 리소스 상한 같은 거")
+  `${LAB_GROUP.base}.성능 · 상한.maxDpr`,
+  `${LAB_GROUP.base}.성능 · 상한.maxFps`,
+  `${LAB_GROUP.base}.__save`,
 ];
 /** The asset groups the preview lists at all (cut to PREVIEW_KNOBS by the panel filter). */
-const PREVIEW_ASSETS: ReadonlySet<LabAsset | "base"> = new Set(["scan-present"]);
+const PREVIEW_ASSETS: ReadonlySet<LabAsset | "base"> = new Set(["scan-present", "base"]);
 
 /** Whether this page lists the asset group `asset` ("base" = the shared ground). */
 export function labLists(asset: LabAsset | "base"): boolean {

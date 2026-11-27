@@ -21,6 +21,9 @@
  * Shown where `residueActive()` says: the scan (future) lab page, and — with 개인뷰에 켜기 — wherever every asset runs
  * (the action preview, the experiment). `?futurepass=1` (the scan (future) page's test scene): one observer that walks
  * in, stands, walks away and is gone, every 32 s.
+ *
+ * Drawn on a layer of its own (futureLayer.ts): its far and near — thinned, grown, too near thinned — and its softening
+ * by depth (the photograph's rule, in a frame of its own) are its own, set as the present's are.
  */
 
 import { useEffect, useRef } from "react";
@@ -31,11 +34,12 @@ import { futurePresence, type PresenceConfig, type PresenceResult } from "@/lib/
 import { excavatorsAt, type Excavator } from "@/lib/parliament/excavators";
 import { wrapDelta } from "@/lib/parliament/world";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { lidarActive, lidarLook, lidarTap } from "./LidarScan";
+import { lidarActive, lidarLook, lidarTap, lidarThin } from "./LidarScan";
 import { mobileLab, runsEveryAsset } from "./mobileLab";
 import { visitorWorld } from "./useBotServer";
 import { markSpan } from "./usePerfMeter";
 import type { FuturePresenceVisual } from "./FuturePresence";
+import { FUTURE_LAYER, PRESENT_DEPTH_GLSL, futureInk, presentDepth } from "./futureLayer";
 
 /** How one kind blows away: its flight (s), how far (world), how much it rises (world; below 0 it falls), how much the
  *  flow swirls it (0 = straight), and how much it takes its bloom colour as it goes (C; 0 = none … 1). */
@@ -56,6 +60,10 @@ export interface KindLook {
   dot: number;
   sizeVar: number;
   soft: number;
+  /** HOW MANY OF ITS POINTS (the artist, 2026-11-27: "각 레바별로 점 수나 밀도 정할 수 있게"): × what its own counts give
+   *  (1 = as before; under 1 a steady share of them is left out, over 1 more are made the same way — more points on a
+   *  part's faces, more leaf clumps in a crown and points in a meadow, more along a stem). */
+  density: number;
   /** Found: how fast it develops from the touch outwards (world/s), seconds from the scan's colour to its own. */
   spread: number;
   develop: number;
@@ -98,6 +106,31 @@ export interface ResidueLook {
   reach: number;
   /** A new layer of the reading every this many seconds; the gust's sweep through everything held when it blows (s). */
   layerSec: number;
+  /** BOTH INTERVALS MOVE WITH HOW HARD THE VIEW IS WORKING (the artist, 2026-11-27: "미래 다시 읽는 간격이랑 다시 읽어
+   *  겹치는 간격 성능 따라 유동적으로 범위 안에서"): on, the reading's interval (FuturePresenceVisual.everySec … everyMax)
+   *  and the layers' (layerSec … layerMax) sit at their shortest while frames come as fast as this screen has lately
+   *  done, and stretch toward their longest as frames slow or a reading itself grows costly; off, the shortest always. */
+  adapt: boolean;
+  everyMax: number;
+  layerMax: number;
+  /** THE PRESENT THINNER WHILE THE FUTURE SHOWS (the artist, 2026-11-27: "미래가 나타났을 때 현재 렌더에 점 덜 쓰는
+   *  방식으로 성능 조절"): the lidar makes this share of its readings (LidarScan.tsx lidarThin; 1 = all) once
+   *  `presentFull` of the future's points are on the screen — fewer, less of the way there — and all again as it goes. */
+  presentShare: number;
+  presentFull: number;
+  /** THE FUTURE'S FAR AND NEAR, ITS OWN, BY THE PRESENT'S RULES — one for all of it (the artist, 2026-11-27: "미래랑
+   *  현재는 거리 따라 lod/흐림/뭉침 적용하는 정도 따로", "부재나 종류마다 정하지 말고 그냥 미래/현재만 따로", then
+   *  "또렷한 거리는 없어야", "'현재' 점의 거리 효과랑은 너무 다르게 적용되는 것 같아서", "너무 또렷하잖아"): past `far`
+   *  (world; 0 = off) thinned — kept with the chance (far/d)^(2 thinD) — and grown × (d/far)^clump, at most 4× (1 and 1 =
+   *  the present's rule); within `near` (world; 0 = off) thinned as the present's too-near readings, (d/near)², at least
+   *  3 %; softened as the photograph softens the present — a narrow blur everywhere, a wide one by distance — at its
+   *  own radii (inkNear / inkFar, px: the base's 가까운 / 먼 흐림 are the present's), in a frame of its own (InkPaper). */
+  far: number;
+  thinD: number;
+  clump: number;
+  near: number;
+  inkNear: number;
+  inkFar: number;
   stagger: number;
   /** What is left: its colour, and concrete's share of it (steel and piles full); the stems' colour. */
   colour: string;
@@ -143,7 +176,7 @@ export const COLOUR_PROFILES: readonly { label: string; leaves: string[]; flower
   { label: "청록 엉겅퀴 (IMG_1976)", leaves: ["#4ec8c0", "#2c9ab0", "#6ae0c0", "#3a7ab8", "#8ad8d0", "#2aa0a0"], flowers: ["#ff2a2a", "#e0201f", "#ff5a3a", "#c0306a", "#ff8a6a"], part: "#e8eef0", stem: "#8a5a5a" },
 ];
 
-const KIND_BASE: Omit<KindLook, "blow"> = { dot: 2, sizeVar: 0.6, soft: 0.6, spread: 5, develop: 1.2, jitter: 0.04, ghostAlpha: 0.45, ghostLife: 3, bleed: 0.5, tear: 0.3, drip: 0.4, block: 0.35, thin: 0.4, smear: 0, smearAlpha: 0.45 };
+const KIND_BASE: Omit<KindLook, "blow"> = { dot: 2, sizeVar: 0.6, soft: 0.6, density: 1, spread: 5, develop: 1.2, jitter: 0.04, ghostAlpha: 0.45, ghostLife: 3, bleed: 0.5, tear: 0.3, drip: 0.4, block: 0.35, thin: 0.4, smear: 0, smearAlpha: 0.45 };
 
 export const DEFAULT_RESIDUE: ResidueLook = {
   on: false,
@@ -154,6 +187,17 @@ export const DEFAULT_RESIDUE: ResidueLook = {
   life: 3,
   reach: 14,
   layerSec: 0.5,
+  adapt: true,
+  everyMax: 6,
+  layerMax: 1.5,
+  presentShare: 0.5,
+  presentFull: 3000,
+  far: 12,
+  thinD: 1,
+  clump: 1,
+  near: 2,
+  inkNear: 1.2,
+  inkFar: 6,
   stagger: 1.2,
   colour: "#ffffff",
   concrete: 0.7,
@@ -195,6 +239,11 @@ export function setResidueLook(v: Partial<ResidueLook>): void {
   Object.assign(residueLook, v);
 }
 
+/** THE TWO INTERVALS AS THEY RUN NOW (ResidueLook.adapt): the reading's and the layers' (s), how slow the frames are
+ *  (0 = as fast as this screen lately did … 1 = twice as slow), what one reading and one layer cost (ms) — the knobs'
+ *  readout. */
+export const residueTiming = { every: 2, layer: 0.5, load: 0, readMs: 0, layerMs: 0, present: 1, shown: 0 };
+
 /** F (a phone: FutureResiduePressButton) pressed: each press counts once, read by the residue's frame. */
 export const residuePress = { count: 0 };
 export function pressResidue(): void {
@@ -232,8 +281,9 @@ export function residueActive(): boolean {
 const FALLBACK_DENSITY: DensityConfig = { ...DEFAULT_DENSITY, path: { ...DEFAULT_PATH, step: NO_PATHS }, slotSec: 20, gapSec: 20, maxBuilt: 8000, mergeGap: 3, mergeThick: 2, liveAt: 0.25, minVisitors: 4, step: 40, maxLevel: 6, ratio: 3, massRatio: 1.45, visitorCap: 60, radius: 2.75, timeSec: 60, down: 0.5 };
 /** Samples put into the field in one frame. */
 const FEED_PER_FRAME = 150;
-/** The most points in the pool (the parts' faces, the plants, the mounds, what is still blowing away). */
-const CAP = 120_000;
+/** The most points in the pool (the parts' faces, the plants, the mounds, what is still blowing away) — room for each
+ *  kind's 점 수 turned up (only what is there is drawn). */
+const CAP = 200_000;
 /** A smear's ribbon: this many pieces along the way it went (it follows the swirl's curve). */
 const STREAK_SEGS = 8;
 /** The most smears at once (points blowing away). */
@@ -243,6 +293,13 @@ const GHOSTS = 8;
 const GHOST_CAP = 40_000;
 /** Readings looked at in one frame (more are sampled evenly). */
 const READ_PER_FRAME = 4000;
+/** A READING SPREAD OVER FRAMES (the coordinator, 2026-11-27: the redesign's preview lagged — one reading built its
+ *  ~200k points in one frame, 240–610 ms): at most this many ms of a frame go to it (one slice may run over a little),
+ *  and the pool's points are made READ_STEP at a time. */
+const READ_BUDGET_MS = 3;
+const READ_STEP = 512;
+// (the phases of the last reading — latest, presence, pool, carry, stage, swap, its worst frame (ms) and the frames it
+// took — are in window.__residue)
 /** The parts' grid (world): a reading looks in its own bucket only, each part in every bucket it reaches into. */
 const GRID = 2.4;
 /** Rays of the residue's own onto the ground a frame (finding only, never drawn). */
@@ -398,6 +455,29 @@ vec3 flowColour(vec3 p, vec3 base) {
   return mix(base, own, uFlow);
 }`;
 
+/** FAR AND NEAR, ITS OWN (ResidueLook.far … near; needs byKind): thinned and grown past `far`, thinned too near — as
+ *  the present's readings are (LidarScan lodSize), at the future's own numbers. */
+const DIST_GLSL = /* glsl */ `
+uniform vec3 uFar3;
+uniform vec3 uThinD3;
+uniform vec3 uClump3;
+uniform vec3 uNear3;
+// (kept past far with the chance (far/d)^(2 thinD): 1 = as the present's far readings, 0 = all kept; within near with
+// the chance (d/near)², at least 3 %, as the present's too-near readings)
+float farKeep(float d, float seed) {
+  float nr = byKind(uNear3);
+  if (nr > 0.0 && d < nr && fract(seed * 47.3) > max(0.03, (d / nr) * (d / nr))) return 0.0;
+  float f = byKind(uFar3);
+  if (f <= 0.0 || d <= f) return 1.0;
+  return fract(seed * 91.7) > pow(f / d, 2.0 * byKind(uThinD3)) ? 0.0 : 1.0;
+}
+// (grown past far × (d/far)^clump, at most 4×: 1 = as the present's)
+float farGrow(float d) {
+  float f = byKind(uFar3);
+  return f <= 0.0 || d <= f ? 1.0 : min(4.0, pow(d / f, byKind(uClump3)));
+}
+`;
+
 const VERT = /* glsl */ `
 attribute vec3 aCol;
 attribute vec3 aBloom;
@@ -409,7 +489,6 @@ uniform float uTime;
 uniform vec3 uDevelop3;
 uniform float uLife;
 uniform float uRange;
-uniform float uLod;
 uniform float uReach;
 uniform vec3 uC0;
 uniform vec3 uC1;
@@ -420,6 +499,7 @@ varying float vA;
 varying float vPx;
 varying float vSoft;
 ${BLOW_GLSL}
+${DIST_GLSL}
 ${FLOW_GLSL}
 vec3 ramp(float t) {
   return t < 1.0 ? mix(uC0, uC1, t) : t < 2.0 ? mix(uC1, uC2, t - 1.0) : mix(uC2, uC3, t - 2.0);
@@ -441,8 +521,7 @@ void main() {
     vec3 seen = ramp(clamp(dEye / uRange, 0.0, 1.0) * 3.0);
     float dev = byKind(uDevelop3);
     col = mix(seen, flowColour(position, aCol), dev > 0.0 ? smoothstep(0.0, dev, age) : 1.0);
-    // far off, as sparse as the lidar's own far readings (kept with the chance (lod/d)²), and gone at the scanner's reach
-    if (uLod > 0.0 && dEye > uLod && fract(aSeed * 91.7) > (uLod / dEye) * (uLod / dEye)) a = 0.0;
+    // gone at the scanner's reach (far off thinned and grown, too near thinned: below, its own)
     a *= 1.0 - smoothstep(uReach * 0.55, uReach, dEye);
     if (uLife > 0.0) a *= 1.0 - smoothstep(uLife * 0.7, uLife, age);
     // (gone from the future's reading: it fades in a second rather than popping)
@@ -463,12 +542,17 @@ void main() {
       }
     }
   }
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  // FAR AND NEAR, its own, by the present's rules: thinned and grown far off, thinned too near (its softening by depth
+  // is the photograph's, in a frame of its own — InkPaper)
+  float dE = -mv.z;
+  a *= farKeep(dE, aSeed);
+  px *= farGrow(dE);
   vA = a;
   vCol = col;
-  vec4 mv = modelViewMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * mv;
   // (as the lidar's dots: one size on screen, a little larger right by the eye)
-  vPx = px * clamp(3.0 / max(0.1, -mv.z), 1.0, 1.6);
+  vPx = px * clamp(3.0 / max(0.1, dE), 1.0, 1.6);
   gl_PointSize = a > 0.0 ? vPx : 0.0;
 }`;
 
@@ -477,7 +561,9 @@ varying vec3 vCol;
 varying float vA;
 varying float vPx;
 varying float vSoft;
+${PRESENT_DEPTH_GLSL}
 void main() {
+  if (behindPresent()) discard;
   // a round dot: the lidar's one-pixel edge (soft 0) … a soft round glow falling off from its middle (soft 1)
   float r = length(gl_PointCoord * 2.0 - 1.0);
   float crisp = clamp((1.0 - r) * vPx * 0.5 + 0.5, 0.0, 1.0);
@@ -485,6 +571,7 @@ void main() {
   float a = vA * mix(crisp, glow, vSoft);
   if (a <= 0.003) discard;
   gl_FragColor = vec4(vCol, a);
+  #include <colorspace_fragment>
 }`;
 
 /** The cores only (the depth pass of the layer of now): the dense middle of a dot, nothing of its rim. */
@@ -493,7 +580,9 @@ varying vec3 vCol;
 varying float vA;
 varying float vPx;
 varying float vSoft;
+${PRESENT_DEPTH_GLSL}
 void main() {
+  if (behindPresent()) discard;
   float r = length(gl_PointCoord * 2.0 - 1.0);
   float crisp = clamp((1.0 - r) * vPx * 0.5 + 0.5, 0.0, 1.0);
   float glow = exp(-r * r * 3.0) * (1.0 - smoothstep(0.8, 1.0, r));
@@ -512,7 +601,6 @@ attribute float aRel;
 uniform float uTime;
 uniform vec3 uTail3;
 uniform vec3 uStreak3;
-uniform float uLod;
 uniform float uReach;
 uniform vec2 uRes;
 varying vec3 vCol;
@@ -520,6 +608,7 @@ varying float vA;
 varying float vSide;
 varying float vSoft;
 ${BLOW_GLSL}
+${DIST_GLSL}
 vec4 clipAt(float rt) {
   return projectionMatrix * modelViewMatrix * vec4(aOrigin + blowOffset(aOrigin, rt, flightOf(rt)), 1.0);
 }
@@ -538,11 +627,11 @@ void main() {
   float kh = flightOf(rtH), k = flightOf(rc);
   float a = rtH > 0.0 && rt > 0.0 ? byKind(uStreak3) * (1.0 - along) * (1.0 - smoothstep(0.45, 1.0, kh)) : 0.0;
   float dEye = c0.w;
-  if (uLod > 0.0 && dEye > uLod && fract(aSeed * 91.7) > (uLod / dEye) * (uLod / dEye)) a = 0.0;
+  a *= farKeep(dEye, aSeed);
   a *= 1.0 - smoothstep(uReach * 0.55, uReach, dEye);
   // (a little wider than the dot was then — a blur, not a thread — narrowing towards the oldest)
   float sv = fract(aSeed * 53.1);
-  float px = 1.4 * byKind(uSize3) * mix(1.0, 0.55 + 1.5 * sv * sv, byKind(uSizeVar3)) * (1.0 - 0.55 * k) * (1.0 - 0.4 * along);
+  float px = 1.4 * byKind(uSize3) * mix(1.0, 0.55 + 1.5 * sv * sv, byKind(uSizeVar3)) * (1.0 - 0.55 * k) * (1.0 - 0.4 * along) * farGrow(dEye);
   vA = a;
   vSide = side;
   vSoft = byKind(uSoft3);
@@ -555,12 +644,15 @@ varying vec3 vCol;
 varying float vA;
 varying float vSide;
 varying float vSoft;
+${PRESENT_DEPTH_GLSL}
 void main() {
+  if (behindPresent()) discard;
   // soft across, as the dot is
   float s = abs(vSide);
   float a = vA * mix(1.0 - smoothstep(0.6, 1.0, s), exp(-s * s * 3.0), vSoft);
   if (a <= 0.003) discard;
   gl_FragColor = vec4(vCol, a);
+  #include <colorspace_fragment>
 }`;
 
 /** The colour flow's uniforms (FLOW_GLSL), on the layer of now and on each earlier layer. */
@@ -598,6 +690,17 @@ function paletteOf(L: ResidueLook): { leaves: THREE.Color[]; flowers: THREE.Colo
   return flowPal;
 }
 
+/** Far and near (DIST_GLSL), per kind; set each frame by setDist. */
+const DIST_UNIFORMS = () => Object.fromEntries(["uFar3", "uThinD3", "uClump3", "uNear3"].map((n) => [n, { value: new THREE.Vector3() }]));
+function setDist(w: Record<string, THREE.IUniform>, L: ResidueLook): void {
+  // (one for all of the future — the shaders keep a slot a kind, all three the same)
+  const all = (v: number, d: number, u: THREE.IUniform) => (u.value as THREE.Vector3).setScalar(Number.isFinite(v) ? v : d);
+  all(L.far, 12, w.uFar3);
+  all(L.thinD, 1, w.uThinD3);
+  all(L.clump, 1, w.uClump3);
+  all(L.near, 2, w.uNear3);
+}
+
 const BLOW_UNIFORMS = () => ({ uDist3: { value: new THREE.Vector3(4, 5, 2.5) }, uRise3: { value: new THREE.Vector3(0.4, 1.2, 0.3) }, uTurb3: { value: new THREE.Vector3(0.8, 1, 0.6) }, uScatter3: { value: new THREE.Vector3(2.2, 2.5, 3) }, uBloom3: { value: new THREE.Vector3(0.6, 0.8, 0.4) }, uSize3: { value: new THREE.Vector3(2, 2, 2) }, uSizeVar3: { value: new THREE.Vector3(0.6, 0.6, 0.6) }, uSoft3: { value: new THREE.Vector3(0.6, 0.6, 0.6) } });
 
 /** The pool's GPU side, made the first time the residue runs (the exhibition's view never makes it). */
@@ -614,7 +717,8 @@ function makePoints(): THREE.Points {
       uDevelop3: { value: new THREE.Vector3(1.2, 1.2, 1.2) },
       uLife: { value: 0 },
       uRange: { value: 22 },
-      uLod: { value: 12 },
+      ...DIST_UNIFORMS(),
+      ...presentDepth,
       uReach: { value: 14 },
       uC0: { value: new THREE.Color("#5ff0c8") },
       uC1: { value: new THREE.Color("#c6f06a") },
@@ -632,12 +736,14 @@ function makePoints(): THREE.Points {
   const pts = new THREE.Points(g, m);
   pts.frustumCulled = false;
   pts.renderOrder = 5;
+  pts.layers.set(FUTURE_LAYER);
   // THE CORES' DEPTH, drawn first (opaque, no colour): only the dense middle of each dot writes depth, so the
   // photograph's pass still softens the residue by its real distance and a near dot still hides what is behind its
   // core — while the rims only ever blend
   const depth = new THREE.Points(g, new THREE.ShaderMaterial({ uniforms: m.uniforms, vertexShader: VERT, fragmentShader: CORE_FRAG, colorWrite: false, depthWrite: true }));
   depth.frustumCulled = false;
   depth.renderOrder = 4;
+  depth.layers.set(FUTURE_LAYER);
   pts.add(depth);
   return pts;
 }
@@ -655,7 +761,7 @@ function makeStreaks(): THREE.Mesh {
     g.setAttribute(name, new THREE.InstancedBufferAttribute(new Float32Array(STREAK_CAP * size), size).setUsage(THREE.DynamicDrawUsage));
   g.instanceCount = 0;
   const m = new THREE.ShaderMaterial({
-    uniforms: { ...BLOW_UNIFORMS(), uTime: { value: 0 }, uTail3: { value: new THREE.Vector3() }, uStreak3: { value: new THREE.Vector3() }, uLod: { value: 12 }, uReach: { value: 14 }, uRes: { value: new THREE.Vector2(1, 1) } },
+    uniforms: { ...BLOW_UNIFORMS(), uTime: { value: 0 }, uTail3: { value: new THREE.Vector3() }, uStreak3: { value: new THREE.Vector3() }, ...DIST_UNIFORMS(), ...presentDepth, uReach: { value: 14 }, uRes: { value: new THREE.Vector2(1, 1) } },
     vertexShader: STREAK_VERT,
     fragmentShader: STREAK_FRAG,
     transparent: true,
@@ -666,6 +772,7 @@ function makeStreaks(): THREE.Mesh {
   const ms = new THREE.Mesh(g, m);
   ms.frustumCulled = false;
   ms.renderOrder = 5;
+  ms.layers.set(FUTURE_LAYER);
   return ms;
 }
 
@@ -678,7 +785,6 @@ attribute float aKind;
 uniform float uAge;
 uniform float uKill;
 uniform float uLayer;
-uniform float uLod;
 uniform float uReach;
 uniform vec3 uLife3;
 uniform vec3 uAlpha3;
@@ -698,6 +804,7 @@ ${FLOW_GLSL}
 float byKind(vec3 v) {
   return aKind < 0.5 ? v.x : aKind < 1.5 ? v.y : v.z;
 }
+${DIST_GLSL}
 float h1(float x) { return fract(sin(x * 12.9898 + uLayer * 78.233) * 43758.5453); }
 void main() {
   // (o: how old the layer is for this kind, 0 just laid … 1 gone)
@@ -707,7 +814,6 @@ void main() {
   float bleed = byKind(uBleed3), tear = byKind(uTear3), drip = byKind(uDrip3), block = byKind(uBlock3);
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   float dEye = -mv.z;
-  if (uLod > 0.0 && dEye > uLod && fract(aSeed * 91.7) > (uLod / dEye) * (uLod / dEye)) a = 0.0;
   a *= 1.0 - smoothstep(uReach * 0.55, uReach, dEye);
   float sv = fract(aSeed * 53.1);
   // BLEED: the older a layer, the larger and softer its dots
@@ -731,6 +837,9 @@ void main() {
   float hc = h1(colm * 1.7 + 101.0);
   ndc.y -= step(1.0 - 0.5 * drip, hc) * o * o * drip * 0.45 * (0.4 + hc);
   clip.xy = ndc * clip.w;
+  // FAR AND NEAR, as the layer of now's (softened with it, in its frame)
+  a *= farKeep(dEye, aSeed);
+  px *= farGrow(dEye);
   vA = a;
   // (an earlier layer flows on with the rest: it is the same plants, a moment ago)
   vCol = flowColour(position, aCol);
@@ -747,8 +856,10 @@ function makeGhost(): THREE.Points {
   const m = new THREE.ShaderMaterial({
     uniforms: {
       ...FLOW_UNIFORMS(),
+      ...DIST_UNIFORMS(),
+      ...presentDepth,
       ...Object.fromEntries([
-        ...["uAge", "uKill", "uLayer", "uLod", "uReach"].map((n) => [n, { value: n === "uAge" ? 1e6 : n === "uKill" ? 1 : 0 }]),
+        ...["uAge", "uKill", "uLayer", "uReach"].map((n) => [n, { value: n === "uAge" ? 1e6 : n === "uKill" ? 1 : 0 }]),
         ...["uLife3", "uAlpha3", "uSize3", "uSizeVar3", "uSoft3", "uBleed3", "uTear3", "uDrip3", "uBlock3", "uThin3"].map((n) => [n, { value: new THREE.Vector3() }]),
       ]),
     },
@@ -762,12 +873,52 @@ function makeGhost(): THREE.Points {
   const p = new THREE.Points(g, m);
   p.frustumCulled = false;
   p.renderOrder = 6;
+  p.layers.set(FUTURE_LAYER);
   return p;
 }
 
-/** The pool from one reading of the future: the parts' faces, the trees, the plant clouds, the mounds, the dark earth. */
-function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
-  const pos = new Float32Array(CAP * 3), col = new Float32Array(CAP * 3), bloom = new Float32Array(CAP * 3), seed = new Float32Array(CAP), kind = new Float32Array(CAP);
+/** The pool's arrays: two sets, made once — the one shown, and the one the next reading fills. */
+interface PoolBuf {
+  pos: Float32Array;
+  col: Float32Array;
+  bloom: Float32Array;
+  seed: Float32Array;
+  kind: Float32Array;
+}
+const poolBuf = (): PoolBuf => ({ pos: new Float32Array(CAP * 3), col: new Float32Array(CAP * 3), bloom: new Float32Array(CAP * 3), seed: new Float32Array(CAP), kind: new Float32Array(CAP) });
+/** What the GPU's arrays will hold once a reading is swapped in, staged a part at a time (made once). */
+interface Staged {
+  pos: Float32Array;
+  found: Float32Array;
+  delay: Float32Array;
+  rel: Float32Array;
+  dir: Float32Array;
+  die: Float32Array;
+}
+/** A reading under way (FutureResidue's frame): the pool being made, then carried, staged, and swapped in. */
+interface ReadingJob {
+  gen: Generator<void, Pool, void>;
+  pool: Pool | null;
+  keys: Set<string> | null;
+  carried: boolean;
+  partI: number;
+  snap: Float32Array | null;
+  ready: boolean;
+  frames: number;
+  spent: number;
+  K: number;
+  kMe: number;
+  ms: number;
+  phases: { latest: number; presence: number; pool: number; carry: number; stage: number; swap: number; worstFrame: number };
+}
+const staged = (): Staged => ({ pos: new Float32Array(CAP * 3), found: new Float32Array(CAP), delay: new Float32Array(CAP), rel: new Float32Array(CAP), dir: new Float32Array(CAP * 2), die: new Float32Array(CAP) });
+
+/** The pool from one reading of the future: the parts' faces, the trees, the plant clouds, the mounds, the dark earth —
+ *  made into `buf`, READ_STEP points at a time (it yields between: the frame runs it within its budget). */
+function* buildPoolSteps(r: PresenceResult, unit: number, look: ResidueLook, buf: PoolBuf): Generator<void, Pool, void> {
+  const { pos, col, bloom, seed, kind } = buf;
+  // (a slice done: back to the frame)
+  let mark = 0;
   const parts: Pool["parts"] = [];
   let n = 0;
   const white = new THREE.Color(look.colour), stem = new THREE.Color(look.stemColour);
@@ -832,6 +983,10 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
     }
     const k = (r.partSteel[cur] ? 1 : look.concrete) * (0.82 + 0.36 * hash(i, cur, 31));
     add(S[o], S[o + 1], S[o + 2], white, k, hash(i, cur, 37), pick(pollen, hash(i, cur, 41)), 0);
+    if (n - mark >= READ_STEP) {
+      mark = n;
+      yield;
+    }
   }
   close();
   // THE TREES, one part a cell — fuller ("나무는 더 풍성해보여야"): the crown filled with leaf clumps round its own
@@ -845,16 +1000,21 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
     else trees.set(q, [o]);
   }
   const full = Math.max(1, look.treeFull);
+  // (each kind's 점 수: a leaf's, a stem's — a point left out by its own steady hash, so a rebuild leaves out the same ones)
+  const dLeaf = Math.max(0, look.kinds.leaf.density), dStem = Math.max(0, look.kinds.stem.density);
   for (const [q, list] of trees) {
     // (a tree its own leaf colour, a little of another in it; the stem a birch's near-white)
     const crown = pick(leaves, hash(q, 17, 3)), alt = pick(leaves, hash(q, 19, 5));
     open("t");
-    let cx = 0, cy = 0, cz = 0, cn = 0, sx = 0, sz = 0, sn = 0, crownLow = Infinity;
+    // (the crown's points as the future gave them; the crown filled to × 나무 풍성함 × 잎 점 수 — under its own count,
+    // some of its own left out)
+    let cn = 0;
+    for (const o of list) if (T[o + 3] >= 0.2) cn++;
+    const crownWant = cn * full * dLeaf, keepCrown = cn > 0 ? Math.min(1, crownWant / cn) : 0;
+    let cx = 0, cy = 0, cz = 0, sx = 0, sz = 0, sn = 0, crownLow = Infinity;
     for (const o of list) {
       const s = hash(Math.round(T[o] * 97), Math.round(T[o + 2] * 89), o);
       const isStem = T[o + 3] < 0.2, y = T[o + 1] * unit;
-      const c = isStem ? stem : tmp.copy(crown).lerp(alt, 0.35 * hash(o, q, 7));
-      add(T[o], y, T[o + 2], c, isStem ? 0.85 : 0.75 + 0.6 * T[o + 3], s, pick(isStem ? pollen : petals, hash(o, q, 9)), isStem ? 2 : 1);
       if (isStem) {
         sx += T[o];
         sz += T[o + 2];
@@ -863,11 +1023,13 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
         cx += T[o];
         cy += y;
         cz += T[o + 2];
-        cn++;
         crownLow = Math.min(crownLow, y);
       }
+      if (hash(o, q, 211) >= (isStem ? Math.min(1, dStem) : keepCrown)) continue;
+      const c = isStem ? stem : tmp.copy(crown).lerp(alt, 0.35 * hash(o, q, 7));
+      add(T[o], y, T[o + 2], c, isStem ? 0.85 : 0.75 + 0.6 * T[o + 3], s, pick(isStem ? pollen : petals, hash(o, q, 9)), isStem ? 2 : 1);
     }
-    if (cn > 0 && full > 1) {
+    if (cn > 0) {
       cx /= cn;
       cy /= cn;
       cz /= cn;
@@ -880,7 +1042,7 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
         rz = Math.max(rz, Math.abs(T[o + 2] - cz));
       }
       // leaf clumps over the crown (most near its outside), points gathered round each
-      const extra = Math.round(cn * (full - 1)), clumps = 6 + Math.floor(hash(q, 23, 1) * 8);
+      const extra = Math.max(0, Math.round(crownWant - cn)), clumps = 6 + Math.floor(hash(q, 23, 1) * 8);
       for (let i = 0; i < extra; i++) {
         const cl = i % clumps;
         const ca = hash(q, cl, 29) * Math.PI * 2, cc = hash(q, cl, 31) * 2 - 1, cr = Math.pow(hash(q, cl, 37), 0.35);
@@ -896,7 +1058,7 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
       if (sn > 0) {
         sx /= sn;
         sz /= sn;
-        const top = Math.max(0.3, Math.min(cy, crownLow + ry * 0.4)), cntS = Math.round(18 + 10 * full);
+        const top = Math.max(0.3, Math.min(cy, crownLow + ry * 0.4)), cntS = Math.round((18 + 10 * full) * dStem);
         const lean = (hash(q, 101, 1) - 0.5) * 0.15;
         for (let i = 0; i < cntS; i++) {
           const u = hash(q, i, 103), y = u * top;
@@ -906,12 +1068,17 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
       }
     }
     close();
+    if (n - mark >= READ_STEP) {
+      mark = n;
+      yield;
+    }
   }
   // THE PLANT CLOUDS (grass and scrub: x, z, foot, radius, height …): points in a low dome over their ground
   const PC = r.plantClouds;
   for (let o = 0; o + 11 < PC.length; o += 12) {
     const x = PC[o], z = PC[o + 1], foot = PC[o + 2] * unit, R = Math.max(0.05, PC[o + 3]), H = PC[o + 4] * unit;
-    const cnt = Math.max(4, Math.min(80, Math.round(Math.PI * R * R * look.plantDensity)));
+    // (× 잎 점 수: the least and the most a cloud holds scaled with it)
+    const cnt = Math.max(Math.round(4 * Math.min(1, dLeaf)), Math.min(Math.round(80 * Math.max(1, dLeaf)), Math.round(Math.PI * R * R * look.plantDensity * dLeaf)));
     const sx = Math.round(x * 100), sz = Math.round(z * 100);
     // (a cloud its own leaf colour, a little of a neighbour's in it; a meadow flowers by its own flower share — PC[o + 6]
     // — × 꽃 비율)
@@ -925,29 +1092,43 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
       add(x + Math.cos(a) * rr, y, z + Math.sin(a) * rr, c, flowering ? 1.1 : 0.75 + 0.5 * hash(sz, sx, i), hash(sx, i, sz), pick(petals, hash(i, sz, 109)), flowering ? 1.25 : 1);
     }
     close();
+    if (n - mark >= READ_STEP) {
+      mark = n;
+      yield;
+    }
   }
   // THE MOUNDS: a dome of pale points, fuller the higher their score; THE DARK EARTH: a few grey points flat
+  // (× 부재 점 수, as the parts' faces — FutureResidue's futurePresence call)
+  const dPart = Math.max(0, look.kinds.part.density);
   const M = r.mounds;
   for (let o = 0; o + 3 < M.length; o += 4) {
     const x = M[o], z = M[o + 1], score = M[o + 2], sd = Math.floor(M[o + 3] * 1e6);
-    const cnt = Math.min(48, 8 + Math.round(score * 8)), R = CELL_SIZE * 0.45 * Math.min(2, Math.sqrt(score)), H = unit * 0.3 * Math.min(1.5, score);
+    const cnt = Math.round(Math.min(48, 8 + Math.round(score * 8)) * dPart), R = CELL_SIZE * 0.45 * Math.min(2, Math.sqrt(score)), H = unit * 0.3 * Math.min(1.5, score);
     open("m");
     for (let i = 0; i < cnt; i++) {
       const u1 = hash(sd, i, 1), th = hash(sd, i, 2) * Math.PI * 2, rr = R * Math.sqrt(u1);
       add(x + Math.cos(th) * rr, 0.02 + H * (1 - u1), z + Math.sin(th) * rr, white, 0.75 + 0.2 * hash(sd, i, 3), hash(sd, i, 4), pick(pollen, hash(sd, i, 8)), 0);
     }
     close();
+    if (n - mark >= READ_STEP) {
+      mark = n;
+      yield;
+    }
   }
   const E = r.stains;
   for (let o = 0; o + 3 < E.length; o += 4) {
     const x = E[o], z = E[o + 1], share = E[o + 2], sd = Math.floor(E[o + 3] * 1e6);
-    const cnt = 4 + Math.round(share * 6);
+    const cnt = Math.round((4 + Math.round(share * 6)) * dPart);
     open("e");
     for (let i = 0; i < cnt; i++) {
       const th = hash(sd, i, 5) * Math.PI * 2, rr = CELL_SIZE * 0.4 * Math.sqrt(hash(sd, i, 6));
       add(x + Math.cos(th) * rr, 0.02, z + Math.sin(th) * rr, white, 0.4, hash(sd, i, 7), pick(pollen, hash(sd, i, 9)), 0);
     }
     close();
+    if (n - mark >= READ_STEP) {
+      mark = n;
+      yield;
+    }
   }
   // (the parts' buckets: each part in every bucket its box, grown by the finding distance, reaches into)
   const grid = new Map<number, number[]>();
@@ -971,7 +1152,10 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
   const streaks = useRef<THREE.Mesh | null>(null);
   const ghosts = useRef<THREE.Points[]>([]);
   const field = useRef<{ f: DensityField; dens: DensityConfig | null; version: unknown; fed: number; drops: number } | null>(null);
-  const st = useRef({ timer: 10, pool: null as Pool | null, states: new Map<string, PartState>(), tapFrame: -1, present: false, obs: null as Excavator | null, pass: null as null | { x: number; z: number; fx: number; fz: number; t0: number }, streakHead: 0, streakFilled: 0, streakUntil: 0, layerT: 0, ghostHead: 0, ghostBorn: new Array<number>(GHOSTS).fill(-1e9), ghostKill: 0, pressSeen: residuePress.count, pressUntil: 0, releaseAt: 0 });
+  const st = useRef({ timer: 10, pool: null as Pool | null, states: new Map<string, PartState>(), tapFrame: -1, present: false, obs: null as Excavator | null, pass: null as null | { x: number; z: number; fx: number; fz: number; t0: number }, streakHead: 0, streakFilled: 0, streakUntil: 0, layerT: 0, ghostHead: 0, ghostBorn: new Array<number>(GHOSTS).fill(-1e9), ghostKill: 0, pressSeen: residuePress.count, pressUntil: 0, releaseAt: 0, dtAvg: 0, dtBest: 0, readMs: 0, layerMs: 0, every: NaN, layer: NaN, thin: 1, job: null as ReadingJob | null });
+  // (the pool's two sets of arrays, and the staged GPU arrays: made the first time a reading runs)
+  const bufs = useRef<[PoolBuf, PoolBuf] | null>(null);
+  const stage = useRef<Staged | null>(null);
   // F counts as an observer crossing the visitor (showWhen "press"; pressResidue checks the mode)
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -982,6 +1166,9 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
   }, []);
   useEffect(
     () => () => {
+      // (the present makes all its readings again; no future frame)
+      lidarThin.scale = 1;
+      futureInk.active = false;
       for (const o of [pts.current, streaks.current, ...ghosts.current]) {
         if (!o) continue;
         o.geometry.dispose();
@@ -999,7 +1186,13 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     const K3 = residueLook.kinds, anySmear = [K3.part, K3.leaf, K3.stem].some((k) => k.smear > 0 && k.smearAlpha > 0), anyGhost = [K3.part, K3.leaf, K3.stem].some((k) => k.ghostAlpha > 0);
     if (streaks.current) streaks.current.visible = on && anySmear;
     for (const gh of ghosts.current) gh.visible = on && anyGhost;
-    if (!on) return;
+    if (!on) {
+      // (no future here: the present makes all its readings; the photograph has no future frame to soften)
+      lidarThin.scale = 1;
+      st.current.thin = 1;
+      futureInk.active = false;
+      return;
+    }
     if (!pts.current && group.current) {
       pts.current = makePoints();
       streaks.current = makeStreaks();
@@ -1008,6 +1201,12 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     }
     const P = pts.current, SM = streaks.current;
     if (!P || !SM) return;
+    // (its own layer: seen with the rest without the photograph; InkPaper sets the camera's layers for its passes and
+    // softens it in a frame of its own at these radii)
+    state.camera.layers.enable(FUTURE_LAYER);
+    futureInk.active = true;
+    futureInk.narrow = Number.isFinite(residueLook.inkNear) ? residueLook.inkNear : 1.2;
+    futureInk.wide = Number.isFinite(residueLook.inkFar) ? residueLook.inkFar : 6;
     const L = residueLook, s = st.current, now = state.clock.elapsedTime, me = playerPosRef.current;
     const t0 = performance.now();
 
@@ -1161,12 +1360,22 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       const GA = (name: string) => gh.geometry.getAttribute(name) as THREE.BufferAttribute;
       const gPos = GA("position").array as Float32Array, gCol = GA("aCol").array as Float32Array, gSeed = GA("aSeed").array as Float32Array, gKind = GA("aKind").array as Float32Array;
       const cPos = A("position").array as Float32Array, cCol = A("aCol").array as Float32Array, cSeed = A("aSeed").array as Float32Array;
-      let m = 0;
+      // (more shown than a layer holds — 점 수 turned up: an even share of every kind, not the first ones only)
+      let shown = 0;
+      for (const p of pool0.parts) {
+        const ps = s.states.get(p.key);
+        if (ps && ps.found > 0 && ps.rel <= 0 && ps.died <= 0) shown += p.i1 - p.i0;
+      }
+      const share = Math.min(1, GHOST_CAP / Math.max(1, shown));
+      let m = 0, acc = 0;
       for (const p of pool0.parts) {
         const ps = s.states.get(p.key);
         if (!ps || ps.found <= 0 || ps.rel > 0 || ps.died > 0) continue;
         for (let i = p.i0; i < p.i1 && m < GHOST_CAP; i++) {
           if (ps.found + fDelay[i] > now) continue;
+          acc += share;
+          if (acc < 1) continue;
+          acc -= 1;
           for (let c = 0; c < 3; c++) {
             gPos[m * 3 + c] = cPos[i * 3 + c];
             gCol[m * 3 + c] = cCol[i * 3 + c];
@@ -1201,12 +1410,38 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       a.needsUpdate = true;
     };
 
+    // HOW HARD THE VIEW IS WORKING ("성능 따라 유동적으로 범위 안에서"): the frames against the fastest this screen has
+    // lately done (a 30 Hz screen is not read as slow; the fastest forgets slowly, ~0.2 ms a second), and what a reading
+    // and a layer themselves cost — each interval at its shortest when all is well, toward its longest as frames slow
+    // (twice the fastest = the longest) or as one reading would take more than 2 % of the time (a layer 3 %)
+    const fd = Math.min(0.25, Math.max(0.001, dt));
+    if (!(s.dtAvg > 0)) s.dtAvg = s.dtBest = fd;
+    s.dtAvg += (fd - s.dtAvg) * Math.min(1, dt * 2);
+    s.dtBest = Math.min(s.dtAvg, s.dtBest + dt * 0.0002);
+    const load = Math.min(1, Math.max(0, (s.dtAvg / s.dtBest - 1.15) / 0.85));
+    const fin = (x: number, d: number) => (Number.isFinite(x) ? x : d);
+    const eLo = Math.max(0.5, fin(cfg.everySec, 2)), eHi = Math.max(eLo, fin(L.everyMax, eLo));
+    const lLo = Math.max(0.05, fin(L.layerSec, 0.5)), lHi = Math.max(lLo, fin(L.layerMax, lLo));
+    const eWant = L.adapt ? Math.min(eHi, Math.max(eLo + (eHi - eLo) * load, s.readMs / 1000 / 0.02)) : eLo;
+    const lWant = L.adapt ? Math.min(lHi, Math.max(lLo + (lHi - lLo) * load, s.layerMs / 1000 / 0.03)) : lLo;
+    // (longer quickly, ~0.7 s; shorter again slowly, ~4 s — so it does not flutter)
+    const ease = (cur: number, want: number) => (Number.isFinite(cur) ? cur + (want - cur) * Math.min(1, dt / (want > cur ? 0.7 : 4)) : want);
+    s.every = ease(s.every, eWant);
+    s.layer = ease(s.layer, lWant);
+    Object.assign(residueTiming, { every: s.every, layer: s.layer, load, readMs: s.readMs, layerMs: s.layerMs });
+
     // THE READING OF THE FUTURE, every few seconds: the pool built anew, what each part has been through carried by
     // its key; a part gone from the reading fades out where it was (or finishes blowing away)
     s.timer += dt;
     const sNow = getS();
-    if (s.timer >= Math.max(0.5, cfg.everySec) && h.fed >= all.length && sNow > 0) {
+    // THE READING SPREAD OVER FRAMES (READ_BUDGET_MS): the future read (futurePresence, a few ms), its points made a
+    // slice a frame (buildPoolSteps), what has left carried, the GPU's arrays staged a part at a time — and the next
+    // frame swaps them in (copies); what changed meanwhile (found, let go) is staged again then. The pool shown runs on
+    // untouched until the swap.
+    const budgetEnd = performance.now() + READ_BUDGET_MS;
+    if (!s.job && s.timer >= s.every && h.fed >= all.length && sNow > 0) {
       s.timer = 0;
+      const tRead = performance.now();
       const kMe = Math.floor(sNow / Math.max(1, dcfg.slotSec));
       let K = kMe;
       if (cfg.readLatest) {
@@ -1214,105 +1449,211 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
         for (const sd of h.f.seeds()) if (sd.levels) for (const [k, lv] of sd.levels) if (lv >= 1 && k > kk && k <= K) kk = k;
         if (kk !== -Infinity) K = kk;
       }
+      const tLatest = performance.now();
       const box: BoxConfig = { ...DEFAULT_BOXES, secPerUnit: Math.max(1, dcfg.slotSec), unit: cfg.unit, width: 0.8, density: 1.4, variety: DEFAULT_VARIETY, buildSlots: 0 };
-      const pcfg: PresenceConfig = { band: cfg.band, ruin: cfg.ruin, unit: cfg.unit, radius: lidarLook.range + 4, maxBuildings: cfg.maxBuildings, strip: cfg.strip, lastSteel: cfg.lastSteel, lastPile: cfg.lastPile, traces: false, surface: cfg.surface, surfaceCap: 160, wild: cfg.wild };
+      // (the parts' faces × 부재 점 수: the points a face's area gives, the most on one part and on all of them, scaled)
+      const dPart = Math.max(0, L.kinds.part.density), dUp = Math.max(1, dPart);
+      // (read as far as it can show — 보이는 거리, never past the scanner's reach — and a margin to be found in: what lies
+      // beyond is never drawn, and the next reading takes it in as one walks closer)
+      const pcfg: PresenceConfig = { band: cfg.band, ruin: cfg.ruin, unit: cfg.unit, radius: Math.min(lidarLook.range, Math.max(1, L.reach)) + 4, maxBuildings: cfg.maxBuildings, strip: cfg.strip, lastSteel: cfg.lastSteel, lastPile: cfg.lastPile, traces: false, surface: cfg.surface * dPart, surfaceCap: Math.round(160 * dUp), surfaceMax: Math.round(Math.min(CAP * 0.75, 60000 * dUp)), wild: cfg.wild };
       const r = futurePresence(h.f, meRef.current.id, K, kMe, me, pcfg, box);
-      const pool = buildPool(r, cfg.unit, L);
-      // (what is shown until now stays as an earlier layer: where the new reading moves something, both are seen)
-      layGhost();
-      s.layerT = 0;
-      // (what was found and has left the reading: carried over to fade, or to finish blowing away)
-      const old = s.pool;
-      const keys = new Set(pool.parts.map((p) => p.key));
-      // (one that had faded out and is back in the reading is new: it waits to be found again)
-      for (const k of keys) if ((s.states.get(k)?.died ?? 0) > 0) s.states.delete(k);
-      // (a part of the same kind where a found one stood a moment ago: the future changed it — it stays found, and the
-      // old one fades beside it)
-      if (old)
-        for (const p of pool.parts) {
-          if (s.states.has(p.key)) continue;
-          const b = p.box, list = old.grid.get((Math.floor((b[0] + b[3]) / 2 / GRID) + 32768) * 65536 + (Math.floor((b[2] + b[5]) / 2 / GRID) + 32768));
-          if (!list) continue;
-          for (const oi of list) {
-            const op = old.parts[oi];
-            if (keys.has(op.key) || op.key[0] !== p.key[0]) continue;
-            const os = s.states.get(op.key);
-            if (!os || os.found <= 0 || os.rel > 0 || os.died > 0) continue;
-            const ob = op.box;
-            if (ob[0] > b[3] || ob[3] < b[0] || ob[2] > b[5] || ob[5] < b[2] || ob[1] > b[4] + 0.3 || ob[4] < b[1] - 0.3) continue;
-            s.states.set(p.key, { ...os });
-            break;
-          }
-        }
-      const gone = longestFlight(L) * 1.25 + L.stagger + 0.5;
-      if (old)
-        for (const p of old.parts) {
-          if (keys.has(p.key)) continue;
-          const ps = s.states.get(p.key);
-          if (!ps || ps.found <= 0) continue;
-          if (ps.rel > 0 ? now - ps.rel > gone : ps.died > 0 && now - ps.died > 1.2) continue;
-          if (ps.rel <= 0 && ps.died <= 0) ps.died = now;
-          if (pool.n + (p.i1 - p.i0) > CAP) continue;
-          const i0 = pool.n;
-          pool.pos.set(old.pos.subarray(p.i0 * 3, p.i1 * 3), i0 * 3);
-          pool.col.set(old.col.subarray(p.i0 * 3, p.i1 * 3), i0 * 3);
-          pool.bloom.set(old.bloom.subarray(p.i0 * 3, p.i1 * 3), i0 * 3);
-          pool.seed.set(old.seed.subarray(p.i0, p.i1), i0);
-          pool.kind.set(old.kind.subarray(p.i0, p.i1), i0);
-          pool.n += p.i1 - p.i0;
-          pool.parts.push({ key: p.key, i0, i1: pool.n, box: p.box });
-          keys.add(p.key);
-        }
-      // (the states of parts long gone or long blown away are forgotten: they may be found again)
-      for (const [k, ps] of s.states) {
-        if (!keys.has(k) || (ps.rel > 0 && now - ps.rel > gone)) s.states.delete(k);
-      }
-      // the GPU side anew: positions, colours, seeds, kinds, and what each part has been through
-      const fPos = A("position").array as Float32Array, fDie = A("aDie").array as Float32Array;
-      layNew(pool);
-      (A("aCol").array as Float32Array).set(pool.col.subarray(0, pool.n * 3));
-      (A("aBloom").array as Float32Array).set(pool.bloom.subarray(0, pool.n * 3));
-      (A("aSeed").array as Float32Array).set(pool.seed.subarray(0, pool.n));
-      (A("aKind").array as Float32Array).set(pool.kind.subarray(0, pool.n));
-      for (const p of pool.parts) {
-        const ps = s.states.get(p.key);
+      const tFp = performance.now();
+      if (!bufs.current) bufs.current = [poolBuf(), poolBuf()];
+      const B2 = bufs.current;
+      const buf = s.pool && s.pool.pos === B2[0].pos ? B2[1] : B2[0];
+      s.job = { gen: buildPoolSteps(r, cfg.unit, L, buf), pool: null, keys: null, carried: false, partI: 0, snap: null, ready: false, frames: 0, spent: tFp - tRead, K, kMe, ms: r.ms, phases: { latest: tLatest - tRead, presence: tFp - tLatest, pool: 0, carry: 0, stage: 0, swap: 0, worstFrame: tFp - tRead } };
+    }
+    const job = s.job;
+    if (job) {
+      const tj = performance.now();
+      job.frames++;
+      if (!stage.current) stage.current = staged();
+      const ST = stage.current;
+      // (a part's state into the staged arrays: when it was found and how far each point is from the touch, when its
+      // gust comes, which way, when it faded; what was staged is noted, to stage again what changes before the swap)
+      const stageState = (pool: Pool, pi: number, snap: Float32Array) => {
+        const p = pool.parts[pi], ps = s.states.get(p.key);
+        snap[pi * 3] = ps?.found ?? 0;
+        snap[pi * 3 + 1] = ps?.rel ?? 0;
+        snap[pi * 3 + 2] = ps?.died ?? 0;
         for (let i = p.i0; i < p.i1; i++) {
           if (!ps || ps.found <= 0) {
-            fFound[i] = 0;
-            fDelay[i] = 0;
-            fRel[i] = 0;
-            fDie[i] = 0;
+            ST.found[i] = 0;
+            ST.delay[i] = 0;
+            ST.rel[i] = 0;
+            ST.die[i] = 0;
             continue;
           }
-          fFound[i] = ps.found;
-          fDelay[i] = Math.hypot(fPos[i * 3] - ps.hx, fPos[i * 3 + 1] - ps.hy, fPos[i * 3 + 2] - ps.hz) / Math.max(0.1, kindOf(L, pool.kind[i]).spread) + 0.08 * pool.seed[i];
-          fRel[i] = ps.rel > 0 ? blowAt(ps, fPos[i * 3], fPos[i * 3 + 2], pool.seed[i], L.stagger) : 0;
-          fDir[i * 2] = ps.dx;
-          fDir[i * 2 + 1] = ps.dz;
-          fDie[i] = ps.died;
+          ST.found[i] = ps.found;
+          ST.delay[i] = Math.hypot(ST.pos[i * 3] - ps.hx, ST.pos[i * 3 + 1] - ps.hy, ST.pos[i * 3 + 2] - ps.hz) / Math.max(0.1, kindOf(L, pool.kind[i]).spread) + 0.08 * pool.seed[i];
+          ST.rel[i] = ps.rel > 0 ? blowAt(ps, ST.pos[i * 3], ST.pos[i * 3 + 2], pool.seed[i], L.stagger) : 0;
+          ST.dir[i * 2] = ps.dx;
+          ST.dir[i * 2 + 1] = ps.dz;
+          ST.die[i] = ps.died;
         }
+      };
+      if (job.ready && job.pool && job.snap && job.keys) {
+        // 4. THE SWAP, a frame of its own: what is shown now stays as an earlier layer; the states of parts long gone
+        // forgotten; what changed since its part was staged staged again; then the arrays copied in
+        const pool = job.pool, snap = job.snap, keys = job.keys;
+        layGhost();
+        s.layerT = 0;
+        const gone = longestFlight(L) * 1.25 + L.stagger + 0.5;
+        for (const [k, ps] of s.states) {
+          if (!keys.has(k) || (ps.rel > 0 && now - ps.rel > gone)) s.states.delete(k);
+        }
+        for (let pi = 0; pi < pool.parts.length; pi++) {
+          const ps = s.states.get(pool.parts[pi].key);
+          if (snap[pi * 3] !== (ps?.found ?? 0) || snap[pi * 3 + 1] !== (ps?.rel ?? 0) || snap[pi * 3 + 2] !== (ps?.died ?? 0)) stageState(pool, pi, snap);
+        }
+        const n = pool.n;
+        (A("position").array as Float32Array).set(ST.pos.subarray(0, n * 3));
+        (A("aCol").array as Float32Array).set(pool.col.subarray(0, n * 3));
+        (A("aBloom").array as Float32Array).set(pool.bloom.subarray(0, n * 3));
+        (A("aSeed").array as Float32Array).set(pool.seed.subarray(0, n));
+        (A("aKind").array as Float32Array).set(pool.kind.subarray(0, n));
+        (A("aFound").array as Float32Array).set(ST.found.subarray(0, n));
+        (A("aDelay").array as Float32Array).set(ST.delay.subarray(0, n));
+        (A("aRel").array as Float32Array).set(ST.rel.subarray(0, n));
+        (A("aDir").array as Float32Array).set(ST.dir.subarray(0, n * 2));
+        (A("aDie").array as Float32Array).set(ST.die.subarray(0, n));
+        // (the buckets were made from the new parts only; the carried ones cannot be found again)
+        s.pool = pool;
+        for (const at of ["position", "aCol", "aBloom", "aSeed", "aKind", "aDie", "aFound", "aDelay", "aRel", "aDir"]) {
+          const a = A(at);
+          a.clearUpdateRanges();
+          a.addUpdateRange(0, n * a.itemSize);
+          a.needsUpdate = true;
+        }
+        dirty0 = Infinity;
+        dirty1 = -1;
+        g.setDrawRange(0, n);
+        s.job = null;
+        const tEnd = performance.now();
+        job.phases.swap = tEnd - tj;
+        job.phases.worstFrame = Math.max(job.phases.worstFrame, tEnd - tj);
+        job.spent += tEnd - tj;
+        let k0 = 0, k1 = 0, k2 = 0;
+        for (let i = 0; i < n; i++) {
+          const kk = pool.kind[i];
+          if (kk < 0.5) k0++;
+          else if (kk < 1.5) k1++;
+          else k2++;
+        }
+        (window as unknown as { __residue?: unknown }).__residue = { phases: Object.fromEntries(Object.entries(job.phases).map(([k, v]) => [k, Math.round(v * 10) / 10])), frames: job.frames, k: job.K, kMe: job.kMe, parts: pool.parts.length, points: n, part: k0, leaf: k1, stem: k2, present: s.present, observer: Math.round(nearD * 10) / 10, ms: job.ms, every: Math.round(s.every * 100) / 100, layer: Math.round(s.layer * 100) / 100, load: Math.round(load * 100) / 100 };
+        // (what this reading cost, all of it over its frames — the next intervals weigh it)
+        s.readMs = s.readMs > 0 ? s.readMs * 0.5 + job.spent * 0.5 : job.spent;
+      } else {
+        // 1. the points, a slice at a time
+        while (!job.pool && performance.now() < budgetEnd) {
+          const it = job.gen.next();
+          if (it.done) job.pool = it.value;
+        }
+        const tP = performance.now();
+        job.phases.pool += tP - tj;
+        // 2. what was found and has left the reading, carried over to fade or to finish blowing away (nothing is
+        // forgotten yet: the pool shown still runs on these states)
+        if (job.pool && !job.carried && performance.now() < budgetEnd) {
+          const pool = job.pool, old = s.pool;
+          const keys = new Set(pool.parts.map((p) => p.key));
+          // (one that had faded out and is back in the reading is new: it waits to be found again)
+          for (const k of keys) if ((s.states.get(k)?.died ?? 0) > 0) s.states.delete(k);
+          // (a part of the same kind where a found one stood a moment ago: the future changed it — it stays found, and
+          // the old one fades beside it)
+          if (old)
+            for (const p of pool.parts) {
+              if (s.states.has(p.key)) continue;
+              const b = p.box, list = old.grid.get((Math.floor((b[0] + b[3]) / 2 / GRID) + 32768) * 65536 + (Math.floor((b[2] + b[5]) / 2 / GRID) + 32768));
+              if (!list) continue;
+              for (const oi of list) {
+                const op = old.parts[oi];
+                if (keys.has(op.key) || op.key[0] !== p.key[0]) continue;
+                const os = s.states.get(op.key);
+                if (!os || os.found <= 0 || os.rel > 0 || os.died > 0) continue;
+                const ob = op.box;
+                if (ob[0] > b[3] || ob[3] < b[0] || ob[2] > b[5] || ob[5] < b[2] || ob[1] > b[4] + 0.3 || ob[4] < b[1] - 0.3) continue;
+                s.states.set(p.key, { ...os });
+                break;
+              }
+            }
+          const gone = longestFlight(L) * 1.25 + L.stagger + 0.5;
+          if (old)
+            for (const p of old.parts) {
+              if (keys.has(p.key)) continue;
+              const ps = s.states.get(p.key);
+              if (!ps || ps.found <= 0) continue;
+              if (ps.rel > 0 ? now - ps.rel > gone : ps.died > 0 && now - ps.died > 1.2) continue;
+              if (ps.rel <= 0 && ps.died <= 0) ps.died = now;
+              if (pool.n + (p.i1 - p.i0) > CAP) continue;
+              const i0 = pool.n;
+              pool.pos.set(old.pos.subarray(p.i0 * 3, p.i1 * 3), i0 * 3);
+              pool.col.set(old.col.subarray(p.i0 * 3, p.i1 * 3), i0 * 3);
+              pool.bloom.set(old.bloom.subarray(p.i0 * 3, p.i1 * 3), i0 * 3);
+              pool.seed.set(old.seed.subarray(p.i0, p.i1), i0);
+              pool.kind.set(old.kind.subarray(p.i0, p.i1), i0);
+              pool.n += p.i1 - p.i0;
+              pool.parts.push({ key: p.key, i0, i1: pool.n, box: p.box });
+              keys.add(p.key);
+            }
+          job.keys = keys;
+          job.snap = new Float32Array(pool.parts.length * 3);
+          job.carried = true;
+        }
+        const tC = performance.now();
+        job.phases.carry += tC - tP;
+        // 3. the GPU's arrays staged, a part at a time: each point where this layer puts it (off by a scan's error),
+        // and its part's state
+        if (job.carried && job.pool && job.snap) {
+          const pool = job.pool, snap = job.snap, J = [L.kinds.part.jitter, L.kinds.leaf.jitter, L.kinds.stem.jitter];
+          while (job.partI < pool.parts.length && performance.now() < budgetEnd) {
+            const p = pool.parts[job.partI];
+            for (let i = p.i0; i < p.i1; i++) {
+              const jj = Math.max(0, J[Math.round(pool.kind[i])] ?? 0);
+              for (let c = 0; c < 3; c++) ST.pos[i * 3 + c] = pool.pos[i * 3 + c] + (jj > 0 ? (Math.random() * 2 - 1) * jj : 0);
+            }
+            stageState(pool, job.partI, snap);
+            job.partI++;
+          }
+          if (job.partI >= pool.parts.length) job.ready = true;
+        }
+        job.phases.stage += performance.now() - tC;
+        job.phases.worstFrame = Math.max(job.phases.worstFrame, performance.now() - tj);
+        job.spent += performance.now() - tj;
       }
-      // (the buckets were made from the new parts only; the carried ones cannot be found again)
-      s.pool = pool;
-      for (const at of ["position", "aCol", "aBloom", "aSeed", "aKind", "aDie", "aFound", "aDelay", "aRel", "aDir"]) {
-        const a = A(at);
-        a.clearUpdateRanges();
-        a.addUpdateRange(0, pool.n * a.itemSize);
-        a.needsUpdate = true;
-      }
-      dirty0 = Infinity;
-      dirty1 = -1;
-      g.setDrawRange(0, pool.n);
-      (window as unknown as { __residue?: unknown }).__residue = { k: K, kMe, parts: pool.parts.length, points: pool.n, held: [...s.states.values()].filter((q) => q.found > 0 && q.rel <= 0).length, present: s.present, observer: Math.round(nearD * 10) / 10, ms: r.ms };
     }
 
-    // BETWEEN READINGS, a layer every layerSec: the one shown stays behind as an earlier layer, the points laid anew
+    // BETWEEN READINGS, a layer every `layer` seconds (layerSec … layerMax): the one shown stays behind as an earlier
+    // layer, the points laid anew
     s.layerT += dt;
-    if (s.pool && s.present && L.layerSec > 0 && s.layerT >= L.layerSec) {
+    if (s.pool && s.present && s.layerT >= s.layer) {
       s.layerT = 0;
+      const tLayer = performance.now();
       layGhost();
       layNew(s.pool);
+      const layerMs = performance.now() - tLayer;
+      s.layerMs = s.layerMs > 0 ? s.layerMs * 0.7 + layerMs * 0.3 : layerMs;
     }
+
+    // THE PRESENT THINNER WHILE THE FUTURE SHOWS ("미래가 나타났을 때 현재 렌더에 점 덜 쓰는 방식으로 성능 조절"): the
+    // future's points on the screen now (found and come, not yet blown far nor faded) against `presentFull`; the lidar
+    // makes down to `presentShare` of its readings as they grow — fewer within ~1 s, all again over ~2 s as it goes
+    let shown = 0;
+    if (s.pool) {
+      const flight = longestFlight(L) + L.stagger;
+      for (const p of s.pool.parts) {
+        const ps = s.states.get(p.key);
+        if (!ps || ps.found <= 0 || ps.found > now) continue;
+        if (ps.rel > 0 && now - ps.rel > flight) continue;
+        if (ps.died > 0 && now - ps.died > 1) continue;
+        shown += p.i1 - p.i0;
+      }
+    }
+    const share = Math.min(1, Math.max(0.02, Number.isFinite(L.presentShare) ? L.presentShare : 1));
+    const thinWant = 1 - (1 - share) * Math.min(1, shown / Math.max(1, Number.isFinite(L.presentFull) ? L.presentFull : 3000));
+    s.thin += (thinWant - s.thin) * Math.min(1, dt / (thinWant < s.thin ? 1 : 2));
+    lidarThin.scale = s.thin;
+    residueTiming.present = s.thin;
+    residueTiming.shown = shown;
 
     // FINDING: the scan's readings near a part find it — only while an observer is near
     const pool = s.pool;
@@ -1387,7 +1728,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       (w.uRise3.value as THREE.Vector3).set(bp.rise, bl.rise, bs.rise);
       (w.uTurb3.value as THREE.Vector3).set(bp.turb, bl.turb, bs.turb);
       (w.uBloom3.value as THREE.Vector3).set(bp.bloom, bl.bloom, bs.bloom);
-      w.uLod.value = lidarLook.lod;
+      setDist(w, L);
       w.uReach.value = Math.min(L.reach, lidarLook.range);
       per(L, (k) => k.sizeVar, w.uSizeVar3.value as THREE.Vector3);
       per(L, (k) => k.soft, w.uSoft3.value as THREE.Vector3);
@@ -1415,7 +1756,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       const gu = (gh.material as THREE.ShaderMaterial).uniforms;
       gu.uAge.value = now - s.ghostBorn[i];
       gu.uKill.value = kill;
-      gu.uLod.value = lidarLook.lod;
+      setDist(gu, L);
       gu.uReach.value = Math.min(L.reach, lidarLook.range);
       per(L, (k) => k.ghostLife, gu.uLife3.value as THREE.Vector3);
       per(L, (k) => k.ghostAlpha, gu.uAlpha3.value as THREE.Vector3);

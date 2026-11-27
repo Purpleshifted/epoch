@@ -229,6 +229,69 @@ future 할 때 관찰자랑 연결 안 돼있지? 돼있다면 일단 디폴트�
 - Every kind's 떠오르는 정도 / 흩날리는 거리 / 소용돌이 default 0 (letting go = fading where they stand, with the bloom colour),
   plus a one-time SavedMigration (`scan-future-blow-still-2026-11-27`) over saves made before.
 
+**남는 시간 after the overlap; the dark rims (3be5e8d):** relayed, her words: "왜 현재 redesign 에서 남는 시간 늘려도
+금방금방 사라지지... 진짜 겹칠 때에만 잠깐 생기는 거 같고 (랩 말하는 거)" and "점이 부드럽게 번진다기보단 뭔가... 검정 모서리가
+간간이 보이는 요소가 있음" (her screenshot: the crowns at 부드러움 1.0 as heaps of bubbles with dark outlines).
+- `남는 시간` (key resLife kept): it had only capped how long a found part lived while the overlap lasted; the blowing
+  away fired the moment it ended, so raising it did nothing. Now (F and observer ways) it is how long everything found
+  stays after the overlap ends, then it blows away (0 = at once; default 3 s); a new overlap before then keeps it; not
+  listed with 늘. Her saved number now means seconds after the overlap.
+- Dark rims: each soft dot wrote depth over its whole disc, so a near dot's faint rim hid the dots behind and the black
+  showed through. Now a depth-only child pass (`CORE_FRAG`, opaque, no colour) writes only the cores (alpha ≥ 0.5) and
+  the colour pass writes no depth: rims only blend, cores still occlude, the photograph's pass still softens by real
+  distance. Earlier layers and smears write no depth. Headless at her saved values: no errors, but no tree came into
+  view from the headless spot — the crowns are for her to check.
+
+**Each kind's point count (90adb1b):** "각 레바별로 점 수나 밀도 정할 수 있게 해줘". Every kind's `· 점` folder has
+`점 수 (×)` (0 … 4, 1 = as before, 0 = none of that kind): under 1 a steady share is left out (the same points every
+rebuild), over 1 more are made the same way — 부재: the faces (× 겉면 점 밀도, futurePresence's per-part and per-reading
+caps raised with it), mounds and dark earth; 줄기: along each stem; 식생: leaf clumps in the crowns and points in the
+meadows. The absolute knobs moved beside it, keys and saves kept: `겉면 점 밀도` (from 미래 읽기) in 부재 · 점,
+`풀숲 점 밀도` and `나무 수관 풍성함` in 식생 · 점 (the stem's count still follows 수관 풍성함 too). The stem is now drawn
+whenever a tree has a crown. Pool 200k points; an earlier layer over 40k takes an even share of every kind.
+`window.__residue` counts part / leaf / stem. Not seen on screen by me (load 8, build check only).
+
+**Both intervals move with performance (4462dae):** "미래 다시 읽는 간격이랑 다시 읽어 겹치는 간격 성능 따라 유동적으로
+범위 안에서". `두 간격을 성능 따라 자동으로` (on): each interval is a range — its saved number is now the shortest, with
+a longest (6 s / 1.5 s). The frame weighs frames against the fastest this screen lately did (a 30 Hz screen is not
+slow; twice as slow = the longest) and what a reading / a layer costs (≤ 2 % / 3 % of the time); longer within ~0.7 s,
+shorter again over ~4 s. Readout `지금 간격 (읽기 · 겹침 · 느려짐)`. At most 8 earlier layers: 남는 시간 ÷ 간격 above 8
+cuts them short.
+
+**The future's far and near, its own (01b0a34):** "미래랑 현재는 거리 따라 lod/흐림/뭉침 적용하는 정도 따로". The residue
+is on its own layer (`futureLayer.ts`, FUTURE_LAYER 6): under the photograph it is left out of the depth softening and
+drawn over the composed frame, dropped where the present's depth is nearer. Headless (load 13): no shader errors; the
+look not judged by me.
+- **One set each (c66e39a):** "부재나 종류마다 정하지 말고 그냥 미래/현재만 따로". The future: one folder, `거리 효과 —
+  미래` — 시작 거리 (12), 성기게 정도 (1 = the present's (lod/d)²), 뭉치기 정도 (0; 1 = the present's ×d/lod), 또렷한
+  거리 (4), 흐림 가까이 (0) / 멀리 (0.6, at the reach); the per-kind folders of 01b0a34 are gone. The present: scan
+  (present) › 먼 점 뭉치기 시작 거리 plus 먼 점 성기게 — 정도 / 먼 점 뭉치기 (커짐) — 정도 (1 · 1 = as before), and the
+  base's 가까운 / 먼 흐림 (the photograph's softening — now the present's alone).
+
+- **Softened as the present is (b22b822):** "또렷한 거리는 없어야 하고... 멀수록 흐려 보이는 게 맞아?", "'현재' 점의
+  거리 효과랑은 너무 다르게", "이것봐, 너무 또렷하잖아" (her screenshot on the redesign: the future's dots crisp
+  beside the present's softened ones). The per-dot blur (focus / near / far) is gone. InkPaper draws the future
+  into a frame of its own and softens it with the present's own rule: narrow blur everywhere, wide by distance, at
+  the future's radii `가까운 흐림` / `먼 흐림` (1.2 / 6 px). The frame keeps its own depth and is hidden behind the
+  present where that is nearer, then laid over premultiplied. Also as the present: `너무 가까운 점 성기게` (2), and far
+  clumping defaults to 1. On the answer to her question: far = softer is the photograph's rule (the present's); a
+  scan's own far readings are sparser, not softer — both are now hers to set, the same way for each.
+
+**The present thinner while the future shows (c66e39a):** "미래가 나타났을 때 현재 렌더에 점 덜 쓰는 방식으로 성능
+조절". `LidarScan.lidarThin.scale` (the view's rays × it, the ring's directions skipped; life unchanged). The residue
+counts the future's points on the screen and brings the present down to `미래가 보일 때 현재 점 비율` (0.5) once
+`미래 점이 이만큼 보이면 다 줄임` (3 000) show — within ~1 s, back over ~2 s; readout `지금 현재 점 비율 · 보이는 미래
+점`. Fewer present readings also means fewer chances to find the future: it develops a little slower.
+
+**A reading spread over frames (8c92330):** the coordinator measured the redesign's action preview lagging, the
+residue span up to 523–817 ms. The cause was building the pool, not reading the future: ~200k points (the CAP) in one
+frame. Now `buildPoolSteps` yields every 512 points into one of two buffers made once. The frame runs the reading
+as a job within 3 ms (points, then carried, then the GPU arrays staged a part at a time); the next frame swaps them
+in (copies; parts whose state changed meanwhile are staged again). The read radius is min(lidar range, 보이는 거리) + 4
+(nothing past 보이는 거리 was drawn): the preview's pool fell from 200k to ~109k. Headless at load 30–80: span max
+330–1076 → 12–58 ms; a reading's worst frame 3.4 ms when quiet, 10–36 ms under load (the swap). `__residue.phases`.
+futurePresence itself still runs in one frame (~1–8 ms here; the exhibition's world not measured).
+
 **Status (2026-11-23): PAUSED by the coordinator (machine overloaded) after the reference study; nothing built, no
 question put to the artist yet.** Code untouched (`FuturePresence.tsx`, `futurePresence.ts`, `labKnobsScanFuture.ts` =
 HEAD). Resume = put the three directions below to her and build her pick.

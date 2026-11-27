@@ -14,13 +14,14 @@
  *
  * The pass takes over the frame (useFrame priority 1); the HUD is DOM and unaffected.
  */
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { LongExposure, setExposureWeight } from "./longExposure";
 import { EXPOSE_GLSL, EXPOSURE_LAYER } from "./paperLook";
 import { lidarActive } from "./LidarScan";
 import { PICTO_LAYER } from "./framePeople";
+import { FUTURE_LAYER, futureInk, presentDepth } from "./futureLayer";
 export { EXPOSURE_LAYER };
 
 export interface InkPaperLook {
@@ -63,10 +64,37 @@ uniform sampler2D uTex;
 uniform vec2 uStep;
 varying vec2 vUv;
 void main() {
-  vec3 c = texture2D(uTex, vUv).rgb * 0.2270270270;
-  c += (texture2D(uTex, vUv + uStep * 1.3846153846).rgb + texture2D(uTex, vUv - uStep * 1.3846153846).rgb) * 0.3162162162;
-  c += (texture2D(uTex, vUv + uStep * 3.2307692308).rgb + texture2D(uTex, vUv - uStep * 3.2307692308).rgb) * 0.0702702703;
-  gl_FragColor = vec4(c, 1.0);
+  // (all four channels: the future's own frame is premultiplied, its coverage blurs with it — the present's compose
+  // reads the colour only)
+  vec4 c = texture2D(uTex, vUv) * 0.2270270270;
+  c += (texture2D(uTex, vUv + uStep * 1.3846153846) + texture2D(uTex, vUv - uStep * 1.3846153846)) * 0.3162162162;
+  c += (texture2D(uTex, vUv + uStep * 3.2307692308) + texture2D(uTex, vUv - uStep * 3.2307692308)) * 0.0702702703;
+  gl_FragColor = c;
+}`;
+
+/** THE FUTURE'S FRAME OVER THE PRESENT'S (futureLayer.ts futureInk): the photograph's one depth rule — a narrow blur
+ *  everywhere, the wide one by distance — on the future's own frame and its own depth, laid over (premultiplied). */
+const FUTURE_FRAG = /* glsl */ `
+uniform sampler2D uScene;
+uniform sampler2D uNear;
+uniform sampler2D uWide;
+uniform sampler2D uDepth;
+uniform float uCamNear;
+uniform float uCamFar;
+uniform float uFogFar;
+varying vec2 vUv;
+float linDepth(float z) {
+  float zn = z * 2.0 - 1.0;
+  return (2.0 * uCamNear * uCamFar) / (uCamFar + uCamNear - zn * (uCamFar - uCamNear));
+}
+void main() {
+  float d = clamp(linDepth(texture2D(uDepth, vUv).r) / uFogFar, 0.0, 1.0);
+  vec4 c = mix(mix(texture2D(uScene, vUv), texture2D(uNear, vUv), 0.35), texture2D(uWide, vUv), smoothstep(0.1, 0.85, d));
+  if (c.a <= 0.002) discard;
+  // (its colour, out of the premultiplied frame, into the screen's space — then premultiplied again for the blend)
+  gl_FragColor = vec4(c.rgb / c.a, min(1.0, c.a));
+  #include <colorspace_fragment>
+  gl_FragColor.rgb *= gl_FragColor.a;
 }`;
 
 const COMPOSE_FRAG = /* glsl */ `
@@ -139,6 +167,9 @@ function handShake(t: number, phase: number): number {
   return 0.5 * Math.sin(Math.PI * 2 * 1.3 * t + phase) + 0.3 * Math.sin(Math.PI * 2 * 2.1 * t + 1.3 + phase) + 0.2 * Math.sin(Math.PI * 2 * 0.7 * t + 2.1 + phase);
 }
 
+/** (the renderer's clear colour, kept while the future's frame clears to transparent) */
+const clearKeep = new THREE.Color();
+
 function setUniforms(u: Record<string, THREE.IUniform>, values: Record<string, unknown>): void {
   for (const k in values) u[k].value = values[k];
 }
@@ -163,6 +194,15 @@ export function InkPaper({ look = DEFAULT_INK, fogFar }: { look?: InkPaperLook; 
     const fA = target(w >> 2, h >> 2), fB = target(w >> 2, h >> 2);
     return { sceneRT, nA, nB, wA, wB, fA, fB };
   }, [w, h]);
+  // (the future's own frame, made the first time the future is drawn here — full size, with its depth)
+  const futRT = useRef<THREE.WebGLRenderTarget | null>(null);
+  useEffect(
+    () => () => {
+      futRT.current?.dispose();
+      futRT.current = null;
+    },
+    [],
+  );
   // the exposure (half size): the feedback that keeps the last frame × decay and takes the exposed layer on top
   const exposure = useMemo(() => new LongExposure(w >> 1, h >> 1), [w, h]);
   useEffect(() => () => exposure.dispose(), [exposure]);
@@ -200,8 +240,24 @@ export function InkPaper({ look = DEFAULT_INK, fogFar }: { look?: InkPaperLook; 
     sBlur.add(new THREE.Mesh(geom, blur));
     const sCompose = new THREE.Scene();
     sCompose.add(new THREE.Mesh(geom, compose));
+    // (the future's frame laid over: premultiplied)
+    const future = new THREE.ShaderMaterial({
+      uniforms: { uScene: { value: null }, uNear: { value: null }, uWide: { value: null }, uDepth: { value: null }, uCamNear: { value: 0.1 }, uCamFar: { value: 1000 }, uFogFar: { value: 80 } },
+      vertexShader: QUAD_VERT,
+      fragmentShader: FUTURE_FRAG,
+      depthTest: false,
+      depthWrite: false,
+      transparent: true,
+      blending: THREE.CustomBlending,
+      blendSrc: THREE.OneFactor,
+      blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendSrcAlpha: THREE.OneFactor,
+      blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
+    });
+    const sFuture = new THREE.Scene();
+    sFuture.add(new THREE.Mesh(geom, future));
     const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    return { geom, blur, compose, sBlur, sCompose, cam };
+    return { geom, blur, compose, sBlur, sCompose, future, sFuture, cam };
   }, []);
   useEffect(
     () => () => {
@@ -214,6 +270,7 @@ export function InkPaper({ look = DEFAULT_INK, fogFar }: { look?: InkPaperLook; 
       quad.geom.dispose();
       quad.blur.dispose();
       quad.compose.dispose();
+      quad.future.dispose();
     },
     [quad],
   );
@@ -273,6 +330,56 @@ export function InkPaper({ look = DEFAULT_INK, fogFar }: { look?: InkPaperLook; 
     setUniforms(u, { uScene: sceneRT.texture, uNear: nB.texture, uWide: wB.texture, uFeed: exposure.texture, uFeedSoft: look.halo > 0 ? fB.texture : exposure.texture, uHalo: look.halo, uBurn: look.burn, uDepth: sceneRT.depthTexture, uCamNear: pc.near, uCamFar: pc.far, uFogFar: fogFar, uTime: state.clock.elapsedTime, uDensity: look.density, uFade: look.fade, uGrain: look.grain, uRolloff: look.rolloff, uSharp: lidarActive() ? 1 : 0 });
     gl.setRenderTarget(null);
     gl.render(quad.sCompose, quad.cam);
+    // 4b. the future's residue (FutureResidue, FUTURE_LAYER — while it runs under the scan): not in the present's frame
+    // but a frame of its own, behind the present where the scene's depth is nearer, softened by its own depth with the
+    // photograph's one rule at its own radii (futureInk — "이것봐, 너무 또렷하잖아", 2026-11-27), laid over the composed
+    // frame; at 0 and 0, drawn straight over it, sharp
+    if (lidarActive() && futureInk.active) {
+      camera.layers.set(FUTURE_LAYER);
+      const bgF = scene.background;
+      setBackground(scene, null);
+      const autoF = gl.autoClear;
+      setAutoClear(gl, false);
+      presentDepth.uPresentDepth.value = sceneRT.depthTexture;
+      presentDepth.uPresentRes.value.set(w, h);
+      presentDepth.uOcclude.value = 1;
+      const soft = futureInk.narrow > 0 || futureInk.wide > 0;
+      if (soft) {
+        if (!futRT.current || futRT.current.width !== w || futRT.current.height !== h) {
+          futRT.current?.dispose();
+          futRT.current = target(w, h, true);
+        }
+        const FR = futRT.current;
+        gl.setRenderTarget(FR);
+        gl.getClearColor(clearKeep);
+        const alphaKeep = gl.getClearAlpha();
+        gl.setClearColor(0x000000, 0);
+        gl.clear(true, true, false);
+        gl.setClearColor(clearKeep, alphaKeep);
+        gl.render(scene, camera);
+        presentDepth.uOcclude.value = 0;
+        // (the present's softening is done with its targets: the future's reuses them, the same passes at its radii)
+        const fN = Math.max(0, futureInk.narrow) * 0.5, fW = Math.max(0, futureInk.wide) * 0.25;
+        pass(FR.texture, nA, 1, 0, fN);
+        pass(nA.texture, nB, 0, 1, fN);
+        pass(nB.texture, wA, 1, 0, fW);
+        pass(wA.texture, wB, 0, 1, fW);
+        pass(wB.texture, wA, 1, 0, fW);
+        pass(wA.texture, wB, 0, 1, fW);
+        setUniforms(quad.future.uniforms, { uScene: FR.texture, uNear: nB.texture, uWide: wB.texture, uDepth: FR.depthTexture, uCamNear: pc.near, uCamFar: pc.far, uFogFar: fogFar });
+        gl.setRenderTarget(null);
+        gl.render(quad.sFuture, quad.cam);
+      } else {
+        gl.setRenderTarget(null);
+        gl.render(scene, camera);
+        presentDepth.uOcclude.value = 0;
+        // (the pictograms find the depth as they did: clear)
+        gl.clearDepth();
+      }
+      setAutoClear(gl, autoF);
+      setBackground(scene, bgF);
+      camera.layers.set(0);
+    }
     // 5. the pictograms (FramePeopleLayer, PICTO_LAYER): over the composed frame as they are drawn — not softened with
     // the scene, not exposed; their blur is their own (2026-11-24: "픽토그램에는 블러 적용 따로 되도록")
     camera.layers.set(PICTO_LAYER);

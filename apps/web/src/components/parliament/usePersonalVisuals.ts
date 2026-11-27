@@ -107,6 +107,14 @@ export interface PersonalVisuals {
   grass: GrassVisual;
   marks: MarksVisual;
   street: StreetVisual;
+  /** The frame's ceiling (바탕 › 성능 · 상한): read by the lab's look only (ParliamentScene, behind newLook()). */
+  frame: FrameCeiling;
+}
+
+/** The most the drawing may cost: its resolution (device pixel ratio) and its frames a second (60 = no ceiling). */
+export interface FrameCeiling {
+  maxDpr: number;
+  maxFps: number;
 }
 
 const ROOT = "개인뷰 비주얼";
@@ -330,5 +338,6 @@ export function usePersonalVisuals(): PersonalVisuals {
   useEffect(() => {
     setStreetGround({ on: c.streetOn, wear: c.groundOn ? c.groundWear : 0, wearGrey: c.groundGrey, seam: c.groundSeam, grain: c.groundGrain, wind: c.windDepth, windSpeed: c.windSpeed, sway: c.grassSway, viewFog: c.streetOn && c.viewOn, paper: c.streetOn && c.paperOn, groundOnPaper: c.groundOnPaper, ink: c.paperInk, blur: c.paperBlur, fadeDist: c.paperFade, labelDist: c.paperLabel, blotDist: c.viewOn ? c.viewRadius : c.paperBlot });
   }, [c.streetOn, c.groundOn, c.groundWear, c.groundGrey, c.groundSeam, c.groundGrain, c.windDepth, c.windSpeed, c.grassSway, c.viewOn, c.viewRadius, c.paperOn, c.groundOnPaper, c.paperInk, c.paperBlur, c.paperFade, c.paperLabel, c.paperBlot]);
-  return { look: c.look, footprint: c.footprint, card, grass, marks, street };
+  const frame = useMemo<FrameCeiling>(() => ({ maxDpr: c.maxDpr, maxFps: c.maxFps }), [c.maxDpr, c.maxFps]);
+  return { look: c.look, footprint: c.footprint, card, grass, marks, street, frame };
 }

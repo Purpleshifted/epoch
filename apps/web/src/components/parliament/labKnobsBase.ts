@@ -33,6 +33,14 @@ export function useBaseKnobs(isV2: boolean) {
         inkBurn: { value: DEFAULT_INK.burn, min: 1, max: 3, step: 0.05, label: "노출 과다 — 중간 톤이 밝아짐", render: v2 },
         inkGrain: { value: DEFAULT_INK.grain, min: 0, max: 0.03, step: 0.001, label: "입자", render: v2 },
       }),
+      // THE FRAME'S CEILING (the artist, 2026-11-27: "액션 프리뷰에서 랙이 심한데 프레임 리소스 상한 같은 거 걸 방법 있나"):
+      // the drawing's resolution (the paper look draws at the device's density, at least 1.5 — every full-frame pass of
+      // InkPaper and the long exposure scales with it) and how many frames a second are drawn at most. The defaults
+      // change nothing; only the lab's look reads them (ParliamentScene, behind newLook()).
+      "성능 · 상한": folder({
+        maxDpr: { value: 2, min: 0.5, max: 2, step: 0.05, label: "해상도 상한 (1 = 화면 1배 · 2 = 레티나)", render: v2 },
+        maxFps: { value: 60, min: 15, max: 60, step: 1, label: "프레임 상한 (fps · 60 = 상한 없음)", render: v2 },
+      }),
     }),
     { collapsed: false, order: 0.5, render: () => isV2 && labLists("base") },
   );

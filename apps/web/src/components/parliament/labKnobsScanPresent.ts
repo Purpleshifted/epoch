@@ -69,6 +69,10 @@ export function useScanPresentKnobs(isV2: boolean) {
         lidarFovea: { value: DEFAULT_LIDAR.fovea, min: 0, max: 6, step: 0.25, label: "시야: 가운데 집중 (0 = 고르게)", render: v2 },
         lidarIdle: { value: DEFAULT_LIDAR.idle, min: 0, max: 1, step: 0.05, label: "시야: 멈춰 있을 때 새로 읽는 몫 (재생성 텀)", render: v2 },
         lidarLod: { value: DEFAULT_LIDAR.lod, min: 0, max: 40, step: 1, label: "먼 점 뭉치기 시작 거리 (월드; 0 = 끔)", render: v2 },
+        // (the artist, 2026-11-27: "미래랑 현재는 거리 따라 lod/흐림/뭉침 적용하는 정도 따로" — the present's own; the
+        // future's are scan (future) › 거리 효과 — 미래)
+        lidarLodThin: { value: DEFAULT_LIDAR.lodThin, min: 0, max: 3, step: 0.05, label: "먼 점 성기게 — 정도 (0 = 그대로, 1 = 지금)", render: v2 },
+        lidarLodGrow: { value: DEFAULT_LIDAR.lodGrow, min: 0, max: 2, step: 0.05, label: "먼 점 뭉치기 (커짐) — 정도 (0 = 그대로, 1 = 지금)", render: v2 },
         lidarNear: { value: DEFAULT_LIDAR.near, min: 0, max: 8, step: 0.25, label: "너무 가까운 점 성기게 (월드; 이 안쪽은 점점 성기게, 0 = 끔)", render: v2 },
         lidarGroundRings: { value: DEFAULT_LIDAR.groundRings, min: 2, max: 40, step: 1, label: "고리 수 (땅 — 세로축 · 시야)", render: v2 },
         lidarGroundAz: { value: DEFAULT_LIDAR.groundAz, min: 64, max: 1024, step: 32, label: "땅 고리 한 바퀴 점 수 (시야 · 선)", render: v2 },
@@ -146,6 +150,8 @@ export function useScanPresentKnobs(isV2: boolean) {
     fovea: c.lidarFovea,
     idle: c.lidarIdle,
     lod: c.lidarLod,
+    lodThin: c.lidarLodThin,
+    lodGrow: c.lidarLodGrow,
     budgetMs: c.lidarBudget,
     near: c.lidarNear,
     groundRings: c.lidarGroundRings,

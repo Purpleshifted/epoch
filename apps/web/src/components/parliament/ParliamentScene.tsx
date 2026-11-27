@@ -360,6 +360,31 @@ function FollowGrid({ playerPosRef, size }: { playerPosRef: React.MutableRefObje
   return <gridHelper ref={ref} args={[size, 100, "#1a1d33", "#0d0f1c"]} />;
 }
 
+/**
+ * THE FRAME CEILING's clock (바탕 › 성능 · 상한, the artist 2026-11-27): with the canvas on demand, a frame is asked for
+ * at most `fps` times a second (on the display's own beat, so none is torn or doubled). Every useFrame then runs at that
+ * rate with its real delta — the long exposure counts frames by delta (InkPaper dtFrames), so its trails keep their length.
+ */
+function FrameCap({ fps }: { fps: number }) {
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => {
+    const step = 1000 / fps;
+    let raf = 0;
+    let last = -Infinity;
+    const tick = (t: number) => {
+      raf = requestAnimationFrame(tick);
+      // (a couple of ms early is still this frame: a 60 Hz beat lands 16.7 ms apart, a 30 fps cap every second one)
+      if (t - last >= step - 2) {
+        last = t;
+        invalidate();
+      }
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [fps, invalidate]);
+  return null;
+}
+
 /** The mobile view lab's life: long enough never to end while an asset is tuned (an hour). */
 const LAB_LIFE_SEC = 3600;
 
@@ -554,6 +579,11 @@ export default function ParliamentScene({ lab }: { lab?: LabPage } = {}) {
   const fogF = viewOn ? street.view.radius : paperFog ? 44 : fogFar;
   const logPlace: LogPlace = !isV2 || street.logPlace === "bottom" ? "bottom" : street.logPlace === "auto" ? (street.eye.on ? (coarse ? "top" : "left") : "bottom") : street.logPlace;
   const getFar = useCallback(() => witnessRef.current?.far, []);
+  // the drawing's density: the paper look at the device's own (at least 1.5, at most 2) — and under the lab's look, no
+  // more than the frame ceiling's (바탕 › 성능 · 상한); the old view's as it was
+  const dprWant = paper ? Math.min(2, Math.max(pixelDpr, typeof window !== "undefined" ? window.devicePixelRatio : 1, 1.5)) : pixelDpr;
+  const dpr = lookOn ? Math.min(Math.max(0.5, visuals.frame.maxDpr), dprWant) : dprWant;
+  const fpsCap = lookOn && visuals.frame.maxFps < 59.5 ? Math.max(5, visuals.frame.maxFps) : 0;
 
   return (
     <div
@@ -565,12 +595,14 @@ export default function ParliamentScene({ lab }: { lab?: LabPage } = {}) {
       <Canvas
         camera={{ position: [0, 4.5, 7], fov: 60 }}
         // 흰 바탕: the personal view is not pixel-bound — the paper is drawn at the device's own density (up to 2), edges soft
-        dpr={paper ? Math.min(2, Math.max(pixelDpr, typeof window !== "undefined" ? window.devicePixelRatio : 1, 1.5)) : pixelDpr}
+        dpr={dpr}
+        frameloop={fpsCap ? "demand" : "always"}
         gl={{ antialias: true, alpha: false, preserveDrawingBuffer: true }}
         // the pixel feel lives in the text (2026-10-28): the 3D is smooth unless the resolution knob is turned down
         style={{ background: ground, imageRendering: pixelDpr < 1 ? "pixelated" : "auto" }}
       >
         <color attach="background" args={[ground]} />
+        {fpsCap > 0 && <FrameCap fps={fpsCap} />}
         {(!brutal || (isV2 && (visuals.street.fog || viewOn || paper))) && <fog attach="fog" args={[ground, fogN, fogF]} />}
         <ambientLight intensity={0.35} />
         <directionalLight position={[8, 15, 6]} intensity={0.9} color="#c8d8f0" />
