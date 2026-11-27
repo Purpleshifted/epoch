@@ -12,7 +12,10 @@ import { savable } from "./levaSave";
 import { LAB_GROUP, labLists } from "./mobileLab";
 import { DEFAULT_PRESENCE } from "@/lib/parliament/futurePresence";
 import type { PresenceMode } from "./FuturePresence";
-import { RESIDUE_PRESETS, setResidueLook } from "./FutureResidue";
+import { DEFAULT_RESIDUE, RESIDUE_PRESETS, setResidueLook } from "./FutureResidue";
+
+/** The three kinds' blowing away as they start (FutureResidue.tsx DEFAULT_RESIDUE). */
+const B = DEFAULT_RESIDUE.blow;
 
 const PLACE_GROUP = LAB_GROUP["scan-future"];
 
@@ -88,22 +91,53 @@ export function useScanFutureKnobs(isV2: boolean) {
           resTreeFull: { value: 4, min: 1, max: 10, step: 0.5, label: "나무 풍성함 (×)" },
           resSizeVar: { value: 0.6, min: 0, max: 1, step: 0.05, label: "점 크기 편차" },
           resSoft: { value: 0.6, min: 0, max: 1, step: 0.05, label: "점 부드러움 (0 = 현재처럼 또렷)" },
-          resBloom: { value: 0.8, min: 0, max: 1, step: 0.05, label: "흩날릴 때 피는 색" },
-          // (the artist, 2026-11-27: "억지로 실 적용하는 건 별로고... 미래 스캔 레이어에만 선택적으로 장노출" → "내가 움직이는
-          // 거 따라서는 적용되지 말고 실제로 점이 변하거나 움직일 때만": a moving point's own smear, in the world)
           // (the artist, 2026-11-27: "이 노출은 흩날리는 거 강조용보다는 실제 읽어오는 점 위치가 바뀌었을 때 그걸
           // 겹쳐보이게" — the readings' layers overlap; the blowing smear only an option, off)
           resLayerSec: { value: 0.5, min: 0.1, max: 4, step: 0.05, label: "미래 장노출 — 다시 읽어 겹치는 간격 (s)" },
           resJitter: { value: 0.04, min: 0, max: 0.3, step: 0.005, label: "미래 장노출 — 읽을 때마다 어긋남 (월드)" },
           resGhostLife: { value: 3, min: 0.2, max: 12, step: 0.1, label: "미래 장노출 — 이전 읽기가 남는 시간 (s)" },
           resGhostAlpha: { value: 0.45, min: 0, max: 1, step: 0.05, label: "미래 장노출 — 이전 읽기의 진하기 (0 = 없음)" },
+          // (the artist, 2026-11-27: "글리치나 번짐효과 같은 것도 넣고 싶음" — on the earlier layers, more as they age)
+          resBleed: { value: 0.5, min: 0, max: 1, step: 0.05, label: "이전 읽기 — 번짐" },
+          resTear: { value: 0.3, min: 0, max: 1, step: 0.05, label: "이전 읽기 — 글리치: 가로 찢김" },
+          resDrip: { value: 0.4, min: 0, max: 1, step: 0.05, label: "이전 읽기 — 글리치: 세로 흘러내림" },
+          // ("점 크기나 밀도 포함")
+          resBlock: { value: 0.35, min: 0, max: 1, step: 0.05, label: "이전 읽기 — 글리치: 블록 (빠짐 · 점 커짐)" },
+          resThin: { value: 0.4, min: 0, max: 1, step: 0.05, label: "이전 읽기 — 오래될수록 성겨짐" },
           resExpose: { value: 0, min: 0, max: 3, step: 0.05, label: "흩날릴 때 번짐 (s, 0 = 없음)" },
           resStreak: { value: 0.45, min: 0, max: 1, step: 0.05, label: "흩날릴 때 번짐 진하기" },
-          resScatter: { value: 2.5, min: 0.3, max: 8, step: 0.1, label: "흩날리는 시간 (s)" },
-          resScatterDist: { value: 5, min: 0, max: 20, step: 0.5, label: "흩날리는 거리 (월드)" },
           resStagger: { value: 1.2, min: 0, max: 4, step: 0.1, label: "바람이 훑고 지나가는 시간 (s)" },
-          resRise: { value: 1.2, min: 0, max: 6, step: 0.1, label: "식생이 떠오르는 정도 (월드)" },
-          resTurb: { value: 1, min: 0, max: 3, step: 0.05, label: "흩날림 소용돌이 (0 = 곧게)" },
+          // (the artist, 2026-11-27: "줄기 / 잎/ 건물부재가 fade out 되는 방식을 따로 정하고 싶음 뭐 떠오르는 정도나 등등")
+          "흩날림 — 건물 부재 (둔덕 · 흙 포함)": folder(
+            {
+              resBlowPartTime: { value: B.part.time, min: 0.3, max: 8, step: 0.1, label: "흩날리는 시간 (s)" },
+              resBlowPartDist: { value: B.part.dist, min: 0, max: 20, step: 0.5, label: "흩날리는 거리 (월드)" },
+              resBlowPartRise: { value: B.part.rise, min: -3, max: 6, step: 0.1, label: "떠오르는 정도 (월드, − = 떨어짐)" },
+              resBlowPartTurb: { value: B.part.turb, min: 0, max: 3, step: 0.05, label: "소용돌이 (0 = 곧게)" },
+              resBlowPartBloom: { value: B.part.bloom, min: 0, max: 1, step: 0.05, label: "흩날릴 때 피는 색" },
+            },
+            { collapsed: true },
+          ),
+          "흩날림 — 잎 (풀 · 꽃 포함)": folder(
+            {
+              resBlowLeafTime: { value: B.leaf.time, min: 0.3, max: 8, step: 0.1, label: "흩날리는 시간 (s)" },
+              resBlowLeafDist: { value: B.leaf.dist, min: 0, max: 20, step: 0.5, label: "흩날리는 거리 (월드)" },
+              resBlowLeafRise: { value: B.leaf.rise, min: -3, max: 6, step: 0.1, label: "떠오르는 정도 (월드, − = 떨어짐)" },
+              resBlowLeafTurb: { value: B.leaf.turb, min: 0, max: 3, step: 0.05, label: "소용돌이 (0 = 곧게)" },
+              resBlowLeafBloom: { value: B.leaf.bloom, min: 0, max: 1, step: 0.05, label: "흩날릴 때 피는 색" },
+            },
+            { collapsed: true },
+          ),
+          "흩날림 — 줄기": folder(
+            {
+              resBlowStemTime: { value: B.stem.time, min: 0.3, max: 8, step: 0.1, label: "흩날리는 시간 (s)" },
+              resBlowStemDist: { value: B.stem.dist, min: 0, max: 20, step: 0.5, label: "흩날리는 거리 (월드)" },
+              resBlowStemRise: { value: B.stem.rise, min: -3, max: 6, step: 0.1, label: "떠오르는 정도 (월드, − = 떨어짐)" },
+              resBlowStemTurb: { value: B.stem.turb, min: 0, max: 3, step: 0.05, label: "소용돌이 (0 = 곧게)" },
+              resBlowStemBloom: { value: B.stem.bloom, min: 0, max: 1, step: 0.05, label: "흩날릴 때 피는 색" },
+            },
+            { collapsed: true },
+          ),
         },
         { collapsed: false },
       ),
@@ -160,17 +194,22 @@ export function useScanFutureKnobs(isV2: boolean) {
     jitter: v.resJitter,
     ghostLife: v.resGhostLife,
     ghostAlpha: v.resGhostAlpha,
+    bleed: v.resBleed,
+    tear: v.resTear,
+    drip: v.resDrip,
+    block: v.resBlock,
+    thin: v.resThin,
     treeFull: v.resTreeFull,
-    turb: v.resTurb,
     sat: v.resSat,
     flower: v.resFlower,
     sizeVar: v.resSizeVar,
     soft: v.resSoft,
-    bloom: v.resBloom,
-    scatter: v.resScatter,
-    scatterDist: v.resScatterDist,
     stagger: v.resStagger,
-    rise: v.resRise,
+    blow: {
+      part: { time: v.resBlowPartTime, dist: v.resBlowPartDist, rise: v.resBlowPartRise, turb: v.resBlowPartTurb, bloom: v.resBlowPartBloom },
+      leaf: { time: v.resBlowLeafTime, dist: v.resBlowLeafDist, rise: v.resBlowLeafRise, turb: v.resBlowLeafTurb, bloom: v.resBlowLeafBloom },
+      stem: { time: v.resBlowStemTime, dist: v.resBlowStemDist, rise: v.resBlowStemRise, turb: v.resBlowStemTurb, bloom: v.resBlowStemBloom },
+    },
   });
   return v;
 }
