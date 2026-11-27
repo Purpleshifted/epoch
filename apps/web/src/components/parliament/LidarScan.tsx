@@ -121,9 +121,11 @@ export function setLidarLook(v: Partial<LidarLook>): void {
  *  as saved (the artist, 2026-11-24: "액션 프리뷰에 각 세션 변경사항 연결"). */
 export function lidarActive(): boolean {
   // (…and on the experiment address, which runs every asset as the preview does — mobileLab.ts runsEveryAsset; and on
-  // the scan (future) page, whose future is the scan's residue — FutureResidue.tsx)
+  // the scan (future) page, whose future is the scan's residue — FutureResidue.tsx; and on the bot (present) page, so
+  // the pictograms are judged on the ground they will stand on — the artist, 2026-11-27, in bot (present): "bot 페이지에도
+  // 라이다 검정 바탕 깔아줘")
   const page = mobileLab();
-  return lidarLook.on && (page === "scan-present" || page === "scan-future" || runsEveryAsset());
+  return lidarLook.on && (page === "scan-present" || page === "scan-future" || page === "bot-present" || runsEveryAsset());
 }
 
 /** THIS FRAME'S READINGS, for whoever reads the scan (scan (future)'s residue, FutureResidue.tsx): the ring buffer's
