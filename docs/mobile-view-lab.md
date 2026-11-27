@@ -274,6 +274,15 @@ counts the future's points on the screen and brings the present down to `미래�
 `미래 점이 이만큼 보이면 다 줄임` (3 000) show — within ~1 s, back over ~2 s; readout `지금 현재 점 비율 · 보이는 미래
 점`. Fewer present readings also means fewer chances to find the future: it develops a little slower.
 
+**A reading spread over frames (8c92330):** the coordinator measured the redesign's action preview lagging, the
+residue span up to 523–817 ms. The cause was building the pool, not reading the future: ~200k points (the CAP) in one
+frame. Now `buildPoolSteps` yields every 512 points into one of two buffers made once. The frame runs the reading
+as a job within 3 ms (points, then carried, then the GPU arrays staged a part at a time); the next frame swaps them
+in (copies; parts whose state changed meanwhile are staged again). The read radius is min(lidar range, 보이는 거리) + 4
+(nothing past 보이는 거리 was drawn): the preview's pool fell from 200k to ~109k. Headless at load 30–80: span max
+330–1076 → 12–58 ms; a reading's worst frame 3.4 ms when quiet, 10–36 ms under load (the swap). `__residue.phases`.
+futurePresence itself still runs in one frame (~1–8 ms here; the exhibition's world not measured).
+
 **Status (2026-11-23): PAUSED by the coordinator (machine overloaded) after the reference study; nothing built, no
 question put to the artist yet.** Code untouched (`FuturePresence.tsx`, `futurePresence.ts`, `labKnobsScanFuture.ts` =
 HEAD). Resume = put the three directions below to her and build her pick.
