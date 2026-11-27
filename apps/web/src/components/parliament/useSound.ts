@@ -157,6 +157,10 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       ncDull: { value: DEFAULT_SOUND.ncDull, min: 0, max: 1, step: 0.05, label: "패치도 건물에서 먹먹해지는 정도 (0 = 안 먹먹)", render: v2 },
       ncMap: { value: DEFAULT_SOUND.ncMap, label: "패치 노브 실시간 매핑 (사람·존·콘크리트·속도·함께 → 패치의 노브 아홉 개)", render: v2 },
       ncMapDepth: { value: DEFAULT_SOUND.ncMapDepth, min: 0, max: 1, step: 0.05, label: "패치 노브가 움직이는 깊이 (0 = 작가가 저장한 값 그대로)", render: v2 },
+      ncReact: { value: DEFAULT_SOUND.ncReact, label: "패치가 변화에 반응 (개편 개인뷰만) — 긴장이 오르면 톱니·디튠↑ 컷오프↓ 으뜸에서 확 열림 · 코드 바뀌는 마디에 필터가 튕김 · 물음에 에코가 남고 내 응답에 튕김 · 합주 땐 크로스딜레이 공유 (끄면 전처럼)", render: (get: (path: string) => unknown) => isV2 && newLook() && !!get(`${ROOT}.ncMap`) },
+      ncReactTension: { value: DEFAULT_SOUND.ncReactTension, label: "· 긴장 → 음색 (톱니 241·247·249·256, 디튠 206, 컷오프 57·64)", render: (get: (path: string) => unknown) => isV2 && newLook() && !!get(`${ROOT}.ncMap`) && !!get(`${ROOT}.ncReact`) },
+      ncReactChange: { value: DEFAULT_SOUND.ncReactChange, label: "· 코드 바뀔 때 튕김 (필터 엔벨로프 깊이 56·63·121)", render: (get: (path: string) => unknown) => isV2 && newLook() && !!get(`${ROOT}.ncMap`) && !!get(`${ROOT}.ncReact`) },
+      ncReactGesture: { value: DEFAULT_SOUND.ncReactGesture, label: "· 대화·합주 몸짓 (물음 → 에코 피드백 138·152, 응답 → 튕김, 합주 → 크로스딜레이 301)", render: (get: (path: string) => unknown) => isV2 && newLook() && !!get(`${ROOT}.ncMap`) && !!get(`${ROOT}.ncReact`) },
     }, [], [
       // EACH WITH THE DAY IT WAS WRITTEN (`at`, from the history; the artist, 2026-11-21: "저장값으로 맞춰"). Without a
       // date every one of these ran again on a phone that had never opened the page — over the values it had just
@@ -242,14 +246,14 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
   }, [engine]);
 
   const {
-    master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, sealRadius, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, bassSpread, bassDub, bassDuck, bassDrop,
+    master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, sealRadius, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, ncReact, ncReactTension, ncReactChange, ncReactGesture, bassSpread, bassDub, bassDuck, bassDrop,
     motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb,
     motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb,
     bassFrom, pathRadius, afterlifeTail, afterglow, foundLevel, askCounterpoint, ensembleCounterpoint, ensembleSwell, apartness, harmonyTurns, turnAmount, colourAmount, tension, crowdFull,
   } = c;
   const params = useMemo<SoundParams>(
     () => ({
-      master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, bassSpread, bassDub, bassDuck, bassDrop,
+      master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, ncReact: ncReact && newLook(), ncReactTension, ncReactChange, ncReactGesture, bassSpread, bassDub, bassDuck, bassDrop,
       motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb,
       motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb,
       bassFrom, afterlifeTail, afterglow, foundLevel, dead: false,
@@ -264,7 +268,7 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       tension,
       crowdFull,
     }),
-    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, bassSpread, bassDub, bassDuck, bassDrop, motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb, motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb, bassFrom, afterlifeTail, afterglow, foundLevel, askCounterpoint, ensembleCounterpoint, ensembleSwell, apartness, harmonyTurns, turnAmount, colourAmount, tension, crowdFull],
+    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, ncReact, ncReactTension, ncReactChange, ncReactGesture, bassSpread, bassDub, bassDuck, bassDrop, motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb, motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb, bassFrom, afterlifeTail, afterglow, foundLevel, askCounterpoint, ensembleCounterpoint, ensembleSwell, apartness, harmonyTurns, turnAmount, colourAmount, tension, crowdFull],
   );
   const sigCfg = useMemo<SignalConfig>(() => ({ ...DEFAULT_SIGNALS, hearRadius, sealRadius, pathRadius }), [hearRadius, sealRadius, pathRadius]);
   const { record: recordOn, recordKbps } = c;

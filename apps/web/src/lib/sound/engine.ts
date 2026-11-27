@@ -19,7 +19,7 @@
  */
 
 import { chordName, magentaChordName, type PlaceChord, type WorldKey } from "./harmony";
-import { stayingChord, tenseChord, walkingChord } from "./colour";
+import { stayingChord, tenseChord, TENSE_BARS, walkingChord } from "./colour";
 import { apartShift, bassUnder, callsOn, endClosed, endOpen, interlock, landWith, octaveToward, placeApart, rotate, shiftNotes } from "./dialogue";
 import { wordMotifOf } from "@/lib/parliament/glyph";
 import { Magenta } from "./magenta";
@@ -193,6 +193,15 @@ export interface SoundParams {
   /** The patch's real-time knobs follow the interaction (noisecraftKnobs.ts, v4 A5a) and how far they depart from the artist's saved values (0..1). */
   ncMap: boolean;
   ncMapDepth: number;
+  /**
+   * THE PATCH REACTS TO CHANGES (noisecraftKnobs.ts §8e — the artist, 2026-11-27: "noisecraft 패치 노브도 변화에 반응하는
+   * 식으로 좀 더 개입 … 껐다 켤 수 있게 해서 한 번 보자"; the redesigned view only): the whole switch, then each part —
+   * the tension as timbre, a pluck on each chord change, the dialogue's and the ensemble's gestures.
+   */
+  ncReact: boolean;
+  ncReactTension: boolean;
+  ncReactChange: boolean;
+  ncReactGesture: boolean;
   /** The path's heartbeat: how far it spreads into the rooms (0..1) and the second beat's strength (0..1). */
   bassSpread: number;
   bassDub: number;
@@ -277,6 +286,10 @@ export const DEFAULT_SOUND: SoundParams = {
   ncDull: 0.7,
   ncMap: true,
   ncMapDepth: 0.8,
+  ncReact: true,
+  ncReactTension: true,
+  ncReactChange: true,
+  ncReactGesture: true,
   bassSpread: 0.8, // v4 A2e: its own long dark room
   bassDub: 0.75,
   bassDuck: 0.3,
@@ -435,6 +448,11 @@ export class SoundEngine {
   private lockedBars = 0;
   /** How tense the harmony may get now (§13g: tension × how gathered). */
   private tensionNow = 0;
+  /** Per planned bar, for the patch's knobs (§8e): how far its tense phrase has climbed (0..1) and a chord change's pluck (0..1). */
+  private barShape = new Map<number, { tension: number; pluck: number }>();
+  /** When (context time) the last question was called and my last answer began (§8e). */
+  private askAt = -1e9;
+  private answerAt = -1e9;
   private phrase: { phrase: Phrase; from: number; kind: string } | null = null;
   private magenta = new Magenta();
   private magentaState: SoundDebug["magenta"] = "off";
@@ -572,6 +590,32 @@ export class SoundEngine {
       sealed: sig.sealed,
       speed: Math.min(1, sig.speed / Math.max(0.1, p.speedMax)),
       together: (sig.coBuilders?.length ?? 0) > 0 ? 1 : 0,
+      ...this.reactSources(t),
+    };
+  }
+
+  /**
+   * THE PATCH REACTS TO CHANGES (§8e): from the bar being heard now — its tense phrase's climb, a pluck when its chord
+   * changed — and from the dialogue (a question just called, my answer just begun) and the ensemble. All 0 when off.
+   */
+  private reactSources(t: number): Pick<KnobSources, "tension" | "hang" | "pluck" | "ensemble"> {
+    const p = this.params;
+    const off = { tension: 0, hang: 0, pluck: 0, ensemble: 0 };
+    if (!p.ncReact || !this.running || !this.epochMs) return off;
+    const barSec = this.musicBarSec();
+    const pos = (Date.now() - this.gridEpochMs(barSec)) / 1000 / barSec;
+    const bar = Math.floor(pos);
+    const into = (pos - bar) * barSec;
+    const shape = this.barShape.get(bar);
+    const tension = p.ncReactTension ? shape?.tension ?? 0 : 0;
+    const change = p.ncReactChange ? (shape?.pluck ?? 0) * Math.exp(-into / 0.6) : 0;
+    const ask = p.ncReactGesture && t >= this.askAt ? Math.exp(-(t - this.askAt) / 1.5) : 0;
+    const answer = p.ncReactGesture && t >= this.answerAt ? Math.exp(-(t - this.answerAt) / 0.8) : 0;
+    return {
+      tension,
+      hang: Math.max(ask, 0.6 * tension),
+      pluck: Math.max(change, answer),
+      ensemble: p.ncReactGesture && this.ensembleIds.length ? 1 : 0,
     };
   }
 
@@ -608,6 +652,7 @@ export class SoundEngine {
     const theirs = this.motifOf(other);
     const cycleSec = (word.steps * stepMs) / 1000;
     const at0 = ctx.currentTime + Math.max(0, startPerfMs - performance.now()) / 1000;
+    this.answerAt = at0; // (the patch plucks with my answer, §8e)
     const their = this.voices.get(other);
     if (this.params.askCounterpoint) {
       // AS COUNTERPOINT (§13d): bar 1 — my line, closing on the tonic, and theirs an octave or more away, meshed into
@@ -733,6 +778,7 @@ export class SoundEngine {
     const gathered = Math.min(1, sig.neighbours.filter((n) => n.dist <= p.hearRadius).length / Math.max(1, p.crowdFull));
     this.tensionNow = p.harmonyTurns ? Math.max(0, p.tension) * gathered : 0;
     const tension = this.tensionNow;
+    let tenseHit = false;
     const plan = planBar({
       bar,
       sig,
@@ -744,7 +790,9 @@ export class SoundEngine {
       colour: p.harmonyTurns
         ? (c: PlaceChord) => {
             const tag = `${this.zoneKey ? keyName(this.zoneKey) : "w"}#${c.band}#${c.rootClass}`;
-            return tenseChord(c, tag, bar, tension) ?? (sig.stay > 0.5 ? stayingChord(c, tag, bar, p.turnAmount) : walkingChord(c, bar, p.colourAmount));
+            const tense = tenseChord(c, tag, bar, tension);
+            if (tense) tenseHit = true;
+            return tense ?? (sig.stay > 0.5 ? stayingChord(c, tag, bar, p.turnAmount) : walkingChord(c, bar, p.colourAmount));
           }
         : null,
       tension,
@@ -757,6 +805,14 @@ export class SoundEngine {
     });
     this.plans.set(bar, plan);
     for (const k of this.plans.keys()) if (k < bar - 4) this.plans.delete(k);
+    // (for the patch's knobs, §8e: how far a tense phrase has climbed — the arrival's bars lean too — and a pluck when
+    // the chord changes, more for a tense one)
+    const climb = tenseHit ? (((bar % TENSE_BARS) + TENSE_BARS) % TENSE_BARS) / (TENSE_BARS - 1) : 0;
+    const lean = arrival === "pre" ? 0.5 : arrival === "dominant" ? 0.9 : arrival === "deceptive" ? 1 : 0;
+    const prev = this.plans.get(bar - 1)?.chord;
+    const changed = !!prev && (prev.rootClass !== plan.chord.rootClass || prev.classes.join() !== plan.chord.classes.join());
+    this.barShape.set(bar, { tension: Math.max(climb, lean), pluck: changed ? (plan.chord.quality ? 1 : 0.6) : 0 });
+    for (const k of this.barShape.keys()) if (k < bar - 8) this.barShape.delete(k);
     this.lastPlan = plan;
     return plan;
   }
@@ -1137,6 +1193,7 @@ export class SoundEngine {
       return;
     }
     const m = word ?? v.motif;
+    this.askAt = at; // (the patch's echo hangs on the question, §8e)
     const call = endOpen(realize(m, key, plan.chord, 1, bar), key);
     const shift = apartShift(realize(this.me.motif, key, plan.chord, 1, bar), call, this.params.motifTranspose, 12 * this.params.apartness);
     for (const n of shiftNotes(call, shift)) {
