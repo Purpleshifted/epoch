@@ -414,7 +414,7 @@ export default function ParliamentScene({ lab }: { lab?: LabPage } = {}) {
   // V2: the ledger of this life (lib/parliament/ledger.ts) — written by RoleField, read by the HUD
   const ledgerRef = useRef<Ledger | null>(null);
 
-  const { session: sessionOn, role: roleChoice, lang: levaLang, phoneMode, helpLine, noticeLineSec, lifeSec: levaLifeSec, warnSec, endHoldSec, quickRestartSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
+  const { session: sessionOn, role: roleChoice, lang: levaLang, phoneMode, helpLine, noticeLineSec, logWidth, lifeSec: levaLifeSec, warnSec, endHoldSec, quickRestartSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
     useControls({
       // save / reload row (levaSave.ts): the saved values come back as the defaults on the next load
       "역할 (Role)": folder(
@@ -426,6 +426,9 @@ export default function ParliamentScene({ lab }: { lab?: LabPage } = {}) {
         phoneMode: { options: PHONE_MODE_OPTIONS, value: "touch" as "touch" | "tilt", label: "폰 조작", render: v2 },
         helpLine: { value: false, label: "자살일 때 상담전화 한 줄", render: v2 },
         noticeLineSec: { value: NOTICE_LINE_SEC, min: 0.2, max: 3, step: 0.1, label: "안내 줄 간격 (s)", render: v2 },
+        // the record's width (the artist, 2026-11-27: "대화 콘솔창 길이 때문에 문장이 잘려 보일 때가 있는데 … 콘솔창 크기를
+        // 바꾸는 레바"): 0 = as it was (left: 24vw up to 22rem; below / on top: up to 36rem); a long line wraps to two
+        logWidth: { value: 0, min: 0, max: 60, step: 1, label: "기록창 폭 (rem, 0 = 기본) — 긴 문장은 두 줄로", render: v2 },
         lifeSec: { value: DEFAULT_LIFE.lifeSec, min: 20, max: 900, step: 5, label: "수명 (s, 실제 시간)", render: v2 },
         warnSec: { value: DEFAULT_LIFE.warnSec, min: 0, max: 120, step: 1, label: "끝이 느껴지는 마지막 (s)", render: v2 },
         endHoldSec: { value: DEFAULT_LIFE.endHoldSec, min: 2, max: 60, step: 1, label: "퇴장 화면 최소 (s) → 그 뒤 스페이스로 다음 세션", render: v2 },
@@ -636,7 +639,7 @@ export default function ParliamentScene({ lab }: { lab?: LabPage } = {}) {
           before and after stay as they are) */}
       <div className="pointer-events-none absolute inset-0" style={paper && !scanBlack && session.phase === "live" ? { filter: "invert(1)" } : undefined}>
       {withSession && !demo && (
-        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} visitorRef={visitorRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} card={visuals.card} venue={venueParam} recordingUrl={recordingQr} uploadRecording={uploadLifeRecording} onAnswer={onAnswer} onFound={onFound} logPlace={logPlace} />
+        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} visitorRef={visitorRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} card={visuals.card} venue={venueParam} recordingUrl={recordingQr} uploadRecording={uploadLifeRecording} onAnswer={onAnswer} onFound={onFound} logPlace={logPlace} logWidth={logWidth} />
       )}
       {/* 길거리 › 방향 말: the nearest one beyond the eye's reach, as a line beside the log (StreetHud) */}
       {withSession && !demo && isV2 && street.hints.on && session.phase === "live" && (
