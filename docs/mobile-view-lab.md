@@ -268,6 +268,15 @@ look not judged by me.
   (present) › 먼 점 뭉치기 시작 거리 plus 먼 점 성기게 — 정도 / 먼 점 뭉치기 (커짐) — 정도 (1 · 1 = as before), and the
   base's 가까운 / 먼 흐림 (the photograph's softening — now the present's alone).
 
+- **Softened as the present is (b22b822):** "또렷한 거리는 없어야 하고... 멀수록 흐려 보이는 게 맞아?", "'현재' 점의
+  거리 효과랑은 너무 다르게", "이것봐, 너무 또렷하잖아" (her screenshot on the redesign: the future's dots crisp
+  beside the present's softened ones). The per-dot blur (focus / near / far) is gone. InkPaper draws the future
+  into a frame of its own and softens it with the present's own rule: narrow blur everywhere, wide by distance, at
+  the future's radii `가까운 흐림` / `먼 흐림` (1.2 / 6 px). The frame keeps its own depth and is hidden behind the
+  present where that is nearer, then laid over premultiplied. Also as the present: `너무 가까운 점 성기게` (2), and far
+  clumping defaults to 1. On the answer to her question: far = softer is the photograph's rule (the present's); a
+  scan's own far readings are sparser, not softer — both are now hers to set, the same way for each.
+
 **The present thinner while the future shows (c66e39a):** "미래가 나타났을 때 현재 렌더에 점 덜 쓰는 방식으로 성능
 조절". `LidarScan.lidarThin.scale` (the view's rays × it, the ring's directions skipped; life unchanged). The residue
 counts the future's points on the screen and brings the present down to `미래가 보일 때 현재 점 비율` (0.5) once
