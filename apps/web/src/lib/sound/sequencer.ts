@@ -57,6 +57,8 @@ export interface ArrivalState {
   together: boolean;
   /** The last bar a cadence began (a breath between cadences). */
   last: number;
+  /** Bars the dominant is held beyond its one (a stored tension, §13h). */
+  hold?: number;
 }
 
 export const ARRIVAL_IDLE: ArrivalState = { since: -1, together: false, last: -1e9 };
@@ -70,18 +72,20 @@ export const ARRIVAL_COOLDOWN = 8;
 export type ArrivalPhase = "pre" | "dominant" | "deceptive" | "tonic" | null;
 
 /** A long cadence's bars from its first (the deceptive turn drawn from the bar it began on: about one in three). */
-export function arrivalBars(since: number, long: boolean): Exclude<ArrivalPhase, null>[] {
+export function arrivalBars(since: number, long: boolean, hold = 0): Exclude<ArrivalPhase, null>[] {
   if (!long) return ["dominant", "tonic"];
+  // (a stored tension, §13h: the dominant held `hold` bars longer, and no deceptive turn — the payoff lands)
+  if (hold > 0) return ["pre", ...new Array<"dominant">(1 + hold).fill("dominant"), "tonic"];
   return rng(hashString(`deceive#${since}`))() < 0.35 ? ["pre", "dominant", "deceptive", "tonic"] : ["pre", "dominant", "tonic"];
 }
 
 /** Moves the arrival state one bar on; `together` = staying among others now, `born` = a building appeared beside me. */
-export function nextArrival(prev: ArrivalState, bar: number, together: boolean, born: boolean, cooldown = ARRIVAL_COOLDOWN, long = false): { state: ArrivalState; phase: ArrivalPhase } {
+export function nextArrival(prev: ArrivalState, bar: number, together: boolean, born: boolean, cooldown = ARRIVAL_COOLDOWN, long = false, hold = 0): { state: ArrivalState; phase: ArrivalPhase } {
   const rising = together && !prev.together;
   const canStart = bar - prev.last >= cooldown && prev.since < 0;
-  if ((rising || (born && together)) && canStart) return { state: { since: bar, together, last: bar }, phase: arrivalBars(bar, long)[0] };
+  if ((rising || (born && together)) && canStart) return { state: { since: bar, together, last: bar, hold }, phase: arrivalBars(bar, long, hold)[0] };
   if (prev.since >= 0) {
-    const seq = arrivalBars(prev.since, long);
+    const seq = arrivalBars(prev.since, long, prev.hold ?? 0);
     const k = bar - prev.since;
     if (k >= 1 && k < seq.length) return { state: { ...prev, together }, phase: seq[k] };
   }
@@ -148,6 +152,8 @@ export interface BarInputs {
   colour?: ((chord: PlaceChord) => PlaceChord) | null;
   /** TENSION WHEN GATHERED (colour.ts, §13g): 0..1 — how often the arrival's pre-dominant and dominant are made tense. */
   tension?: number;
+  /** A RESOLUTION on this bar (tensionArc.ts, §13h; its chord comes through `colour`): the notes held on the chord, the pad brought in. */
+  resolve?: { lock: number; pad: number } | null;
 }
 
 /** Place a motif's cycle into a bar at the density: 0.5 = only even bars, 1 = once, 2 = twice (compressed). */
@@ -174,7 +180,9 @@ export function planBar(inp: BarInputs): BarPlan {
   if (arrival === "pre") chord = tenseArrival(key, "pre", bar, chord.band, inp.tension ?? 0) ?? predominantOf(key, bar, chord.band);
   else if (arrival === "dominant") chord = tenseArrival(key, "dominant", bar, chord.band, inp.tension ?? 0) ?? dominantOf(key, chord);
   else if (arrival === "deceptive") chord = deceptiveOf(key, chord.band);
-  const lock = arrival === "tonic" ? 1 : arrival === "deceptive" ? Math.max(0.9, lockOf(sig)) : lockOf(sig);
+  const lock0 = arrival === "tonic" ? 1 : arrival === "deceptive" ? Math.max(0.9, lockOf(sig)) : lockOf(sig);
+  const resolve = !arrival ? inp.resolve ?? null : null;
+  const lock = resolve ? Math.max(lock0, resolve.lock) : lock0;
   const d = density(sig.speed, p.speedMax);
   const company = Math.min(1, sig.neighbours.length / 2);
   const staying = sig.stay > 0.5 && sig.neighbours.length > 0;
@@ -240,6 +248,7 @@ export function planBar(inp: BarInputs): BarPlan {
     bass.push({ at: 0, pitch, level });
     if (d === 2) bass.push({ at: 0.5, pitch, level: level * 0.7 });
   } else if (arrival === "tonic") bass.push({ at: 0, pitch: bassOf(chord), level: 1 });
+  else if (resolve && resolve.pad >= 0.8) bass.push({ at: 0, pitch: bassOf(chord), level: 0.8 });
 
   // pad: the chord held while building; the cadence brings it in at once (the dominant leaning, the tonic full)
   let padLevel = sig.stay * company;
@@ -247,6 +256,7 @@ export function planBar(inp: BarInputs): BarPlan {
   if (arrival === "dominant") padLevel = Math.max(padLevel, 0.7);
   if (arrival === "deceptive") padLevel = Math.max(padLevel, 0.85);
   if (arrival === "tonic") padLevel = 1;
+  if (resolve) padLevel = Math.max(padLevel, resolve.pad);
   const pad = padLevel > 0.2 ? { pitches: [bassOf(chord), ...chord.classes.map((c) => 48 + c)], level: padLevel } : { pitches: [], level: 0 };
 
   return { bar, chord, lock, density: d, answer, me: mine, others, bass, pad, arrival };

@@ -126,13 +126,15 @@ export const TENSE_BARS = 8;
  * down the list (towards the darker ones) the phrase may reach. Drawn from the place (`tag`) and the phrase, so everyone
  * at one place, equally gathered, hears the same.
  */
-export function tenseChord(place: PlaceChord, tag: string, bar: number, level: number): PlaceChord | null {
+export function tenseChord(place: PlaceChord, tag: string, bar: number, level: number, holding = false): PlaceChord | null {
   if (level <= 0) return null;
   const phrase = Math.floor(bar / TENSE_BARS);
   const r = rng(hashString(`tense#${tag}#${phrase}`));
-  if (r() >= level) return null;
+  // (holding, §13h: every phrase tense — no roll)
+  if (r() >= level && !holding) return null;
   const k = ((bar % TENSE_BARS) + TENSE_BARS) % TENSE_BARS;
-  if (k === 0) return place;
+  // (holding: the phrase does not begin at home — home is kept for a resolution)
+  if (k === 0) return holding ? withheldHome(place, phrase) : place;
   const turns = isMinor(place) ? MINOR_TENSE : MAJOR_TENSE;
   // (more gathered → the darker ones too)
   const reach = Math.max(1, Math.min(turns.length, Math.ceil(turns.length * (0.4 + 0.6 * level))));
@@ -143,6 +145,26 @@ export function tenseChord(place: PlaceChord, tag: string, bar: number, level: n
   // (the line under it: from the place's own bass, so a falling bass falls instead of jumping an octave)
   c.bassMidi = 36 + place.rootClass + bassOff;
   return c;
+}
+
+/**
+ * HOME KEPT (§13h): while the tension holds, a phrase's first bar is not the place's chord but a stand-in — vi, bVI or
+ * bIII (major), bVI, bIII or iv (minor) — so the dominant before it is answered sideways and the tonic waits.
+ */
+export function withheldHome(place: PlaceChord, phrase: number): PlaceChord {
+  const steps: Step[] = isMinor(place) ? [[8, "maj7"], [3, "maj7"], [5, "m7"]] : [[9, "m7"], [8, "maj7"], [3, "maj7"]];
+  const [off, q] = steps[((phrase % steps.length) + steps.length) % steps.length];
+  return chordOn(place.rootClass + off, q, place.band);
+}
+
+/**
+ * THE RESOLUTION'S CHORD (§13h), on the place's root: "home" = its plain triad (firmer than the seventh, the long-kept
+ * tonic at last); "plagal" = the amen's iv (minor iv6 for a major place); "deceptive" = bVI (the scattered tension).
+ */
+export function resolutionChord(place: PlaceChord, kind: "home" | "plagal" | "deceptive"): PlaceChord {
+  if (kind === "home") return { ...place, classes: place.classes.slice(0, 3), quality: undefined, bassMidi: undefined };
+  if (kind === "plagal") return chordOn(place.rootClass + 5, isMinor(place) ? "m7" : "m6", place.band);
+  return chordOn(place.rootClass + 8, "maj7", place.band);
 }
 
 /** The arrival's bars made tense (building together is a gathering too): ii ø or #iv°7 before, V7b9 · V7#9 · V7#5. */

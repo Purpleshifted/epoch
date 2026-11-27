@@ -19,7 +19,8 @@
  */
 
 import { chordName, magentaChordName, type PlaceChord, type WorldKey } from "./harmony";
-import { stayingChord, tenseChord, TENSE_BARS, walkingChord } from "./colour";
+import { resolutionChord, stayingChord, tenseChord, TENSE_BARS, walkingChord } from "./colour";
+import { answerArc, ARC_IDLE, arrivalHold, stepArc, type ArcState, type ArcStep } from "./tensionArc";
 import { apartShift, bassUnder, callsOn, endClosed, endOpen, interlock, landWith, octaveToward, placeApart, rotate, shiftNotes } from "./dialogue";
 import { wordMotifOf } from "@/lib/parliament/glyph";
 import { Magenta } from "./magenta";
@@ -186,6 +187,14 @@ export interface SoundParams {
   tension: number;
   /** How many others within hearing make it fully gathered. */
   crowdFull: number;
+  /**
+   * TENSION THAT BUILDS AND IS RESOLVED (tensionArc.ts, §13h — the artist, 2026-11-27: "쌓여서 한 번에 혹은 서서히 '해결'이
+   * 돼야"): bars fully gathered to fill the store; seconds with the same people until familiarity has resolved it;
+   * bars of holding without any resolution before it closes by itself (the amen).
+   */
+  buildBars: number;
+  bondSec: number;
+  patienceBars: number;
   /** How much of my motif goes into the long open space (0..1): the signal sent out, its tail. */
   motifVerb: number;
   /** How much of the building's dullness the patch gets (0 = none, 1 = as everything else). */
@@ -199,9 +208,19 @@ export interface SoundParams {
    * the tension as timbre, a pluck on each chord change, the dialogue's and the ensemble's gestures.
    */
   ncReact: boolean;
-  ncReactTension: boolean;
-  ncReactChange: boolean;
-  ncReactGesture: boolean;
+  /**
+   * …and how wide each reaction swings (0 = off, 1 = as designed, 2 = twice — the artist, 2026-11-27: "이런 요소들 더
+   * 찾아서 레바 슬라이더로 그 부분의 폭 조절 가능하게"): the tension as timbre, a chord change's pluck, a question's
+   * echo, my answer's pluck, the ensemble's room, a resolution's bloom, clarity on a path, a found word's shimmer.
+   */
+  reactTension: number;
+  reactChange: number;
+  reactAsk: number;
+  reactAnswer: number;
+  reactEnsemble: number;
+  reactBloom: number;
+  reactPath: number;
+  reactFound: number;
   /** The path's heartbeat: how far it spreads into the rooms (0..1) and the second beat's strength (0..1). */
   bassSpread: number;
   bassDub: number;
@@ -283,13 +302,21 @@ export const DEFAULT_SOUND: SoundParams = {
   colourAmount: 0.3,
   tension: 0.8,
   crowdFull: 2,
+  buildBars: 12,
+  bondSec: 60,
+  patienceBars: 32,
   ncDull: 0.7,
   ncMap: true,
   ncMapDepth: 0.8,
   ncReact: true,
-  ncReactTension: true,
-  ncReactChange: true,
-  ncReactGesture: true,
+  reactTension: 1,
+  reactChange: 1,
+  reactAsk: 1,
+  reactAnswer: 1,
+  reactEnsemble: 1,
+  reactBloom: 1,
+  reactPath: 1,
+  reactFound: 1,
   bassSpread: 0.8, // v4 A2e: its own long dark room
   bassDub: 0.75,
   bassDuck: 0.3,
@@ -376,6 +403,8 @@ export interface SoundDebug {
   dialogue: string;
   /** How tense the harmony may get now (§13g), 0 = not gathered or off. */
   tension: number;
+  /** The tension's build-up and its last resolution, for the status line (§13h); "" when off. */
+  tensionLine: string;
 }
 
 export class SoundEngine {
@@ -446,10 +475,19 @@ export class SoundEngine {
   private planned = -1;
   private lastPlan: BarPlan | null = null;
   private lockedBars = 0;
-  /** How tense the harmony may get now (§13g: tension × how gathered). */
+  /** How tense the harmony may get now (§13h: the knob × stored × (1 − bond)). */
   private tensionNow = 0;
-  /** Per planned bar, for the patch's knobs (§8e): how far its tense phrase has climbed (0..1) and a chord change's pluck (0..1). */
-  private barShape = new Map<number, { tension: number; pluck: number }>();
+  /** The tension's build-up and resolutions (§13h), its last step, and the bar my answer lands home on. */
+  private arc: ArcState = ARC_IDLE;
+  private arcStep: ArcStep | null = null;
+  private answerHomeBar = -1;
+  /** The place's own chord on the last planned bar (before any colour): what a resolution lands on. */
+  private placeNow: PlaceChord | null = null;
+  private tensionLine = "";
+  /** Per planned bar, for the patch's knobs (§8e): how far its tense phrase has climbed (0..1), a chord change's pluck (0..1), whether it resolved. */
+  private barShape = new Map<number, { tension: number; pluck: number; landed: boolean }>();
+  /** When (context time) a found word's melody last began (§8e). */
+  private foundAt = -1e9;
   /** When (context time) the last question was called and my last answer began (§8e). */
   private askAt = -1e9;
   private answerAt = -1e9;
@@ -526,6 +564,7 @@ export class SoundEngine {
       found: { played: this.foundPlayed, last: this.foundLast, waiting: this.foundWaiting?.id ?? null },
       dialogue: this.dialogueLine,
       tension: this.tensionNow,
+      tensionLine: this.tensionLine,
     };
   }
 
@@ -598,26 +637,40 @@ export class SoundEngine {
    * THE PATCH REACTS TO CHANGES (§8e): from the bar being heard now — its tense phrase's climb, a pluck when its chord
    * changed — and from the dialogue (a question just called, my answer just begun) and the ensemble. All 0 when off.
    */
-  private reactSources(t: number): Pick<KnobSources, "tension" | "hang" | "pluck" | "ensemble"> {
+  private reactSources(t: number): Pick<KnobSources, "tension" | "hang" | "pluck" | "ensemble" | "bloom" | "path" | "found"> {
     const p = this.params;
-    const off = { tension: 0, hang: 0, pluck: 0, ensemble: 0 };
+    const off = { tension: 0, hang: 0, pluck: 0, ensemble: 0, bloom: 0, path: 0, found: 0 };
     if (!p.ncReact || !this.running || !this.epochMs) return off;
+    // (each reaction's width, 0 … 2)
+    const w = (v: number) => Math.max(0, Math.min(2, v));
     const barSec = this.musicBarSec();
     const pos = (Date.now() - this.gridEpochMs(barSec)) / 1000 / barSec;
     const bar = Math.floor(pos);
     const into = (pos - bar) * barSec;
     const shape = this.barShape.get(bar);
-    const tension = p.ncReactTension ? shape?.tension ?? 0 : 0;
-    const change = p.ncReactChange ? (shape?.pluck ?? 0) * Math.exp(-into / 0.6) : 0;
-    const ask = p.ncReactGesture && t >= this.askAt ? Math.exp(-(t - this.askAt) / 1.5) : 0;
-    const answer = p.ncReactGesture && t >= this.answerAt ? Math.exp(-(t - this.answerAt) / 0.8) : 0;
+    const tension = (shape?.tension ?? 0) * w(p.reactTension);
+    const change = (shape?.pluck ?? 0) * Math.exp(-into / 0.6) * w(p.reactChange);
+    const ask = t >= this.askAt ? Math.exp(-(t - this.askAt) / 1.5) * w(p.reactAsk) : 0;
+    const answer = t >= this.answerAt ? Math.exp(-(t - this.answerAt) / 0.8) * w(p.reactAnswer) : 0;
+    // (the bloom: from the start of the bar that resolved, up to two bars back)
+    let bloom = 0;
+    for (let j = 0; j <= 2; j++) {
+      if (this.barShape.get(bar - j)?.landed) {
+        bloom = Math.exp(-(into + j * barSec) / 2.5) * w(p.reactBloom);
+        break;
+      }
+    }
     return {
       tension,
       hang: Math.max(ask, 0.6 * tension),
       pluck: Math.max(change, answer),
-      ensemble: p.ncReactGesture && this.ensembleIds.length ? 1 : 0,
+      ensemble: this.ensembleIds.length ? w(p.reactEnsemble) : 0,
+      bloom,
+      path: (this.sig?.pathP ?? 0) * w(p.reactPath),
+      found: t >= this.foundAt ? Math.exp(-(t - this.foundAt) / 3) * w(p.reactFound) : 0,
     };
   }
+
 
   /**
    * THE MUSIC CLOCK (v4 A2, the artist): seconds a bar, decided here from the Leva bar length and the interaction —
@@ -653,6 +706,14 @@ export class SoundEngine {
     const cycleSec = (word.steps * stepMs) / 1000;
     const at0 = ctx.currentTime + Math.max(0, startPerfMs - performance.now()) / 1000;
     this.answerAt = at0; // (the patch plucks with my answer, §8e)
+    // (a held tension, §13h: my answer resolves my share — the word's bar lands home, half the store let go)
+    const resolving = !!this.arcStep?.holding && !!this.placeNow;
+    const homeChord = resolving ? resolutionChord(this.placeNow!, "home") : null;
+    if (resolving) {
+      this.answerHomeBar = this.planned + 1;
+      this.arc = answerArc(this.arc, this.answerHomeBar);
+      this.plans.delete(this.answerHomeBar);
+    }
     const their = this.voices.get(other);
     if (this.params.askCounterpoint) {
       // AS COUNTERPOINT (§13d): bar 1 — my line, closing on the tonic, and theirs an octave or more away, meshed into
@@ -675,7 +736,7 @@ export class SoundEngine {
         this.note(theirDest, n.freq, at0 + n.at * cycleSec, n.len * cycleSec, ANSWER_VEL, theirs.timbre, 0, viaMe);
         this.feature(other, at0 + n.at * cycleSec);
       }
-      const wordLine = realize(word, key, chord, 1, this.planned + 1);
+      const wordLine = realize(word, key, homeChord ?? chord, 1, this.planned + 1);
       const heard = (ns: readonly { pitch: number }[], k: number) => (ns.length ? ns.reduce((s, n) => s + n.pitch, 0) / ns.length + k : 60 + T);
       const s = octaveToward(shiftNotes(wordLine, T), heard(theirLine, viaMe ? T : 0));
       const octave = shiftNotes(wordLine, viaMe ? s : T + s);
@@ -766,7 +827,10 @@ export class SoundEngine {
     this.seenSlabs = new Set(near);
     const together = this.forceTogether || (sig.coBuilders?.length ?? 0) > 0;
     // (longer with more turns: a pre-dominant, the dominant, sometimes a deceptive turn, then home — §13f)
-    const step = nextArrival(this.arrivalState, bar, together, born && sig.stay > 0.5 && sig.neighbours.length > 0, ARRIVAL_COOLDOWN, p.harmonyTurns);
+    // (a stored tension holds the dominant longer and the payoff lands — §13h)
+    const arcOn = p.harmonyTurns && p.tension > 0;
+    const hold = arcOn ? arrivalHold(this.arcStep?.level ?? 0) : 0;
+    const step = nextArrival(this.arrivalState, bar, together, born && sig.stay > 0.5 && sig.neighbours.length > 0, ARRIVAL_COOLDOWN, p.harmonyTurns, hold);
     if (this.forceTogether && step.phase === "dominant") this.forceTogether = false;
     this.arrivalState = step.state;
     const arrival = p.arrival ? step.phase : null;
@@ -774,9 +838,18 @@ export class SoundEngine {
       this.arrivalGlow = 1;
       this.arrivalAt = this.ctx.currentTime;
     }
-    // (tension when gathered, §13g: how many are within hearing, against how many make it full)
-    const gathered = Math.min(1, sig.neighbours.filter((n) => n.dist <= p.hearRadius).length / Math.max(1, p.crowdFull));
-    this.tensionNow = p.harmonyTurns ? Math.max(0, p.tension) * gathered : 0;
+    // TENSION THAT BUILDS AND IS RESOLVED (§13h): stored while others are within hearing, resolved by building together
+    // (the arrival's tonic), my answer (half), familiarity (slowly), patience (the amen) — or scattered
+    if (!arcOn) this.arcStep = null;
+    else if (bar > this.arc.bar) {
+      const heard = sig.neighbours.filter((n) => n.dist <= p.hearRadius).map((n) => n.o);
+      this.arcStep = stepArc(this.arc, { bar, barSec: this.musicBarSec(), heard, building: arrival === "tonic" }, { tension: p.tension, crowdFull: p.crowdFull, buildBars: p.buildBars, bondSec: p.bondSec, patienceBars: p.patienceBars });
+      this.arc = this.arcStep.state;
+    }
+    const arc = this.arcStep;
+    const release = bar === this.answerHomeBar && arcOn ? "home" : arc?.release ?? null;
+    const holding = !release && !!arc?.holding;
+    this.tensionNow = arc?.level ?? 0;
     const tension = this.tensionNow;
     let tenseHit = false;
     const plan = planBar({
@@ -789,13 +862,18 @@ export class SoundEngine {
       // Gathered, §13g: first the chance of a tense eight-bar phrase, staying or walking)
       colour: p.harmonyTurns
         ? (c: PlaceChord) => {
+            this.placeNow = c;
+            // (a resolution's bar: home, the amen's iv, or the scattered deceptive turn — on the place's root)
+            if (release) return resolutionChord(c, release);
             const tag = `${this.zoneKey ? keyName(this.zoneKey) : "w"}#${c.band}#${c.rootClass}`;
-            const tense = tenseChord(c, tag, bar, tension);
+            const tense = tenseChord(c, tag, bar, tension, holding);
             if (tense) tenseHit = true;
             return tense ?? (sig.stay > 0.5 ? stayingChord(c, tag, bar, p.turnAmount) : walkingChord(c, bar, p.colourAmount));
           }
         : null,
-      tension,
+      // (the arrival after a stored tension: its pre-dominant and dominants altered for certain)
+      tension: (this.arrivalState.hold ?? 0) > 0 ? 1 : tension,
+      resolve: release === "home" ? { lock: 0.95, pad: 0.85 } : release === "plagal" ? { lock: 0.85, pad: 0.7 } : release === "deceptive" ? { lock: 0.8, pad: 0.6 } : null,
       arrival,
       me: this.me.motif,
       others: this.motifs,
@@ -807,11 +885,18 @@ export class SoundEngine {
     for (const k of this.plans.keys()) if (k < bar - 4) this.plans.delete(k);
     // (for the patch's knobs, §8e: how far a tense phrase has climbed — the arrival's bars lean too — and a pluck when
     // the chord changes, more for a tense one)
-    const climb = tenseHit ? (((bar % TENSE_BARS) + TENSE_BARS) % TENSE_BARS) / (TENSE_BARS - 1) : 0;
+    // (holding, §13h: the store's level carries it, the phrase's climb on top; a resolution's bar lets it all go at once)
+    const k8 = (((bar % TENSE_BARS) + TENSE_BARS) % TENSE_BARS) / (TENSE_BARS - 1);
+    const climb = holding ? Math.min(1, tension / 0.6) * (0.6 + 0.4 * k8) : tenseHit ? k8 : 0;
     const lean = arrival === "pre" ? 0.5 : arrival === "dominant" ? 0.9 : arrival === "deceptive" ? 1 : 0;
     const prev = this.plans.get(bar - 1)?.chord;
     const changed = !!prev && (prev.rootClass !== plan.chord.rootClass || prev.classes.join() !== plan.chord.classes.join());
-    this.barShape.set(bar, { tension: Math.max(climb, lean), pluck: changed ? (plan.chord.quality ? 1 : 0.6) : 0 });
+    const landed = release === "home" || arrival === "tonic";
+    this.barShape.set(bar, { tension: landed ? 0 : Math.max(climb, lean), pluck: landed ? 1 : changed ? (plan.chord.quality ? 1 : 0.6) : 0, landed });
+    // (the status line)
+    const said: Record<string, string> = { build: "함께 지어 풀림", answer: "응답으로 반쯤 풀림", patience: "저절로 풀림(아멘)", scatter: "흩어짐" };
+    const last = this.arc.last && bar - this.arc.last.bar < 4 ? ` · ${said[this.arc.last.kind]}` : "";
+    this.tensionLine = arc ? `긴장 ${tension.toFixed(2)} (쌓임 ${this.arc.stored.toFixed(2)} · 정 ${arc.bond.toFixed(2)}${holding ? ` · 붙듦 ${this.arc.held}/${p.patienceBars}` : ""})${(this.arrivalState.hold ?? 0) > 0 && arrival ? ` · 도착 딸림 +${this.arrivalState.hold}` : ""}${last}` : "";
     for (const k of this.barShape.keys()) if (k < bar - 8) this.barShape.delete(k);
     this.lastPlan = plan;
     return plan;
@@ -1085,6 +1170,7 @@ export class SoundEngine {
   /** The found word's melody from `at` (a bar's start): the leaver's motif in the key I stand in, every note in tune, like the name. */
   private playFound(id: string, at: number, bar: number, key: WorldKey, barSec: number): void {
     const ctx = this.ctx!;
+    this.foundAt = at; // (the patch's far bell shimmers with it, §8e)
     if (!this.foundOut) {
       this.foundOut = ctx.createGain();
       // into the master, not the limiter as the name: the master is open at the level the name is announced at, and a

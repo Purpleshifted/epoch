@@ -47,9 +47,16 @@ export interface KnobSources {
   pluck: number;
   /** 1 while the ensemble plays, else 0. */
   ensemble: number;
+  /** 0..1 a resolution just landed (home after a held tension, the arrival's tonic, the amen): a bloom over ~3 s. */
+  bloom: number;
+  /** 0..1 how much a formed path is under my feet. */
+  path: number;
+  /** 0..1 a found word's melody just began (the leaver's): a shimmer over ~4 s. */
+  found: number;
+  // (each reacting source comes already scaled by its Leva width, 0 … 2 — so it may reach 2: twice the row's departure)
 }
 
-export const IDLE_SOURCES: KnobSources = { company: 0, zone: 0, space: 0, sealed: 0, speed: 0, together: 0, tension: 0, hang: 0, pluck: 0, ensemble: 0 };
+export const IDLE_SOURCES: KnobSources = { company: 0, zone: 0, space: 0, sealed: 0, speed: 0, together: 0, tension: 0, hang: 0, pluck: 0, ensemble: 0, bloom: 0, path: 0, found: 0 };
 
 export interface KnobMap {
   /** The Knob node in nc_noise_patch. */
@@ -70,6 +77,8 @@ export interface KnobMap {
   slew?: number;
   /** The same on the way back toward the rest (default = slew): fast = a release that opens at once, slow = a tail. */
   release?: number;
+  /** The highest value ever sent, below the knob's own max (a feedback stays short of running away, whatever the width). */
+  cap?: number;
   /** One line: what the listener hears. */
   why: string;
 }
@@ -105,24 +114,38 @@ export const KNOB_MAPS: readonly KnobMap[] = [
   { nodeId: "57", name: "+ (v0 root's cutoff base)", min: 0, max: 1, rest: 0.148, source: "tension", hi: 0.08, release: 0.25, why: "the root darkens while it leans, and opens when home comes" },
   { nodeId: "64", name: "+ (v1 colour's cutoff base)", min: 0, max: 1, rest: 0.276, source: "tension", hi: 0.17, release: 0.25, why: "the colour tone darkens while it leans" },
   // THE ECHO HANGS ON: a question just called (and part of the tension) — more feedback in both echo lines, a slow fall
-  { nodeId: "138", name: "FB (echo 1 feedback)", min: 0, max: 0.9, rest: 0.695, source: "hang", hi: 0.84, slew: 0.12, release: 0.03, why: "a question stays in the air" },
-  { nodeId: "152", name: "FB (echo 2 feedback)", min: 0, max: 0.9, rest: 0.668, source: "hang", hi: 0.84, slew: 0.12, release: 0.03, why: "(the second echo line)" },
+  { nodeId: "138", name: "FB (echo 1 feedback)", min: 0, max: 0.9, rest: 0.695, source: "hang", hi: 0.84, slew: 0.12, release: 0.03, cap: 0.86, why: "a question stays in the air" },
+  { nodeId: "152", name: "FB (echo 2 feedback)", min: 0, max: 0.9, rest: 0.668, source: "hang", hi: 0.84, slew: 0.12, release: 0.03, cap: 0.86, why: "(the second echo line)" },
   // A PLUCK: the chord changed on this bar, or my answer began — each note's filter opens wider for a moment
   { nodeId: "56", name: "* (v0 root's filter envelope depth)", min: 0, max: 1, rest: 0.568, source: "pluck", hi: 0.9, slew: 0.35, release: 0.05, why: "a chord change (or my answer) plucks the root bright" },
   { nodeId: "63", name: "* (v1 colour's filter envelope depth)", min: 0, max: 1, rest: 0.394, source: "pluck", hi: 0.75, slew: 0.35, release: 0.05, why: "and the colour tone" },
   { nodeId: "121", name: "* (v2 fifth's filter envelope depth)", min: 0, max: 1, rest: 0.373, source: "pluck", hi: 0.7, slew: 0.35, release: 0.05, why: "and the far bell" },
   // THE ENSEMBLE SHARES A ROOM: more of the patch into the cross-delay while it plays
   { nodeId: "301", name: "Knob (into the cross-delay)", min: 0, max: 1, rest: 0.483, source: "ensemble", hi: 0.78, why: "while the ensemble plays the patch sits in one shared room" },
+  // A BLOOM WHEN IT RESOLVES: the cross-delay feeds back longer and the chords layer opens — the resolved chord blooms
+  // and repeats round the room, then settles (the loop gain 76 × 81 stays below 1: cap)
+  { nodeId: "76", name: "fact (cross-delay feedback L)", min: 0, max: 1, rest: 0.723, source: "bloom", hi: 0.86, slew: 0.2, release: 0.03, cap: 0.92, why: "a resolution rings on round the room" },
+  { nodeId: "81", name: "fact (cross-delay feedback R)", min: 0, max: 1, rest: 0.741, source: "bloom", hi: 0.86, slew: 0.2, release: 0.03, cap: 0.92, why: "(the other side)" },
+  { nodeId: "287", name: "* (chords layer's filter envelope depth)", min: 0, max: 1, rest: 0.3, source: "bloom", hi: 0.65, slew: 0.3, release: 0.05, why: "the chords layer opens on the resolved chord" },
+  { nodeId: "288", name: "+ (chords layer's cutoff base)", min: 0, max: 1, rest: 0.184, source: "bloom", hi: 0.34, slew: 0.2, release: 0.04, why: "and brightens" },
+  // CLEAR ON A PATH: the echo's low end thins and the far bell brightens — the rhythm of walking a path stands out
+  { nodeId: "142", name: "> (echo 1 band's lower edge)", min: 0, max: 1, rest: 0.588, source: "path", hi: 0.72, why: "on a path the echo thins: less murk, the pulse clearer" },
+  { nodeId: "156", name: "> (echo 2 band's lower edge)", min: 0, max: 1, rest: 0.547, source: "path", hi: 0.7, why: "(the second echo line)" },
+  { nodeId: "122", name: "+ (v2 fifth's cutoff base)", min: 0, max: 1, rest: 0.206, source: "path", hi: 0.3, why: "the far bell brightens on a path" },
+  // A FOUND WORD SHIMMERS: the far bell's pitch wavers on each note and its sine comes forward while the leaver's melody plays
+  { nodeId: "271", name: "fact (v2 fifth's pitch envelope)", min: 0, max: 0.1, rest: 0.015, source: "found", hi: 0.05, slew: 0.3, release: 0.04, why: "the bell wavers while a found word sounds" },
+  { nodeId: "254", name: "Knob (v2 fifth's sine level)", min: 0, max: 1, rest: 0.6, source: "found", hi: 0.85, slew: 0.2, release: 0.04, why: "and comes forward" },
 ];
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 /** The knob's target for a source value and a depth (0 = rest), within its range. */
 export function knobTarget(m: KnobMap, s: number, depth: number): number {
-  const sv = clamp(s, -1, 1);
+  // (a source may reach 2: a Leva width of twice the row's departure — §8e; still within the knob's range and cap)
+  const sv = clamp(s, -2, 2);
   const d = clamp(depth, 0, 1);
   const end = sv >= 0 ? m.hi : (m.lo ?? m.rest);
-  return clamp(m.rest + d * Math.abs(sv) * (end - m.rest), m.min, m.max);
+  return clamp(m.rest + d * Math.abs(sv) * (end - m.rest), m.min, Math.min(m.max, m.cap ?? m.max));
 }
 
 /**
