@@ -18,7 +18,7 @@ import { useEffect, useMemo } from "react";
 import { folder, useControls } from "leva";
 import type { PlateOrient, PlateTheme } from "@/lib/parliament";
 import type { GrassMode } from "./NatureCloud";
-import type { PeopleLook } from "./PointPeople";
+import { DEFAULT_PEOPLE, type PeopleLook } from "./PointPeople";
 import { setStreetGround } from "./streetLook";
 import type { LogPlace } from "./StreetHud";
 import type { InkPaperLook } from "./InkPaper";
@@ -76,6 +76,10 @@ export interface StreetVisual {
   /** The others as walking point silhouettes (PointPeople) in place of the squares. */
   people: boolean;
   look: PeopleLook;
+  /** THE OLD VIEW'S PART OF IT (2026-11-27): the others as pictograms with their interaction, in the old black view and
+   *  under its own camera — its own switch (개인뷰 비주얼 › 봇: 픽토그램 + 인터랙션), never on where `on` is. */
+  partial: boolean;
+  partialLook: PeopleLook;
   /** The eye at a person's height just behind the walker, looking level. */
   eye: { on: boolean; height: number; back: number; look: number };
   /** A black depth fog in the brutal look (the 화면 folder's near / far). */
@@ -149,6 +153,12 @@ export function usePersonalVisuals(): PersonalVisuals {
       cardTheme: { options: CARD_THEMES, value: "paper" as PlateTheme, label: "표본 카드 바탕 (처음; 관객이 바꿀 수 있음)", render: () => false },
       cardOrient: { options: CARD_ORIENTS, value: "portrait" as PlateOrient, label: "표본 카드 방향 (처음; 관객이 바꿀 수 있음)", render: v2 },
       footprint: { value: true, label: "퇴장 화면 발자국 지도", render: v2 },
+      // A PART OF THE LAB BROUGHT INTO THE OLD VIEW (the artist, 2026-11-27: "이전버전의 리허설에서 봇을 상자가 아니라
+      // 픽토그램+그것과의 인터랙션 되도록 부분도입해봐 (레바로 끄고 켤 수 있게)"): the others as the moving pictograms with
+      // what happens between them and me, in place of the squares — nothing else of the lab's look. Off as saved before;
+      // listed only where the old view is drawn (not on the lab's pages, which have the pictograms already).
+      botPicto: { value: false, label: "봇: 픽토그램 + 인터랙션 (부분 도입)", render: () => isV2 && !newLook() },
+      botPictoSize: { value: 1, min: 0.5, max: 4, step: 0.1, label: "봇 픽토그램 크기 ×", render: (get: (path: string) => unknown) => isV2 && !newLook() && get(`${ROOT}.botPicto`) === true },
       "브루털 (검은 바탕)": folder({
         grassStyle: { options: GRASS_STYLES, value: "field" as GrassStyle, label: "풀", render: v2 },
         grassColor: { value: "#2f8f3f", label: "풀 색", render: v2 },
@@ -197,6 +207,8 @@ export function usePersonalVisuals(): PersonalVisuals {
   // and the experiment address; the exhibition's personal view keeps its black look for comparing — mobileLab.ts newLook)
   const c = { ...c0, ...cBase, ...cBot, ...cScan, streetOn: cBase.streetOn && newLook() };
   const brutal = c.look === "brutal";
+  // (the pictograms brought into the old view: only there — the lab's look has its own)
+  const partial = isV2 && c.botPicto === true && !newLook();
   const grass = useMemo<GrassVisual>(
     () => ({
       mode: c.grassMode,
@@ -219,7 +231,7 @@ export function usePersonalVisuals(): PersonalVisuals {
     () => ({
       others: {
         // the street trial's silhouettes stand in for the squares
-        on: c.othersOn && !(c.streetOn && c.streetPeople),
+        on: c.othersOn && !(c.streetOn && c.streetPeople) && !partial,
         size: brutal ? c.otherSquare : c.otherSize,
         height: brutal ? 0.2 : c.otherHeight,
         bright: c.otherBright,
@@ -236,13 +248,17 @@ export function usePersonalVisuals(): PersonalVisuals {
       burst: { on: c.burstOn, count: c.burstCount, reach: c.burstReach, lifeSec: c.burstLife, dot: c.burstDot },
       on: c.othersOn || c.concreteOn,
     }),
-    [brutal, c.othersOn, c.streetOn, c.streetPeople, c.otherSquare, c.otherSize, c.otherHeight, c.otherBright, c.otherRecent, c.otherHalo, c.otherHaloStrength, c.otherFog, c.otherPulse, c.otherHold, c.otherSnap, c.concreteOn, c.concreteHeight, c.concreteBright, c.concreteRadius, c.concreteStyle, c.outlineScale, c.burstOn, c.burstCount, c.burstReach, c.burstLife, c.burstDot],
+    [brutal, partial, c.othersOn, c.streetOn, c.streetPeople, c.otherSquare, c.otherSize, c.otherHeight, c.otherBright, c.otherRecent, c.otherHalo, c.otherHaloStrength, c.otherFog, c.otherPulse, c.otherHold, c.otherSnap, c.concreteOn, c.concreteHeight, c.concreteBright, c.concreteRadius, c.concreteStyle, c.outlineScale, c.burstOn, c.burstCount, c.burstReach, c.burstLife, c.burstDot],
   );
   const card = useMemo<CardVisual>(() => ({ theme: "paper", orient: c.cardOrient }), [c.cardOrient]);
   const street = useMemo<StreetVisual>(
     () => ({
       on: c.streetOn,
       people: c.streetOn && c.streetPeople,
+      partial,
+      // (its own look, none of the lab's saved values: the pictograms, white on the black ground, seen from the old
+      // camera; brackets round whoever the record counts as near me — 3 world units, in the pictograms' metres)
+      partialLook: { ...DEFAULT_PEOPLE, mode: "frames", paper: false, meBody: false, recentSec: c.otherRecent, frSize: c.botPictoSize, frBlur: 0, frTrack: 2, frTrackRadius: 3 * DEFAULT_PEOPLE.scale, orbit: true },
       look: {
         mode: c.ppMode,
         paper: c.streetOn && c.paperOn,
@@ -308,7 +324,7 @@ export function usePersonalVisuals(): PersonalVisuals {
       paper: c.streetOn && c.paperOn,
       ink: { narrow: c.inkNarrow, wide: c.inkWide, decay: c.inkDecay, gain: c.paperExposure, density: c.inkDensity, fade: c.inkFade, grain: c.inkGrain, rolloff: c.inkRolloff, shake: c.inkShake, halo: c.inkHalo, burn: c.inkBurn },
     }),
-    [c.streetOn, c.streetPeople, c.paperOn, c.paperInk, c.paperBlur, c.paperFade, c.paperLabel, c.paperFlicker, c.paperStretch, c.paperShake, c.paperBlot, c.paperBubble, c.paperAspectMin, c.paperAspectMax, c.paperTail, c.paperVariety, c.paperExposure, c.paperFrame, c.askTurn, c.askRipple, c.inkNarrow, c.inkWide, c.inkDecay, c.inkDensity, c.inkFade, c.inkGrain, c.inkRolloff, c.inkShake, c.inkHalo, c.inkBurn, c.ppMode, c.ppBoxAspect, c.ppBoxRest, c.ppCue, c.ppPoints, c.ppPointsPhone, c.ppScale, c.ppDot, c.ppMaxPx, c.ppGait, c.ppColour, c.viewOn, c.viewRadius, c.hintsOn, c.hintRadius, c.hintEvery, c.logPlace, c.ppGrey, c.ppHeight, c.ppVariety, c.ppMaxCadence, c.ppPlate, c.ppPlateAlpha, c.ppSmearSec, c.ppSmearCopies, c.ppBreath, c.ppFog, c.ppMaxSpeed, c.otherRecent, c.ppFaceEach, c.ppFaceRadius, c.meBody, c.meRest, c.frHop, c.frAskSolid, c.frAskScale, c.frSize, c.frBlur, c.frTrack, c.frTrackRadius, c.eyeOn, c.eyeHeight, c.eyeBack, c.eyeLook, c.streetFog, c.walkSpeed],
+    [partial, c.botPictoSize, c.streetOn, c.streetPeople, c.paperOn, c.paperInk, c.paperBlur, c.paperFade, c.paperLabel, c.paperFlicker, c.paperStretch, c.paperShake, c.paperBlot, c.paperBubble, c.paperAspectMin, c.paperAspectMax, c.paperTail, c.paperVariety, c.paperExposure, c.paperFrame, c.askTurn, c.askRipple, c.inkNarrow, c.inkWide, c.inkDecay, c.inkDensity, c.inkFade, c.inkGrain, c.inkRolloff, c.inkShake, c.inkHalo, c.inkBurn, c.ppMode, c.ppBoxAspect, c.ppBoxRest, c.ppCue, c.ppPoints, c.ppPointsPhone, c.ppScale, c.ppDot, c.ppMaxPx, c.ppGait, c.ppColour, c.viewOn, c.viewRadius, c.hintsOn, c.hintRadius, c.hintEvery, c.logPlace, c.ppGrey, c.ppHeight, c.ppVariety, c.ppMaxCadence, c.ppPlate, c.ppPlateAlpha, c.ppSmearSec, c.ppSmearCopies, c.ppBreath, c.ppFog, c.ppMaxSpeed, c.otherRecent, c.ppFaceEach, c.ppFaceRadius, c.meBody, c.meRest, c.frHop, c.frAskSolid, c.frAskScale, c.frSize, c.frBlur, c.frTrack, c.frTrackRadius, c.eyeOn, c.eyeHeight, c.eyeBack, c.eyeLook, c.streetFog, c.walkSpeed],
   );
   // the ground's part of the street look goes to the components RoleField mounts, through the module value
   useEffect(() => {

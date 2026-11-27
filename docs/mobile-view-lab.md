@@ -352,6 +352,17 @@ by it; what she decides here goes into `PointPeople`'s 2D people after.
 - Pending: talking tied to the melody of someone speaking to me ("소통은 나중에 말 거는 멜로디랑도 연동하고 싶음"); carrying the
   study's sets into `PointPeople` (the personal view still uses the old row choice).
 
+**A part of it in the OLD view (2026-11-27, the artist: "이전버전의 리허설에서 봇을 상자가 아니라 픽토그램+그것과의 인터랙션
+되도록 부분도입해봐 (레바로 끄고 켤 수 있게)").** `개인뷰 비주얼 › 봇: 픽토그램 + 인터랙션 (부분 도입)` (`botPicto`, off by
+default; `봇 픽토그램 크기 ×` beside it) — in the old black personal view (`/v2/mobile` outside `newLook()`), the others
+as the moving pictograms with what happens between them and me (brackets round whoever the record counts as near, the
+asker's bold box beating on its melody with a line to my mark, its head hopping, the melody over its head, held while we
+talk, my heading turning its way) in place of the squares. Nothing else of the lab's look: no paper, no long exposure,
+no eye camera, no lidar, no new record lines. Its look is its own (`usePersonalVisuals` `street.partialLook`, none of the
+lab's saved values) and it is seen from the old camera (`FramePeopleLayer` `orbit`: near and far counted from where I
+stand, nobody thinned or cut for being close to the camera). The rehearsal and the exhibition share this group's saved
+values: saved ON, it is on in `/exhibition/personal` too.
+
 **Evening, 2026-11-23 — 2D PEOPLE from real video become the default (`그리기 = 2D 사람`, mode `"sprites"`,
 `spritePeople.ts`).** The artist: "걍 3d 몸 버려야하나 … 후져 … 한계가 있어보여 … 2d 실루엣" → "Pexels 클립으로 먼저
 시험해봐" → "내가 찾을게". Pipeline: clips in `visual_reference_images/people_clips/` (gitignored; one person head to foot,

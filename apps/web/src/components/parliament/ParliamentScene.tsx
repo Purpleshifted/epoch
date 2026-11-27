@@ -614,11 +614,11 @@ export default function ParliamentScene({ lab }: { lab?: LabPage } = {}) {
         {/* 길거리 (2026-11-22, a trial): the others as walking point silhouettes, read from the record's far list */}
         {/* 먹과 종이: the finish pass over the whole frame while the paper look is on (InkPaper) */}
         {paper && <InkPaper look={street.ink} fogFar={fogF} />}
-        {isV2 && withSession && visuals.street.people && labPeople && (
+        {isV2 && withSession && ((visuals.street.people && labPeople) || visuals.street.partial) && (
           <PointPeople
             getOthers={() => witnessRef.current?.far ?? null}
             playerPosRef={playerPosRef}
-            look={visuals.street.look}
+            look={visuals.street.partial ? visuals.street.partialLook : visuals.street.look}
             phone={coarse}
             me={{ get: () => ({ ...playerPosRef.current, heading: playerYawRef.current }), rhythm: getRhythm }}
             viewFog={viewOn}

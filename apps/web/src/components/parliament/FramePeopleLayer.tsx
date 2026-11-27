@@ -16,7 +16,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { DEFAULT_WITNESS, individualNo, nearestImage, rhythmOf, type Other } from "@/lib/parliament";
 import { musicNow } from "./musicClock";
-import { onLifeEvent } from "./lifeEvents";
+import { emitLifeEvent, onLifeEvent } from "./lifeEvents";
 import { savedGroup } from "./levaSave";
 import { lidarActive } from "./LidarScan";
 import { LAB_GROUP } from "./mobileLab";
@@ -96,6 +96,7 @@ export function FramePeopleLayer({
   pins,
   getPeople,
   paper = false,
+  orbit = false,
 }: {
   getList: () => readonly Other[] | null;
   playerPosRef: React.MutableRefObject<{ x: number; z: number }>;
@@ -122,6 +123,10 @@ export function FramePeopleLayer({
   getPeople?: () => ReadonlyMap<string, StreetBody>;
   /** The white ground: the body that walks on its own (`body`), else the person's own place. */
   paper?: boolean;
+  /** SEEN FROM OUTSIDE MYSELF (the old personal view's camera, round and above my mark — the artist, 2026-11-27: "이전
+   *  버전의 리허설에서 봇을 상자가 아니라 픽토그램+그것과의 인터랙션"): near and far are counted from where I stand, not
+   *  from the camera; nobody thins or goes for being close to the camera; the asker's line runs to my mark. */
+  orbit?: boolean;
 }) {
   const gl = useThree((st) => st.gl);
   const camera = useThree((st) => st.camera);
@@ -224,7 +229,7 @@ export function FramePeopleLayer({
     // pictogram's own)
     // (the pictogram's ink by the street's ground — black on the white paper, white on the black, the lidar's included
     // (it reads the white pipeline onto black) — laid over, never multiplied; its blur its own)
-    const pixOwn = { pixBlur: blur, pixWhite: !paper || lidarActive(), multiply: look.pix ? false : look.multiply };
+    const pixOwn = { pixBlur: blur, pixWhite: !paper || lidarActive(), multiply: look.pix ? false : look.multiply, ...(orbit ? { nearCut: 0, nearBand: 0.01, pixNear: 1, tier: { ...look.tier, ink: [1, 1, 1] as [number, number, number], blur: [0, 0, 0] as [number, number, number] } } : null) };
     const L: Look = getPeople ? { ...look, standMode: false, stamp: false, ...pixOwn } : { ...look, ...pixOwn };
     // (their own layer: the street's plain render draws it with the rest; InkPaper leaves it out of its softening)
     state.camera.layers.enable(PICTO_LAYER); // (InkPaper sets the camera's layers for each of its passes itself)
@@ -348,7 +353,8 @@ export function FramePeopleLayer({
     let tracked = 0;
     let nearest: string | null = null;
     let nearD = Infinity;
-    const distM = (w: BotWalker) => Math.hypot(w.x - camera.position.x, w.z - camera.position.z) / unit;
+    const from = orbit ? { x: me.x, z: me.z } : camera.position;
+    const distM = (w: BotWalker) => Math.hypot(w.x - from.x, w.z - from.z) / unit;
     for (const w of W) {
       const d = distM(w);
       if (d < nearD) {
@@ -444,7 +450,11 @@ export function FramePeopleLayer({
               ctx.strokeStyle = col(0.6);
               ctx.beginPath();
               ctx.moveTo((r.x0 + r.x1) / 2, r.y1 + g);
-              ctx.lineTo(cw / 2, ch);
+              // (to me: the bottom of the screen where I look out of my own eyes; my mark where I am seen from outside)
+              if (orbit) {
+                v.set(me2.x, 0.3, me2.z).project(camera);
+                ctx.lineTo((v.x * 0.5 + 0.5) * cw, (1 - (v.y * 0.5 + 0.5)) * ch);
+              } else ctx.lineTo(cw / 2, ch);
               ctx.stroke();
               ctx.fillStyle = col(1);
               ctx.fillText(`${individualNo(w.id ?? "")}  ♪${tag}`, r.x0 - g, r.y0 - g - 4);
@@ -524,7 +534,12 @@ export function FramePeopleLayer({
     // (the lab's "말 걸기 시험" asks with the nearest one)
     (window as unknown as { __framesNearest?: string | null }).__framesNearest = nearest;
     // (a handle for the headless checks: the material, to switch the layer off and see what else draws)
-    if (process.env.NODE_ENV === "development") (window as unknown as { __framesLayer?: unknown }).__framesLayer = { mat, sideMat, geom };
+    // (and, where there is no lab test button — the old view — a way to have the nearest one ask)
+    if (process.env.NODE_ENV === "development") {
+      const win = window as unknown as { __framesLayer?: unknown; __framesAsk?: (id: string) => void };
+      win.__framesLayer = { mat, sideMat, geom };
+      win.__framesAsk ??= (id: string) => emitLifeEvent({ kind: "word.asked", text: "(시험)", level: 1, who: id });
+    }
   });
 
   // (pictograms: one card a bot, no thickness)
