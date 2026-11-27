@@ -24,7 +24,7 @@ import type { LogPlace } from "./StreetHud";
 import type { InkPaperLook } from "./InkPaper";
 import { savable } from "./levaSave";
 import { useParliamentVersion } from "./version";
-import { detailKnobsListed } from "./mobileLab";
+import { detailKnobsListed, newLook } from "./mobileLab";
 import { useBaseKnobs } from "./labKnobsBase";
 import { useBotPresentKnobs } from "./labKnobsBotPresent";
 import { useScanPresentKnobs } from "./labKnobsScanPresent";
@@ -193,7 +193,9 @@ export function usePersonalVisuals(): PersonalVisuals {
   const cBase = useBaseKnobs(isV2);
   const cBot = useBotPresentKnobs(isV2);
   const cScan = useScanPresentKnobs(isV2);
-  const c = { ...c0, ...cBase, ...cBot, ...cScan };
+  // (the street — paper, long exposure, the eye, the pictograms — only where the lab's look is drawn: the lab's pages
+  // and the experiment address; the exhibition's personal view keeps its black look for comparing — mobileLab.ts newLook)
+  const c = { ...c0, ...cBase, ...cBot, ...cScan, streetOn: cBase.streetOn && newLook() };
   const brutal = c.look === "brutal";
   const grass = useMemo<GrassVisual>(
     () => ({

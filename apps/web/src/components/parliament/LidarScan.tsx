@@ -23,7 +23,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { mobileLab } from "./mobileLab";
+import { mobileLab, runsEveryAsset } from "./mobileLab";
 import { markSpan } from "./usePerfMeter";
 
 /** A bucket of the cells' grid as one number (no strings in the ray march). */
@@ -120,8 +120,8 @@ export function setLidarLook(v: Partial<LidarLook>): void {
 /** Whether the scan is drawn on this page: the scan (present) lab page, and the action preview that runs every asset
  *  as saved (the artist, 2026-11-24: "액션 프리뷰에 각 세션 변경사항 연결"). */
 export function lidarActive(): boolean {
-  const page = mobileLab();
-  return lidarLook.on && (page === "scan-present" || page === "preview");
+  // (…and on the experiment address, which runs every asset as the preview does — mobileLab.ts runsEveryAsset)
+  return lidarLook.on && (mobileLab() === "scan-present" || runsEveryAsset());
 }
 /** …and whether the frame is on the photo's black ground. */
 export function lidarBlack(): boolean {

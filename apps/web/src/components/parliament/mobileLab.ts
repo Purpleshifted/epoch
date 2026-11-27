@@ -95,6 +95,34 @@ export function mobileLab(): LabPage | null {
   return labPage;
 }
 
+/**
+ * THE REDESIGNED PERSONAL VIEW AS AN EXPERIMENT (the artist, 2026-11-27: "일단 지금버전 redesign 에 병합하되, 서버는
+ * 공유되고 경험도 같은 세계에서 일어나지만 일단 모드 분리/비교를 위해서 rehearsal 밑에 experiment 추가해서 거기서 개편 개인뷰
+ * 보이게"): the lab's look — the street (white paper, long exposure, the eye's camera, the pictograms) and the scan — is
+ * drawn only on the lab's pages and on the experiment address (/rehearsal/experiment → /v2/mobile?experiment=1). The
+ * exhibition's personal view keeps its black look beside it, in the same world on the same server, for comparing.
+ * (Read per call — the address can change without a reload; the last one is kept, so a per-frame call costs nothing.)
+ */
+let expSearch = "\u0000";
+let expOn = false;
+function experimentAddress(): boolean {
+  if (typeof window === "undefined") return false;
+  const s = window.location.search;
+  if (s !== expSearch) {
+    expSearch = s;
+    expOn = new URLSearchParams(s).get("experiment") === "1";
+  }
+  return expOn;
+}
+/** Whether this page draws the lab's look at all (any lab page, or the experiment address). */
+export function newLook(): boolean {
+  return labPage !== null || experimentAddress();
+}
+/** Whether this page runs every asset together, as saved (the action preview, or the experiment address). */
+export function runsEveryAsset(): boolean {
+  return labPage === "preview" || (labPage === null && experimentAddress());
+}
+
 function knobsAll(): boolean {
   try {
     return typeof window !== "undefined" && new URLSearchParams(window.location.search).get("knobs") === "all";

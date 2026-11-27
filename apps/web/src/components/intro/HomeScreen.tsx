@@ -11,6 +11,8 @@ import { EntryGroup } from "./EntryGroup";
  * of saving, and the gallery comes back to it (the artist, 2026-11-22: "베뉴 갤러리가 설정된 버튼을 홈화면에 추가해줘").
  * LAB (the artist, 2026-11-23): what is not a run-through of the real screens leaves REHEARSAL — the wall's visual lab,
  * the mobile view lab (the personal view's assets one page each, then an action preview) and management.
+ * EXPERIMENT (2026-11-27): the redesigned personal view — the mobile view lab's look — as a run-through of its own in
+ * REHEARSAL, in the same world as Personal, so the two can be compared (mobileLab.ts newLook).
  */
 export default function HomeScreen() {
   return (
@@ -34,6 +36,7 @@ export default function HomeScreen() {
             { href: "/rehearsal/future", name: "Future", sub: "the layer above only, live · light to draw" },
             { href: "/rehearsal/personal", name: "Personal", sub: "the visitor's screen, for tuning" },
             { href: "/rehearsal/personal?venue=gallery", name: "Personal · gallery", sub: "the gallery machine's screen (출력하기), for tuning" },
+            { href: "/rehearsal/experiment", name: "Experiment", sub: "the redesigned personal view · same world, to compare" },
           ]}
         />
         <EntryGroup
