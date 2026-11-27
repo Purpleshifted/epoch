@@ -251,6 +251,20 @@ meadows. The absolute knobs moved beside it, keys and saves kept: `겉면 점 �
 whenever a tree has a crown. Pool 200k points; an earlier layer over 40k takes an even share of every kind.
 `window.__residue` counts part / leaf / stem. Not seen on screen by me (load 8, build check only).
 
+**Both intervals move with performance (4462dae):** "미래 다시 읽는 간격이랑 다시 읽어 겹치는 간격 성능 따라 유동적으로
+범위 안에서". `두 간격을 성능 따라 자동으로` (on): each interval is a range — its saved number is now the shortest, with
+a longest (6 s / 1.5 s). The frame weighs frames against the fastest this screen lately did (a 30 Hz screen is not
+slow; twice as slow = the longest) and what a reading / a layer costs (≤ 2 % / 3 % of the time); longer within ~0.7 s,
+shorter again over ~4 s. Readout `지금 간격 (읽기 · 겹침 · 느려짐)`. At most 8 earlier layers: 남는 시간 ÷ 간격 above 8
+cuts them short.
+
+**The future's far and near, its own (01b0a34):** "미래랑 현재는 거리 따라 lod/흐림/뭉침 적용하는 정도 따로". The residue
+is on its own layer (`futureLayer.ts`, FUTURE_LAYER 6): under the photograph it is left out of the depth softening and
+drawn over the composed frame, dropped where the present's depth is nearer. Each kind's `· 거리` folder: 시작 거리
+(12), 성기게 정도 (1 = the present's (lod/d)²), 뭉치기 정도 (0; 1 = the present's ×d/lod), 또렷한 거리 (4), 흐림 가까이
+(0) / 멀리 (0.6, at the reach). The present keeps its own: scan (present) › 먼 점 뭉치기 시작 거리 and the photograph's
+softening. Headless (load 13): no shader errors; the look not judged by me.
+
 **Status (2026-11-23): PAUSED by the coordinator (machine overloaded) after the reference study; nothing built, no
 question put to the artist yet.** Code untouched (`FuturePresence.tsx`, `futurePresence.ts`, `labKnobsScanFuture.ts` =
 HEAD). Resume = put the three directions below to her and build her pick.
