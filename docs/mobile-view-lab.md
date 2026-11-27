@@ -170,6 +170,25 @@ look hung at load 230):**
 - 1b4b6bf: default 0.25 s / 0.45 — at 0.8 s (headless) the blown points drew long straight streaks across the sky, the
   threads' look again. Held, the plants read as a garden of coloured points; no horizon band.
 
+**The long exposure is of the READINGS, not the blowing (2026-11-27, d5fa717):** "이 노출은 흩날리는 거 강조용보다는 실제
+읽어오는 점 위치가 바뀌었을 때 그걸 겹쳐보이게 하려는 목적이 더 큰데 그게 안 느껴짐". Every `다시 읽어 겹치는 간격` (0.5 s) the
+residue is laid down anew, each point off by a scan's error (`읽을 때마다 어긋남`, 4 cm), and the layer shown until then stays
+where it was as an earlier layer (a ring of 8 Points, ≤ 40 000 points each), fading over `이전 읽기가 남는 시간` (3 s) at
+`이전 읽기의 진하기` (0.45). The future's reading (every 2 s) lays one too before it replaces the pool, and a part it changed
+is matched to the found one it replaces (same kind, boxes overlapping) and stays found. Earlier layers go within 0.6 s
+when the observer leaves. The blowing smear became an option, off (`흩날릴 때 번짐`).
+
+**Glitch, bleed, size and density; the blowing per kind (c0768d6):** "글리치나 번짐효과 같은 것도 넣고 싶음 (점 크기나
+밀도 포함)", "줄기 / 잎/ 건물부재가 fade out 되는 방식을 따로 정하고 싶음 뭐 떠오르는 정도나 등등 레바로".
+- On the earlier layers only, more as they age: `번짐` (dots larger and softer), `가로 찢김` (screen bands torn sideways,
+  each layer its own), `세로 흘러내림` (columns sliding down), `블록` (screen blocks dropping out or their dots grown),
+  `오래될수록 성겨짐` (thinning).
+- `흩날림 — 건물 부재 (둔덕 · 흙 포함)` / `— 잎 (풀 · 꽃 포함)` / `— 줄기`: each its flight time, distance, rise (below 0 it
+  falls), swirl, bloom colour. Stems are their own kind (they lift late, as if uprooted); dust dips first. The shared
+  blowing knobs are gone; `바람이 훑고 지나가는 시간` stays shared.
+- Checked: type check only. The headless look did not start (load 110–140, swap 7.4/8 GB); the :3029 server had grown
+  to 2.5 GB again an hour after its restart — restart it when the page drags.
+
 **Status (2026-11-23): PAUSED by the coordinator (machine overloaded) after the reference study; nothing built, no
 question put to the artist yet.** Code untouched (`FuturePresence.tsx`, `futurePresence.ts`, `labKnobsScanFuture.ts` =
 HEAD). Resume = put the three directions below to her and build her pick.
