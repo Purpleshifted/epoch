@@ -158,6 +158,18 @@ look hung at load 230):**
   their bloom colours as soft lights and are gone in about 2 s. Not yet seen by her (her Chrome could not load :3029
   until the dev server was restarted at her word — it had grown to ~5 GB on the 8 GB Mac).
 
+**The threads out, the future's own long exposure in the world (2026-11-27):**
+- "억지로 실 적용하는 건 별로고... 미래 스캔 레이어에만 선택적으로 장노출 못 남기나" → 7558d06: the threads and their knobs
+  removed; the residue alone drawn into a screen-space feedback buffer of its own (four moments a frame), laid over
+  the picture — the present's lidar crisp.
+- "장노출 내가 움직이는 거 따라서는 적용되지 말고 실제로 점이 변하거나 움직일 때만" → 56a2321: the screen buffer is gone (it
+  smeared with the visitor's turning). Each point that blows away draws a ribbon in the WORLD — a little wider than the
+  dot, along the very path it took over the last `움직인 점의 잔상 길이` seconds (eight pieces, following the swirl),
+  strongest at the point, fading to the oldest end, in its bloom colour (`잔상 진하기`). A point that stands leaves
+  nothing; turning the head smears nothing. Ribbons only exist while a release runs (instanced, a ring of 40 000).
+- 1b4b6bf: default 0.25 s / 0.45 — at 0.8 s (headless) the blown points drew long straight streaks across the sky, the
+  threads' look again. Held, the plants read as a garden of coloured points; no horizon band.
+
 **Status (2026-11-23): PAUSED by the coordinator (machine overloaded) after the reference study; nothing built, no
 question put to the artist yet.** Code untouched (`FuturePresence.tsx`, `futurePresence.ts`, `labKnobsScanFuture.ts` =
 HEAD). Resume = put the three directions below to her and build her pick.
