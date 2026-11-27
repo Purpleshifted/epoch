@@ -18,7 +18,7 @@
  * models (magenta.ts) are loaded a few seconds after that and only used when they have answered.
  */
 
-import { chordName, magentaChordName, type PlaceChord, type WorldKey } from "./harmony";
+import { chordName, magentaChordName, MODES, type PlaceChord, type WorldKey } from "./harmony";
 import { conduct, resolutionChord, TENSE_BARS, type PhraseLock } from "./colour";
 import { answerArc, ARC_IDLE, arrivalHold, stepArc, type ArcState, type ArcStep } from "./tensionArc";
 import { apartShift, bassUnder, callsOn, endClosed, endOpen, interlock, landWith, octaveToward, placeApart, rotate, shiftNotes } from "./dialogue";
@@ -209,6 +209,27 @@ export interface SoundParams {
    */
   ncReact: boolean;
   /**
+   * WHILE SOMEONE ASKS ME (§13j — the artist, 2026-11-28: "말 걸 때는 말 거는 애 멜로디 말고 다른 건 좀 죽여도 될 듯, 근데
+   * 그 정도를 내가 레바로 조절할 수 있게"; the redesigned view only): how far everything but the asker's voice goes down
+   * while the question is open — the pad, the bass, the vegetation's noise, the patch, the others (0 = nothing, 1 = silent).
+   */
+  askDuck: number;
+  /**
+   * THE FUTURE PASSING AS A DAYDREAM (§13k — the artist, 2026-11-28: "'미래' 찾아왔을 때 … 소리 효과가 없음. 음색이나 화성을
+   * 퓨처리스틱 + 원래 하던 꽃 효과 + 뭔가 전파스러운 … 백일몽이 나를 스쳐가는 느낌"; the redesigned view only): on, its level
+   * and length (s), and each part's share — the radio (a band of static tuning in, a whistle), the chord (a quintal
+   * stack shimmering), my own melody as if broadcast from the future, the old meadow's glitter (futureSound.ts), the
+   * patch's bloom.
+   */
+  futureSound: boolean;
+  futureLevel: number;
+  futureDur: number;
+  futureRadio: number;
+  futureChord: number;
+  futureEcho: number;
+  futureGlitter: number;
+  futureBloom: number;
+  /**
    * …and how wide each reaction swings (0 = off, 1 = as designed, 2 = twice — the artist, 2026-11-27: "이런 요소들 더
    * 찾아서 레바 슬라이더로 그 부분의 폭 조절 가능하게"): the tension as timbre, a chord change's pluck, a question's
    * echo, my answer's pluck, the ensemble's room, a resolution's bloom, clarity on a path, a found word's shimmer.
@@ -309,6 +330,15 @@ export const DEFAULT_SOUND: SoundParams = {
   ncMap: true,
   ncMapDepth: 0.8,
   ncReact: true,
+  askDuck: 0.6,
+  futureSound: true,
+  futureLevel: 0.8,
+  futureDur: 7,
+  futureRadio: 1,
+  futureChord: 1,
+  futureEcho: 1,
+  futureGlitter: 1,
+  futureBloom: 1,
   reactTension: 1,
   reactChange: 1,
   reactAsk: 1,
@@ -492,6 +522,14 @@ export class SoundEngine {
   private barShape = new Map<number, { tension: number; pluck: number; landed: boolean }>();
   /** When (context time) a found word's melody last began (§8e). */
   private foundAt = -1e9;
+  /** When the future's daydream last cued the patch's bloom (§13k). */
+  private cueBloomAt = -1e9;
+  /** The ask's duck (§13j): the gains it moves (pad, vegetation, bass, patch) and where it stands. */
+  private ducks: GainNode[] = [];
+  private ncDuck: GainNode | null = null;
+  private duckNow = 1;
+  /** My answer under way (§13d), for the picture's response (answerPhaseOf): whom to, from when (context s), a bar's length. */
+  private answerSpan: { id: string; from: number; cycle: number } | null = null;
   /** When (context time) the last question was called and my last answer began (§8e). */
   private askAt = -1e9;
   private answerAt = -1e9;
@@ -657,10 +695,11 @@ export class SoundEngine {
     const ask = t >= this.askAt ? Math.exp(-(t - this.askAt) / 1.5) * w(p.reactAsk) : 0;
     const answer = t >= this.answerAt ? Math.exp(-(t - this.answerAt) / 0.8) * w(p.reactAnswer) : 0;
     // (the bloom: from the start of the bar that resolved, up to two bars back)
-    let bloom = 0;
+    // (…and the future's daydream cues one, §13k)
+    let bloom = t >= this.cueBloomAt ? Math.exp(-(t - this.cueBloomAt) / 3) * w(p.futureBloom) : 0;
     for (let j = 0; j <= 2; j++) {
       if (this.barShape.get(bar - j)?.landed) {
-        bloom = Math.exp(-(into + j * barSec) / 2.5) * w(p.reactBloom);
+        bloom = Math.max(bloom, Math.exp(-(into + j * barSec) / 2.5) * w(p.reactBloom));
         break;
       }
     }
@@ -710,6 +749,7 @@ export class SoundEngine {
     const cycleSec = (word.steps * stepMs) / 1000;
     const at0 = ctx.currentTime + Math.max(0, startPerfMs - performance.now()) / 1000;
     this.answerAt = at0; // (the patch plucks with my answer, §8e)
+    this.answerSpan = { id: other, from: at0, cycle: cycleSec }; // (the picture's response, answerPhaseOf)
     // (a held tension, §13h: my answer resolves my share — the word's bar lands home, half the store let go)
     const resolving = !!this.arcStep?.holding && !!this.placeNow;
     const homeChord = resolving ? resolutionChord(this.placeNow!, "home") : null;
@@ -803,7 +843,7 @@ export class SoundEngine {
     filter.Q.value = 0.5;
     const gain = ctx.createGain();
     gain.gain.value = 1;
-    source.connect(filter).connect(gain).connect(this.master);
+    source.connect(filter).connect(gain).connect(this.ncDuck ?? this.master);
     this.nc = { source, filter, gain };
   }
 
@@ -953,6 +993,12 @@ export class SoundEngine {
       // the limiter before the device (§10c): with the room's speakers in the same Chrome the two summed and clipped
       this.limiter = makeLimiter(ctx);
       this.dull.connect(this.master).connect(this.limiter).connect(ctx.destination);
+      // (the ask's duck on the patch, §13j: between the patch's own gain and the master)
+      this.ducks = [];
+      this.duckNow = 1;
+      this.ncDuck = ctx.createGain();
+      this.ncDuck.connect(this.master);
+      this.ducks.push(this.ncDuck);
       // the headset's own output device, chosen on /v2/sound/output (the default when none)
       void applyOutput(ctx, "headset").then((s) => (this.outputLine = s));
       this.offOutput = onOutputChange("headset", () => void applyOutput(ctx, "headset").then((s) => (this.outputLine = s)));
@@ -1009,7 +1055,9 @@ export class SoundEngine {
       bp.Q.value = 0.9;
       this.noiseGain = ctx.createGain();
       this.noiseGain.gain.value = 0;
-      noise.connect(bp).connect(this.noiseGain).connect(this.dry);
+      const noiseDuck = ctx.createGain();
+      this.ducks.push(noiseDuck);
+      noise.connect(bp).connect(noiseDuck).connect(this.noiseGain).connect(this.dry);
       // the vegetation into the hall's reverb too (10/31, the artist: too dry)
       this.grassSend = ctx.createGain();
       this.grassSend.gain.value = this.params.grassVerb;
@@ -1027,6 +1075,7 @@ export class SoundEngine {
       shaper.curve = curve;
       shaper.oversample = "2x";
       this.bassGain.connect(shaper).connect(this.dry);
+      this.ducks.push(this.bassGain);
       // the beat spreads under everything: into the hall's room through a dark low-pass (no convolver of its own —
       // every convolver is audio-thread work, and five of them crackled on the artist's machine)
       this.bassSpread = ctx.createGain();
@@ -1064,8 +1113,12 @@ export class SoundEngine {
       // pad: five sustained sines, retuned per bar
       const level = ctx.createGain();
       level.gain.value = 0;
-      level.connect(this.dry);
-      level.connect(this.rooms.hall);
+      // (through the ask's duck, §13j)
+      const padDuck = ctx.createGain();
+      this.ducks.push(padDuck);
+      level.connect(padDuck);
+      padDuck.connect(this.dry);
+      padDuck.connect(this.rooms.hall);
       const oscs: OscillatorNode[] = [];
       const gains: GainNode[] = [];
       for (let i = 0; i < 5; i++) {
@@ -1231,6 +1284,162 @@ export class SoundEngine {
     a.splice(i, 0, at);
     const old = (this.ctx?.currentTime ?? 0) - 2;
     while (a.length && a[0] < old) a.shift();
+  }
+
+  /**
+   * MY ANSWER AS THE PICTURE SEES IT (§13d → the response, FramePeopleLayer): 0 … 2 through my answer's two bars to `id`
+   * (the first: our two lines, the second: the new word in one rhythm), as heard; null when I am not answering `id`.
+   */
+  answerPhaseOf(id: string): number | null {
+    const ctx = this.ctx;
+    const a = this.answerSpan;
+    if (!ctx || !a || a.id !== id || !this.timer) return null;
+    const lat = (ctx as AudioContext & { outputLatency?: number }).outputLatency || ctx.baseLatency || 0;
+    const u = (ctx.currentTime - lat - a.from) / Math.max(0.1, a.cycle);
+    return u >= 0 && u < 2 ? u : null;
+  }
+
+  /** Whose life this engine sounds (the picture's glyph of my word). */
+  get selfId(): string {
+    return this.myId;
+  }
+
+  /**
+   * THE FUTURE PASSING AS A DAYDREAM (§13k): `arrive` — a band of static tuning in with a whistle that locks, a quintal
+   * chord on the place's root shimmering high (its #11 the lydian's air), and my own melody in the place's lydian, an
+   * octave up, on a thin radio voice that passes (its pitch falls a little as it goes by) — panned from `panFrom` to
+   * `panTo` over futureDur s, into the hall; the patch blooms. `leave` — the static sweeping down and the chord sinking
+   * a semitone as it fades, off the way the wind blows. False when nothing was played (sound off, dead, the switch off).
+   */
+  daydream(kind: "arrive" | "leave", panFrom: number, panTo: number): boolean {
+    const ctx = this.ctx;
+    const p = this.params;
+    if (!ctx || !this.running || ctx.state !== "running" || p.dead || this.afterlife || !p.futureSound || p.futureLevel <= 0) return false;
+    const t0 = ctx.currentTime + 0.05;
+    const D = kind === "arrive" ? Math.max(2, p.futureDur) : Math.max(1.5, p.futureDur * 0.5);
+    const stop = t0 + D + 1.5;
+    const c1 = (v: number) => Math.max(-1, Math.min(1, v));
+    const env = (g: AudioParam, at: number, attack: number, end: number, level: number) => {
+      g.setValueAtTime(0, at);
+      g.linearRampToValueAtTime(level, at + attack);
+      g.setValueAtTime(level, Math.max(at + attack, end - Math.min(2, (end - at) * 0.4)));
+      g.linearRampToValueAtTime(0, end);
+    };
+    const out = ctx.createGain();
+    out.gain.value = p.futureLevel;
+    const pan = ctx.createStereoPanner();
+    pan.pan.setValueAtTime(c1(panFrom), t0);
+    pan.pan.linearRampToValueAtTime(c1(panTo), t0 + D);
+    const send = ctx.createGain();
+    send.gain.value = 0.55;
+    out.connect(pan);
+    pan.connect(this.dull);
+    pan.connect(send).connect(this.rooms.hall);
+    const tidy: AudioNode[] = [out, pan, send];
+    const root = this.placeNow?.rootClass ?? this.key?.root ?? 0;
+    // THE RADIO: static in a narrow band that tunes across, and a thin whistle gliding until it locks
+    if (p.futureRadio > 0) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noise;
+      src.loop = true;
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.Q.value = 9;
+      if (kind === "arrive") {
+        bp.frequency.setValueAtTime(420, t0);
+        bp.frequency.exponentialRampToValueAtTime(2600, t0 + D * 0.35);
+        bp.frequency.exponentialRampToValueAtTime(900, t0 + D);
+      } else {
+        bp.frequency.setValueAtTime(1800, t0);
+        bp.frequency.exponentialRampToValueAtTime(240, t0 + D);
+      }
+      const g = ctx.createGain();
+      env(g.gain, t0, kind === "arrive" ? 0.6 : 0.1, t0 + D, 0.4 * p.futureRadio);
+      src.connect(bp).connect(g).connect(out);
+      src.start(t0);
+      src.stop(stop);
+      const wh = ctx.createOscillator();
+      wh.type = "sine";
+      wh.frequency.setValueAtTime(kind === "arrive" ? 3100 : 1500, t0);
+      wh.frequency.exponentialRampToValueAtTime(kind === "arrive" ? 1180 : 420, t0 + D * 0.6);
+      const wg = ctx.createGain();
+      env(wg.gain, t0, 0.3, t0 + D * 0.75, 0.025 * p.futureRadio);
+      wh.connect(wg).connect(out);
+      wh.start(t0);
+      wh.stop(stop);
+      tidy.push(bp, g, wg);
+    }
+    // THE CHORD FROM ELSEWHERE: a quintal stack on the place's root, high, each voice shimmering (a tremolo of its own)
+    // and drifting; leaving, it sinks a semitone as it fades
+    if (p.futureChord > 0) {
+      [0, 7, 14, 21, 18].forEach((st, i) => {
+        const o = ctx.createOscillator();
+        o.type = "sine";
+        o.frequency.value = midiToHz(72 + root + st);
+        o.detune.setValueAtTime(kind === "arrive" ? -14 : 0, t0);
+        o.detune.linearRampToValueAtTime(kind === "arrive" ? 10 : -100, t0 + D);
+        const am = ctx.createGain();
+        am.gain.value = 0.6;
+        const lfo = ctx.createOscillator();
+        lfo.frequency.value = 4.5 + i * 1.1;
+        const lg = ctx.createGain();
+        lg.gain.value = 0.4;
+        lfo.connect(lg).connect(am.gain);
+        const g = ctx.createGain();
+        env(g.gain, t0 + i * 0.15, kind === "arrive" ? 1.6 : 0.2, t0 + D, (i === 4 ? 0.02 : 0.04) * p.futureChord);
+        o.connect(am).connect(g).connect(out);
+        o.start(t0);
+        lfo.start(t0);
+        o.stop(stop);
+        lfo.stop(stop);
+        tidy.push(am, lg, g);
+      });
+    }
+    // MY MELODY, BROADCAST FROM THE FUTURE: my motif in the place's lydian, an octave up, square through a radio's band,
+    // twice, passing (a doppler's fall)
+    if (kind === "arrive" && p.futureEcho > 0 && this.me && this.key) {
+      const lydian: WorldKey = { root, mode: MODES[6], degrees: this.key.degrees };
+      const notes = realize(this.me.motif, lydian, null, 1, 0);
+      const cyc = this.musicBarSec();
+      const start = t0 + D * 0.22;
+      const bpf = ctx.createBiquadFilter();
+      bpf.type = "bandpass";
+      bpf.frequency.value = 1700;
+      bpf.Q.value = 2.5;
+      const vg = ctx.createGain();
+      vg.gain.value = 0.1 * p.futureEcho;
+      bpf.connect(vg).connect(out);
+      tidy.push(bpf, vg);
+      for (let rep = 0; rep < 2; rep++)
+        for (const n of notes) {
+          const at = start + (rep + n.at) * cyc;
+          const len = Math.max(0.06, n.len * cyc);
+          if (at + len > t0 + D) continue;
+          const o = ctx.createOscillator();
+          o.type = "square";
+          o.frequency.value = n.freq * 2;
+          o.detune.setValueAtTime(25, at);
+          o.detune.linearRampToValueAtTime(25 - 60 * ((at + len - start) / Math.max(0.1, t0 + D - start)), at + len);
+          const g = ctx.createGain();
+          g.gain.setValueAtTime(0, at);
+          g.gain.linearRampToValueAtTime(1, at + 0.01);
+          g.gain.exponentialRampToValueAtTime(0.001, at + len + 0.05);
+          o.connect(g).connect(bpf);
+          o.start(at);
+          o.stop(at + len + 0.1);
+        }
+    }
+    // the patch blooms (§8e's bloom, cued — futureBloom its width)
+    this.cueBloomAt = t0;
+    setTimeout(() => {
+      for (const n of tidy)
+        try {
+          n.disconnect();
+        } catch {
+          /* gone already */
+        }
+    }, (stop - ctx.currentTime + 0.5) * 1000);
+    return true;
   }
 
   /**
@@ -1471,6 +1680,13 @@ export class SoundEngine {
       const n = sig.neighbours.find((x) => x.o === o);
       if (n && !heard.includes(n)) heard.push(n);
     }
+    // WHILE SOMEONE ASKS ME (§13j): everything but the asker's voice down by askDuck (the pad, the vegetation, the bass,
+    // the patch here; the others' voices below)
+    const duck = sig.asker && !this.afterlife ? 1 - Math.max(0, Math.min(1, params.askDuck)) : 1;
+    if (Math.abs(duck - this.duckNow) > 1e-3) {
+      for (const g of this.ducks) g.gain.setTargetAtTime(duck, t, duck < this.duckNow ? 0.15 : 0.5);
+      this.duckNow = duck;
+    }
     heard.forEach((n, rank) => {
       alive.add(n.o);
       let v = this.voices.get(n.o);
@@ -1487,6 +1703,7 @@ export class SoundEngine {
       const pair = (params.askCounterpoint && (n.o === sig.asker || n.o === pairId)) || part;
       const calls = n.o === sig.asker || (pair && !part);
       v.level = pair ? PAIR_LEVEL * Math.min(4, Math.max(1, n.dist / 1.5)) : calls ? params.othersLevel * ASKER_LEVEL : params.othersLevel;
+      if (n.o !== sig.asker && n.o !== pairId) v.level *= duck;
       v.gain.gain.setTargetAtTime(v.level, t, calls ? 0.1 : 0.4);
       if (v.panner) {
         // who speaks is placed by HRTF too (the artist, 2026-11-10: out of sight it could not be told where the call

@@ -11,6 +11,8 @@ import { folder, levaStore, useControls } from "leva";
 import { savable } from "./levaSave";
 import { useParliamentVersion } from "./version";
 import { newLook } from "./mobileLab";
+import { onFutureCue } from "./futureCue";
+import { playFuturePassing } from "./futureSound";
 import { DEFAULT_MOTIF_PRESET, DEFAULT_SIGNALS, DEFAULT_SOUND, MOTIF_PRESETS, MOTIF_PRESET_NAMES, SoundEngine, type SignalConfig, type SoundParams } from "@/lib/sound";
 
 export interface SoundSetup {
@@ -100,6 +102,15 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       ensembleSwell: { value: DEFAULT_SOUND.ensembleSwell, min: 1, max: 2.5, step: 0.05, label: "합주 중 홀·패드 (×, 1 = 곁에 머물 때와 같음 — 줄지 않음)", render: (get: (path: string) => unknown) => isV2 && newLook() && !!get(`${ROOT}.ensembleCounterpoint`) },
       // (the artist, 2026-11-27: "같은 음역대에 좀 겹치면 어때 꼭 대위적으로 서로 피해갈 이유는 없음")
       apartness: { value: DEFAULT_SOUND.apartness, min: 0, max: 1, step: 0.05, label: "대화·합주의 선들이 서로 피하는 정도 (0 = 같은 음역·같은 박에 겹쳐도 됨, 1 = 옥타브 벌리고 박 비킴)", render: () => isV2 && newLook() },
+      askDuck: { value: DEFAULT_SOUND.askDuck, min: 0, max: 1, step: 0.05, label: "누가 말 걸 때 나머지를 죽이는 정도 (0 = 그대로, 1 = 묻는 이의 멜로디만) — 패드·베이스·풀숲 노이즈·패치·다른 목소리", render: () => isV2 && newLook() },
+      futureSound: { value: DEFAULT_SOUND.futureSound, label: "미래가 스칠 때 소리 — 백일몽 (개편 개인뷰만): 전파가 잡혔다 흩어지고, 먼 화성이 반짝이고, 내 멜로디가 미래에서 방송되듯 지나감 + 꽃밭의 반짝임 + 패치의 꽃", render: () => isV2 && newLook() },
+      futureLevel: { value: DEFAULT_SOUND.futureLevel, min: 0, max: 1.5, step: 0.05, label: "· 크기", render: (get: (path: string) => unknown) => isV2 && newLook() && !!get(`${ROOT}.futureSound`) },
+      futureDur: { value: DEFAULT_SOUND.futureDur, min: 2, max: 16, step: 0.5, label: "· 길이 (초, 떠날 땐 절반)", render: (get: (path: string) => unknown) => isV2 && newLook() && !!get(`${ROOT}.futureSound`) },
+      futureRadio: { value: DEFAULT_SOUND.futureRadio, min: 0, max: 1.5, step: 0.05, label: "· 전파 (잡음 대역이 훑으며 맞춰짐 · 휘파람)", render: (get: (path: string) => unknown) => isV2 && newLook() && !!get(`${ROOT}.futureSound`) },
+      futureChord: { value: DEFAULT_SOUND.futureChord, min: 0, max: 1.5, step: 0.05, label: "· 먼 화성 (5도 쌓기 + #11, 떨림)", render: (get: (path: string) => unknown) => isV2 && newLook() && !!get(`${ROOT}.futureSound`) },
+      futureEcho: { value: DEFAULT_SOUND.futureEcho, min: 0, max: 1.5, step: 0.05, label: "· 미래에서 온 내 멜로디 (라디오 목소리, 지나가며 음이 살짝 내려감)", render: (get: (path: string) => unknown) => isV2 && newLook() && !!get(`${ROOT}.futureSound`) },
+      futureGlitter: { value: DEFAULT_SOUND.futureGlitter, min: 0, max: 1.5, step: 0.05, label: "· 꽃밭의 반짝임 (원래의 꽃 효과)", render: (get: (path: string) => unknown) => isV2 && newLook() && !!get(`${ROOT}.futureSound`) },
+      futureBloom: { value: DEFAULT_SOUND.futureBloom, min: 0, max: 2, step: 0.05, label: "· 패치의 꽃 (크로스딜레이·코드층이 핌, 패치 반응이 켜져 있을 때)", render: (get: (path: string) => unknown) => isV2 && newLook() && !!get(`${ROOT}.futureSound`) },
       // more turns in the harmony (sound-logic §13f; the artist, 2026-11-27: "화성이 좀 더 ... 진행이 다양했으면")
       harmonyTurns: { value: DEFAULT_SOUND.harmonyTurns, label: "화성을 더 다양하게 (개편 개인뷰만) — 머물면 그 자리의 진행이 돎(빌려온 코드·반음계 중음·나폴리·페달) · 걸을 땐 가끔 sus·add9 · 도착은 버금딸림 → 딸림 → (가끔 거짓 종지) → 으뜸 (끄면 전처럼)", render: () => isV2 && newLook() },
       turnAmount: { value: DEFAULT_SOUND.turnAmount, min: 0, max: 1, step: 0.05, label: "머물 때 진행이 움직이는 정도 (0 = 한 코드)", render: (get: (path: string) => unknown) => isV2 && newLook() && !!get(`${ROOT}.harmonyTurns`) },
@@ -257,7 +268,7 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
     master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, sealRadius, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, ncReact, reactTension, reactChange, reactAsk, reactAnswer, reactEnsemble, reactBloom, reactPath, reactFound, bassSpread, bassDub, bassDuck, bassDrop,
     motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb,
     motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb,
-    bassFrom, pathRadius, afterlifeTail, afterglow, foundLevel, askCounterpoint, ensembleCounterpoint, ensembleSwell, apartness, harmonyTurns, turnAmount, colourAmount, tension, crowdFull, buildBars, bondSec, patienceBars,
+    bassFrom, pathRadius, afterlifeTail, afterglow, foundLevel, askCounterpoint, ensembleCounterpoint, ensembleSwell, apartness, harmonyTurns, turnAmount, colourAmount, tension, crowdFull, buildBars, bondSec, patienceBars, askDuck, futureSound, futureLevel, futureDur, futureRadio, futureChord, futureEcho, futureGlitter, futureBloom,
   } = c;
   const params = useMemo<SoundParams>(
     () => ({
@@ -278,11 +289,37 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       buildBars,
       bondSec,
       patienceBars,
+      askDuck: newLook() ? askDuck : 0,
+      futureSound: futureSound && newLook(),
+      futureLevel,
+      futureDur,
+      futureRadio,
+      futureChord,
+      futureEcho,
+      futureGlitter,
+      futureBloom,
     }),
-    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, ncReact, reactTension, reactChange, reactAsk, reactAnswer, reactEnsemble, reactBloom, reactPath, reactFound, bassSpread, bassDub, bassDuck, bassDrop, motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb, motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb, bassFrom, afterlifeTail, afterglow, foundLevel, askCounterpoint, ensembleCounterpoint, ensembleSwell, apartness, harmonyTurns, turnAmount, colourAmount, tension, crowdFull, buildBars, bondSec, patienceBars],
+    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, ncReact, reactTension, reactChange, reactAsk, reactAnswer, reactEnsemble, reactBloom, reactPath, reactFound, bassSpread, bassDub, bassDuck, bassDrop, motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb, motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb, bassFrom, afterlifeTail, afterglow, foundLevel, askCounterpoint, ensembleCounterpoint, ensembleSwell, apartness, harmonyTurns, turnAmount, colourAmount, tension, crowdFull, buildBars, bondSec, patienceBars, askDuck, futureSound, futureLevel, futureDur, futureRadio, futureChord, futureEcho, futureGlitter, futureBloom],
   );
   const sigCfg = useMemo<SignalConfig>(() => ({ ...DEFAULT_SIGNALS, hearRadius, sealRadius, pathRadius }), [hearRadius, sealRadius, pathRadius]);
   const { record: recordOn, recordKbps } = c;
   const record = useMemo(() => ({ on: recordOn, kbps: recordKbps }), [recordOn, recordKbps]);
-  return useMemo(() => (engine ? { engine, params, sigCfg, status, muted: mutedState, toggleMute, record } : null), [engine, params, sigCfg, status, mutedState, toggleMute, record]);
+  const setup = useMemo(() => (engine ? { engine, params, sigCfg, status, muted: mutedState, toggleMute, record } : null), [engine, params, sigCfg, status, mutedState, toggleMute, record]);
+  // THE FUTURE PASSING AS A DAYDREAM (§13k): the scan's future arriving (an observer overlapping me, an F, a find after
+  // a quiet while) or let go (futureCue.ts) → the engine's daydream, and on arriving the old meadow's glitter
+  const setupRef = useRef<SoundSetup | null>(null);
+  setupRef.current = setup;
+  useEffect(
+    () =>
+      onFutureCue((cue) => {
+        const s = setupRef.current;
+        if (!s || s.muted || !s.params.futureSound) return;
+        if (!s.engine.daydream(cue.kind, cue.panFrom, cue.panTo)) return;
+        const P = s.params;
+        if (cue.kind === "arrive" && P.futureGlitter > 0)
+          playFuturePassing(s, { glitter: Math.min(1, P.futureGlitter), river: 0, found: false, panFrom: cue.panFrom, panTo: cue.panTo, dur: P.futureDur, level: Math.min(1, P.futureLevel * Math.max(0.5, P.futureGlitter)) });
+      }),
+    [],
+  );
+  return setup;
 }

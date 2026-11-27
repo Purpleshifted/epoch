@@ -708,7 +708,9 @@ export function RoleField({
         />
       )}
       <PathLines playerPosRef={playerPosRef} getSnapshot={() => snap.current} brightness={pathLine} radius={VIEW_RADIUS} />
-      {marks?.burst.on && <AnswerBurst getBurst={() => burst.current} count={marks.burst.count} reach={marks.burst.reach} lifeSec={marks.burst.lifeSec} dot={marks.burst.dot} />}
+      {/* (the redesigned view: no burst — the one I answer responds in the frames instead, FramePeopleLayer; the artist
+          2026-11-28: "응답할 때 점 효과 이제 다른 걸로 바꾸거나 없애도 되지 않을까? 차라리 상대가 화답을 주면서") */}
+      {marks?.burst.on && !newLook() && <AnswerBurst getBurst={() => burst.current} count={marks.burst.count} reach={marks.burst.reach} lifeSec={marks.burst.lifeSec} dot={marks.burst.dot} />}
       {marks?.others.on && (
         <OtherDots
           getMarks={() => marksRef.current}
