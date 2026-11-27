@@ -31,6 +31,7 @@ import { excavatorsAt, type Excavator } from "@/lib/parliament/excavators";
 import { wrapDelta } from "@/lib/parliament/world";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { lidarActive, lidarLook, lidarTap } from "./LidarScan";
+import { LongExposure } from "./longExposure";
 import { mobileLab, runsEveryAsset } from "./mobileLab";
 import { visitorWorld } from "./useBotServer";
 import { markSpan } from "./usePerfMeter";
@@ -69,10 +70,9 @@ export interface ResidueLook {
   /** The trees' crowns filled out: their points × this (leaf clumps), and the stems drawn whole ("나무는 더 풍성해보여야"). */
   treeFull: number;
   /** The points' grain, apart from the present's crisp even dots: their sizes spread (0 = even), their edge soft
-   *  (0 = crisp … 1 = a soft round glow), and where they overlap they add up to light. */
+   *  (0 = crisp … 1 = a soft round glow). */
   sizeVar: number;
   soft: number;
-  glow: boolean;
   /** C: blowing away, they take a petal's or a pollen's colour (0 = none … 1). */
   bloom: number;
   /** The blowing away: its time (s), how far (world), how long the gust takes to sweep through (s), how much the light
@@ -82,9 +82,15 @@ export interface ResidueLook {
   stagger: number;
   rise: number;
   turb: number;
-  /** Each blown point draws a thread behind it: how strong (0 = points only), and how long a time it spans (s). */
-  trail: number;
-  trailSec: number;
+  /** THE FUTURE'S OWN LONG EXPOSURE (the artist, 2026-11-27: "억지로 실 적용하는 건 별로고... 미래 스캔 레이어에만
+   *  선택적으로 장노출 못 남기나"): the residue is drawn into a feedback buffer of its own — the last frames kept and
+   *  fading over `expose` seconds (0 = none), the shutter open across each frame — and laid over the picture; the
+   *  present's lidar stays crisp. `exposeMode`: "max" = the brighter stays (light painting: what moves leaves a streak as
+   *  bright as itself), "add" = the frames add up as a photograph's exposure does (what stands grows to `exposeGain`, what
+   *  moves thins). */
+  expose: number;
+  exposeMode: "max" | "add";
+  exposeGain: number;
 }
 
 /** The references' palettes (read off IMG_1586 — a pale night garden — and IMG_1587 — a darker one), loaded into her
@@ -113,15 +119,15 @@ export const DEFAULT_RESIDUE: ResidueLook = {
   treeFull: 4,
   sizeVar: 0.6,
   soft: 0.6,
-  glow: true,
   bloom: 0.8,
   scatter: 2.5,
   scatterDist: 5,
   stagger: 1.2,
   rise: 1.2,
   turb: 1,
-  trail: 0.8,
-  trailSec: 0.6,
+  expose: 1.2,
+  exposeMode: "max",
+  exposeGain: 1.5,
 };
 
 /** A birch's stem, nearly white (IMG_1586/1587), and its dark marks. */
@@ -146,8 +152,13 @@ const FALLBACK_DENSITY: DensityConfig = { ...DEFAULT_DENSITY, path: { ...DEFAULT
 const FEED_PER_FRAME = 150;
 /** The most points in the pool (the parts' faces, the plants, the mounds, what is still blowing away). */
 const CAP = 120_000;
-/** The most threads at once (blown points). */
-const TRAIL_CAP = 60_000;
+/** The residue's own three.js layer: the camera of the picture never draws it; it is drawn only into its exposure. */
+const RESIDUE_LAYER = 6; // (2 is InkPaper's exposure, 5 the pictograms)
+/** The shutter open across a frame: the residue drawn this many times at moments through it, so what moves fast leaves
+ *  a continuous streak rather than a row of dots. */
+const SHUTTER_STEPS = 4;
+/** The exposure's buffer: the drawing buffer's size, its long side at most this (px). */
+const EXPOSE_MAX_PX = 1600;
 /** Readings looked at in one frame (more are sampled evenly). */
 const READ_PER_FRAME = 4000;
 /** The parts' grid (world): a reading looks in its own bucket only, each part in every bucket it reaches into. */
@@ -156,6 +167,16 @@ const GRID = 2.4;
 const GROUND_RAYS = 240;
 /** How wide the gust's sweep is reckoned (world): a point this far downwind of the visitor leaves the whole sweep later. */
 const SWEEP = 24;
+
+const DB = new THREE.Vector2();
+/** The scene's background and the renderer's auto-clear, switched through plain functions (as InkPaper does): the
+ *  exposure pass must not paint the background, nor clear what the decay kept. */
+function setSceneBackground(sc: { background: THREE.Color | THREE.Texture | THREE.CubeTexture | null }, v: THREE.Color | THREE.Texture | THREE.CubeTexture | null): void {
+  sc.background = v;
+}
+function setRendererAutoClear(r: { autoClear: boolean }, v: boolean): void {
+  r.autoClear = v;
+}
 
 const hash = (a: number, b: number, c: number) => {
   let h = (Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263) + Math.imul(c | 0, 2147483647)) | 0;
@@ -313,6 +334,7 @@ void main() {
 
 const FRAG = /* glsl */ `
 uniform float uSoft;
+uniform float uGain;
 varying vec3 vCol;
 varying float vA;
 varying float vPx;
@@ -323,47 +345,26 @@ void main() {
   float glow = exp(-r * r * 3.0) * (1.0 - smoothstep(0.8, 1.0, r));
   float a = vA * mix(crisp, glow, uSoft);
   if (a <= 0.003) discard;
-  gl_FragColor = vec4(vCol, a);
+  // (light into the exposure: its colour × its coverage × this moment's share of the shutter)
+  gl_FragColor = vec4(vCol * a * uGain, a);
 }`;
 
-/** THE THREADS: a blown point's way over the last `uTail` seconds, as a line from there (faint) to here. */
-const TRAIL_VERT = /* glsl */ `
-attribute vec3 aCol;
-attribute vec3 aBloom;
-attribute float aRel;
-attribute float aEnd;
-uniform float uTime;
-uniform float uTail;
-uniform float uTrail;
-uniform float uBloom;
-uniform float uRange;
-uniform float uLod;
-uniform float uReach;
-varying vec3 vCol;
-varying float vA;
-${BLOW_GLSL}
+/** THE EXPOSURE SHOWN: the buffer laid over the picture as light (its depth written near, so the photograph's pass
+ *  does not take it for the far ground and blur it away). */
+const SHOW_VERT = /* glsl */ `
+varying vec2 vUv;
 void main() {
-  float rt = uTime - aRel;
-  float kh = flightOf(rt);
-  // the head now, the tail uTail seconds ago (at its start, the thread reaches back to where the point stood)
-  float rte = aEnd > 0.5 ? rt : max(0.0, rt - uTail);
-  vec3 p = position + (rt > 0.0 ? blowOffset(position, rte, flightOf(rte)) : vec3(0.0));
-  float a = rt > 0.0 ? uTrail * 0.7 * (1.0 - smoothstep(0.4, 1.0, kh)) * smoothstep(0.0, 0.08, rt) : 0.0;
-  a *= aEnd;
-  vec4 mv = modelViewMatrix * vec4(p, 1.0);
-  float dEye = -mv.z;
-  if (uLod > 0.0 && dEye > uLod && fract(aSeed * 91.7) > (uLod / dEye) * (uLod / dEye)) a = 0.0;
-  a *= 1.0 - smoothstep(uReach * 0.55, uReach, dEye);
-  vA = a;
-  vCol = mix(aCol, aBloom * (1.0 + 0.4 * uBloom), uBloom * smoothstep(0.0, 0.3, kh));
-  gl_Position = projectionMatrix * mv;
+  vUv = uv;
+  gl_Position = vec4(position.xy, 0.0, 1.0);
 }`;
-const TRAIL_FRAG = /* glsl */ `
-varying vec3 vCol;
-varying float vA;
+const SHOW_FRAG = /* glsl */ `
+uniform sampler2D uTex;
+varying vec2 vUv;
 void main() {
-  if (vA <= 0.003) discard;
-  gl_FragColor = vec4(vCol, vA);
+  vec3 c = texture2D(uTex, vUv).rgb;
+  if (max(c.r, max(c.g, c.b)) < 0.004) discard;
+  gl_FragColor = vec4(c, 1.0);
+  gl_FragDepth = 0.0;
 }`;
 
 const BLOW_UNIFORMS = () => ({ uDist: { value: 5 }, uRise: { value: 1.2 }, uTurb: { value: 1 }, uScatter: { value: 2.5 } });
@@ -387,6 +388,7 @@ function makePoints(): THREE.Points {
       uSizeVar: { value: 0.6 },
       uBloom: { value: 0.8 },
       uSoft: { value: 0.6 },
+      uGain: { value: 1 },
       uC0: { value: new THREE.Color("#5ff0c8") },
       uC1: { value: new THREE.Color("#c6f06a") },
       uC2: { value: new THREE.Color("#ffb86b") },
@@ -395,32 +397,36 @@ function makePoints(): THREE.Points {
     vertexShader: VERT,
     fragmentShader: FRAG,
     transparent: true,
-    depthWrite: true,
+    depthTest: false,
+    depthWrite: false,
+    // (into the exposure: "max" keeps the brighter of what is there and this — set per frame by the look)
+    blending: THREE.CustomBlending,
+    blendEquation: THREE.MaxEquation,
   });
   const pts = new THREE.Points(g, m);
   pts.frustumCulled = false;
-  pts.renderOrder = 5;
+  // (on its own layer: the picture's camera never draws it — only the exposure pass does)
+  pts.layers.set(RESIDUE_LAYER);
   return pts;
 }
 
-/** The threads' GPU side: two vertices a blown point (its tail, its head), a ring filled as parts are let go. */
-function makeTrails(): THREE.LineSegments {
-  const g = new THREE.BufferGeometry();
-  for (const [name, size] of [["position", 3], ["aCol", 3], ["aBloom", 3], ["aRel", 1], ["aDir", 2], ["aSeed", 1], ["aKind", 1], ["aEnd", 1]] as const)
-    g.setAttribute(name, new THREE.BufferAttribute(new Float32Array(TRAIL_CAP * 2 * size), size).setUsage(THREE.DynamicDrawUsage));
-  g.setDrawRange(0, 0);
+/** The quad that lays the exposure over the picture (on the picture's own layer). */
+function makeShow(): THREE.Mesh {
   const m = new THREE.ShaderMaterial({
-    uniforms: { ...BLOW_UNIFORMS(), uTime: { value: 0 }, uTail: { value: 0.6 }, uTrail: { value: 0.8 }, uBloom: { value: 0.8 }, uRange: { value: 22 }, uLod: { value: 12 }, uReach: { value: 14 } },
-    vertexShader: TRAIL_VERT,
-    fragmentShader: TRAIL_FRAG,
+    uniforms: { uTex: { value: null } },
+    vertexShader: SHOW_VERT,
+    fragmentShader: SHOW_FRAG,
     transparent: true,
+    // (depth is written only with the test on: on, always passing)
+    depthTest: true,
+    depthFunc: THREE.AlwaysDepth,
     depthWrite: true,
     blending: THREE.AdditiveBlending,
   });
-  const ls = new THREE.LineSegments(g, m);
-  ls.frustumCulled = false;
-  ls.renderOrder = 5;
-  return ls;
+  const q = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), m);
+  q.frustumCulled = false;
+  q.renderOrder = 6;
+  return q;
 }
 
 /** The pool from one reading of the future: the parts' faces, the trees, the plant clouds, the mounds, the dark earth. */
@@ -626,16 +632,18 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
 export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getWorldSec, getLive, cfg }: { log: EventLog; meRef: React.MutableRefObject<{ id: string }>; getS: () => number; playerPosRef: React.MutableRefObject<{ x: number; z: number }>; getEpochMs: () => number; getWorldSec: () => number; getLive: () => boolean; cfg: FuturePresenceVisual }) {
   const group = useRef<THREE.Group>(null);
   const pts = useRef<THREE.Points | null>(null);
-  const threads = useRef<THREE.LineSegments | null>(null);
+  const show = useRef<THREE.Mesh | null>(null);
+  const exposure = useRef<{ le: LongExposure; w: number; h: number; fresh: boolean } | null>(null);
   const field = useRef<{ f: DensityField; dens: DensityConfig | null; version: unknown; fed: number; drops: number } | null>(null);
-  const st = useRef({ timer: 10, pool: null as Pool | null, states: new Map<string, PartState>(), tapFrame: -1, present: false, obs: null as Excavator | null, pass: null as null | { x: number; z: number; fx: number; fz: number; t0: number }, trailHead: 0, trailFilled: 0 });
+  const st = useRef({ timer: 10, pool: null as Pool | null, states: new Map<string, PartState>(), tapFrame: -1, present: false, obs: null as Excavator | null, pass: null as null | { x: number; z: number; fx: number; fz: number; t0: number } });
   useEffect(
     () => () => {
-      for (const o of [pts.current, threads.current]) {
+      for (const o of [pts.current, show.current]) {
         if (!o) continue;
         o.geometry.dispose();
         (o.material as THREE.Material).dispose();
       }
+      exposure.current?.le.dispose();
     },
     [],
   );
@@ -643,15 +651,19 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
   useFrame((state, dt) => {
     const on = residueActive();
     if (pts.current) pts.current.visible = on;
-    if (threads.current) threads.current.visible = on && residueLook.trail > 0;
-    if (!on) return;
+    if (show.current) show.current.visible = on;
+    if (!on) {
+      // (off: the exposure starts from nothing when it comes back)
+      if (exposure.current) exposure.current.fresh = true;
+      return;
+    }
     if (!pts.current && group.current) {
       pts.current = makePoints();
-      threads.current = makeTrails();
-      group.current.add(pts.current, threads.current);
+      show.current = makeShow();
+      group.current.add(pts.current, show.current);
     }
-    const P = pts.current, TL = threads.current;
-    if (!P || !TL) return;
+    const P = pts.current, Q = show.current;
+    if (!P || !Q) return;
     const L = residueLook, s = st.current, now = state.clock.elapsedTime, me = playerPosRef.current;
     const t0 = performance.now();
 
@@ -712,8 +724,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     const wasPresent = s.present;
     s.present = near !== null && nearD <= (wasPresent ? L.gateR * 1.1 : L.gateR);
     if (near) s.obs = near;
-    // LET GO: the observer went — everything held blows away its way, the gust sweeping through from upwind; each
-    // point that had appeared also starts a thread
+    // LET GO: the observer went — everything held blows away its way, the gust sweeping through from upwind
     if (wasPresent && !s.present && s.pool) {
       const o = s.obs, pool = s.pool;
       let dx = o ? o.dx : 1, dz = o ? o.dz : 0;
@@ -722,10 +733,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
         const ax = wrapDelta(o.x - me.x), az = wrapDelta(o.z - me.z), l = Math.hypot(ax, az);
         if (l > 1e-3) [dx, dz] = [ax / l, az / l];
       }
-      const TG = TL.geometry, T = (name: string) => TG.getAttribute(name) as THREE.BufferAttribute;
-      const tPos = T("position").array as Float32Array, tCol = T("aCol").array as Float32Array, tBloom = T("aBloom").array as Float32Array, tRel = T("aRel").array as Float32Array, tDir = T("aDir").array as Float32Array, tSeed = T("aSeed").array as Float32Array, tKind = T("aKind").array as Float32Array, tEnd = T("aEnd").array as Float32Array;
       const fPos = A("position").array as Float32Array;
-      let wrote = 0;
       pool.parts.forEach((p) => {
         const ps = s.states.get(p.key);
         if (!ps || ps.found <= 0 || ps.rel > 0 || ps.died > 0) return;
@@ -735,36 +743,10 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
           fRel[i] = blowAt(ps, fPos[i * 3], fPos[i * 3 + 2], pool.seed[i], L.stagger);
           fDir[i * 2] = dx;
           fDir[i * 2 + 1] = dz;
-          // (a thread for a point that had appeared)
-          if (L.trail <= 0 || ps.found + fDelay[i] > now || wrote >= TRAIL_CAP) continue;
-          const j = s.trailHead;
-          for (let e = 0; e < 2; e++) {
-            const v = j * 2 + e;
-            tPos.set(pool.pos.subarray(i * 3, i * 3 + 3), v * 3);
-            tCol.set(pool.col.subarray(i * 3, i * 3 + 3), v * 3);
-            tBloom.set(pool.bloom.subarray(i * 3, i * 3 + 3), v * 3);
-            tRel[v] = fRel[i];
-            tDir[v * 2] = dx;
-            tDir[v * 2 + 1] = dz;
-            tSeed[v] = pool.seed[i];
-            tKind[v] = pool.kind[i];
-            tEnd[v] = e;
-          }
-          s.trailHead = (s.trailHead + 1) % TRAIL_CAP;
-          s.trailFilled = Math.min(TRAIL_CAP, s.trailFilled + 1);
-          wrote++;
         }
         dirty0 = Math.min(dirty0, p.i0);
         dirty1 = Math.max(dirty1, p.i1);
       });
-      if (wrote) {
-        for (const name of ["position", "aCol", "aBloom", "aRel", "aDir", "aSeed", "aKind", "aEnd"]) {
-          const a = T(name);
-          a.clearUpdateRanges();
-          a.needsUpdate = true;
-        }
-        TG.setDrawRange(0, s.trailFilled * 2);
-      }
     }
 
     // THE READING OF THE FUTURE, every few seconds: the pool built anew, what each part has been through carried by
@@ -848,7 +830,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       dirty0 = Infinity;
       dirty1 = -1;
       g.setDrawRange(0, pool.n);
-      (window as unknown as { __residue?: unknown }).__residue = { k: K, kMe, parts: pool.parts.length, points: pool.n, held: [...s.states.values()].filter((q) => q.found > 0 && q.rel <= 0).length, present: s.present, observer: Math.round(nearD * 10) / 10, threads: s.trailFilled, ms: r.ms };
+      (window as unknown as { __residue?: unknown }).__residue = { k: K, kMe, parts: pool.parts.length, points: pool.n, held: [...s.states.values()].filter((q) => q.found > 0 && q.rel <= 0).length, present: s.present, observer: Math.round(nearD * 10) / 10, ms: r.ms };
     }
 
     // FINDING: the scan's readings near a part find it — only while an observer is near
@@ -914,19 +896,15 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     }
 
     // the look
-    const u = (P.material as THREE.ShaderMaterial).uniforms, tu = (TL.material as THREE.ShaderMaterial).uniforms;
-    for (const w of [u, tu]) {
-      w.uTime.value = now;
-      w.uScatter.value = L.scatter;
-      w.uDist.value = L.scatterDist;
-      w.uRise.value = L.rise;
-      w.uTurb.value = L.turb;
-      w.uBloom.value = L.bloom;
-      w.uRange.value = lidarLook.range;
-      w.uLod.value = lidarLook.lod;
-    }
-    tu.uTail.value = L.trailSec;
-    tu.uTrail.value = L.trail;
+    const u = (P.material as THREE.ShaderMaterial).uniforms;
+    u.uScatter.value = L.scatter;
+    u.uDist.value = L.scatterDist;
+    u.uRise.value = L.rise;
+    u.uTurb.value = L.turb;
+    u.uBloom.value = L.bloom;
+    u.uRange.value = lidarLook.range;
+    u.uLod.value = lidarLook.lod;
+    u.uReach.value = Math.min(L.reach, lidarLook.range);
     u.uDevelop.value = L.develop;
     u.uLife.value = L.life;
     u.uSizeVar.value = L.sizeVar;
@@ -935,17 +913,53 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     (u.uC1.value as THREE.Color).set(lidarLook.c1);
     (u.uC2.value as THREE.Color).set(lidarLook.c2);
     (u.uC3.value as THREE.Color).set(lidarLook.c3);
-    // (where they overlap they add up to light — on the black, as many small lights do; a soft dot is larger, so a
-    // little bigger on screen to keep its weight)
-    // (their depth is written either way: without it the photograph's pass reads them as the far ground and gives them
-    // its widest blur)
-    const M = P.material as THREE.ShaderMaterial, blend = L.glow ? THREE.AdditiveBlending : THREE.NormalBlending;
-    if (M.blending !== blend) {
-      M.blending = blend;
+    // (a soft dot is larger, so a little bigger on screen to keep its weight)
+    u.uSize.value = L.dot * state.viewport.dpr * (1 + 0.6 * L.soft);
+
+    // THE FUTURE'S OWN LONG EXPOSURE: the buffer keeps the last frames × decay (over `expose` s), the residue drawn into
+    // it at SHUTTER_STEPS moments through this frame — "max" keeps the brighter (a streak as bright as what moved),
+    // "add" adds the moments up (what stands grows to `exposeGain`, what moves thins) — and the quad lays it over the
+    // picture. The present (the lidar) never goes through it.
+    const gl = state.gl, cam = state.camera, scene = state.scene;
+    gl.getDrawingBufferSize(DB);
+    const sc = Math.min(1, EXPOSE_MAX_PX / Math.max(DB.x, DB.y)), ew = Math.max(2, Math.round(DB.x * sc)), eh = Math.max(2, Math.round(DB.y * sc));
+    let E = exposure.current;
+    if (!E) E = exposure.current = { le: new LongExposure(ew, eh), w: ew, h: eh, fresh: true };
+    else if (E.w !== ew || E.h !== eh) {
+      E.le.resize(ew, eh);
+      Object.assign(E, { w: ew, h: eh, fresh: true });
+    }
+    if (E.fresh) {
+      E.le.clear(gl);
+      E.fresh = false;
+    }
+    const M = P.material as THREE.ShaderMaterial;
+    const eq = L.exposeMode === "add" ? THREE.AddEquation : THREE.MaxEquation;
+    if (M.blendEquation !== eq) {
+      M.blendEquation = eq;
+      M.blendSrc = THREE.OneFactor;
+      M.blendDst = THREE.OneFactor;
       M.needsUpdate = true;
     }
-    u.uReach.value = tu.uReach.value = Math.min(L.reach, lidarLook.range);
-    u.uSize.value = L.dot * state.viewport.dpr * (1 + 0.6 * L.soft);
+    const dtFrames = Math.min(4, Math.max(0.01, dt * 60));
+    // (decay per 1/60 s from the exposure's length; 0 = nothing kept, the residue as it is now)
+    const decay = L.expose > 0 ? Math.exp(-1 / (60 * L.expose)) : 0;
+    // (add: each moment's share, so that what stands converges to exposeGain × its colour)
+    u.uGain.value = L.exposeMode === "add" ? (L.exposeGain * (1 - Math.pow(decay, dtFrames))) / SHUTTER_STEPS : 1;
+    const prevTarget = gl.getRenderTarget(), prevMask = cam.layers.mask, bg = scene.background, auto = gl.autoClear;
+    E.le.decayInto(gl, decay, dtFrames);
+    setSceneBackground(scene, null);
+    setRendererAutoClear(gl, false);
+    cam.layers.set(RESIDUE_LAYER);
+    for (let i = 0; i < SHUTTER_STEPS; i++) {
+      u.uTime.value = now - (dt * (SHUTTER_STEPS - 1 - i)) / SHUTTER_STEPS;
+      gl.render(scene, cam);
+    }
+    cam.layers.mask = prevMask;
+    setRendererAutoClear(gl, auto);
+    setSceneBackground(scene, bg);
+    gl.setRenderTarget(prevTarget);
+    (Q.material as THREE.ShaderMaterial).uniforms.uTex.value = E.le.texture;
     markSpan("residue", performance.now() - t0);
   });
 

@@ -12,7 +12,13 @@ import { savable } from "./levaSave";
 import { LAB_GROUP, labLists } from "./mobileLab";
 import { DEFAULT_PRESENCE } from "@/lib/parliament/futurePresence";
 import type { PresenceMode } from "./FuturePresence";
-import { RESIDUE_PRESETS, setResidueLook } from "./FutureResidue";
+import { RESIDUE_PRESETS, setResidueLook, type ResidueLook } from "./FutureResidue";
+
+/** How the future's own long exposure takes each moment (FutureResidue.tsx). */
+const EXPOSE_MODES: Record<string, ResidueLook["exposeMode"]> = {
+  "밝은 쪽이 남음 — 빛 그림처럼, 움직인 자리가 그 밝기로 남음": "max",
+  "겹치면 더해짐 — 사진의 노출처럼, 선 것은 짙고 움직인 것은 옅음": "add",
+};
 
 const PLACE_GROUP = LAB_GROUP["scan-future"];
 
@@ -88,11 +94,12 @@ export function useScanFutureKnobs(isV2: boolean) {
           resTreeFull: { value: 4, min: 1, max: 10, step: 0.5, label: "나무 풍성함 (×)" },
           resSizeVar: { value: 0.6, min: 0, max: 1, step: 0.05, label: "점 크기 편차" },
           resSoft: { value: 0.6, min: 0, max: 1, step: 0.05, label: "점 부드러움 (0 = 현재처럼 또렷)" },
-          resGlow: { value: true, label: "겹치면 밝아짐" },
           resBloom: { value: 0.8, min: 0, max: 1, step: 0.05, label: "흩날릴 때 피는 색" },
-          // (the artist, 2026-11-27: "퍼질 때 점들이 연속적으로 이어져 보였으면" — each point a thread as it blows away)
-          resTrail: { value: 0.8, min: 0, max: 1, step: 0.05, label: "흩날릴 때 실처럼 이어짐 (0 = 점만)" },
-          resTrailSec: { value: 0.6, min: 0.05, max: 2.5, step: 0.05, label: "실의 길이 (s)" },
+          // (the artist, 2026-11-27: "억지로 실 적용하는 건 별로고... 미래 스캔 레이어에만 선택적으로 장노출" — the threads
+          // gone; the residue alone goes through a long exposure of its own, the present stays crisp)
+          resExpose: { value: 1.2, min: 0, max: 6, step: 0.05, label: "미래 장노출 — 잔상 길이 (s, 0 = 없음)" },
+          resExposeMode: { options: EXPOSE_MODES, value: "max" as ResidueLook["exposeMode"], label: "미래 장노출 — 쌓는 방식" },
+          resExposeGain: { value: 1.5, min: 0.2, max: 6, step: 0.1, label: "미래 장노출 — 노출 (더해질 때)" },
           resScatter: { value: 2.5, min: 0.3, max: 8, step: 0.1, label: "흩날리는 시간 (s)" },
           resScatterDist: { value: 5, min: 0, max: 20, step: 0.5, label: "흩날리는 거리 (월드)" },
           resStagger: { value: 1.2, min: 0, max: 4, step: 0.1, label: "바람이 훑고 지나가는 시간 (s)" },
@@ -148,15 +155,15 @@ export function useScanFutureKnobs(isV2: boolean) {
     leaves: LEAF_KEYS.map((k) => v[k]),
     flowers: FLOWER_KEYS.map((k) => v[k]),
     reach: v.resReach,
-    trail: v.resTrail,
-    trailSec: v.resTrailSec,
+    expose: v.resExpose,
+    exposeMode: v.resExposeMode as ResidueLook["exposeMode"],
+    exposeGain: v.resExposeGain,
     treeFull: v.resTreeFull,
     turb: v.resTurb,
     sat: v.resSat,
     flower: v.resFlower,
     sizeVar: v.resSizeVar,
     soft: v.resSoft,
-    glow: v.resGlow,
     bloom: v.resBloom,
     scatter: v.resScatter,
     scatterDist: v.resScatterDist,
