@@ -6,20 +6,34 @@
  * 2026-11-23 one group, "미래 (개인뷰 · 시험)", held both future groups (its saves are not read any more).
  */
 
-import { folder, useControls } from "leva";
+import { button, folder, levaStore, useControls } from "leva";
+import * as THREE from "three";
 import { savable } from "./levaSave";
 import { LAB_GROUP, labLists } from "./mobileLab";
 import { DEFAULT_PRESENCE } from "@/lib/parliament/futurePresence";
 import type { PresenceMode } from "./FuturePresence";
-import { setResidueLook, type ResiduePalette } from "./FutureResidue";
-
-const RESIDUE_PALETTES: Record<string, ResiduePalette> = {
-  "정원 — IMG_1586 (옅은 밤의 정원)": "garden",
-  "밤 숲 — IMG_1587 (짙은 초록, 양귀비)": "night",
-  "초록 하나 (이전, 식생 색)": "green",
-};
+import { RESIDUE_PRESETS, setResidueLook } from "./FutureResidue";
 
 const PLACE_GROUP = LAB_GROUP["scan-future"];
+
+/** THE PLANTS' PALETTE, HER OWN (the artist, 2026-11-27: "색 팔레트 내가 고를 수 있게"): six leaf colours and five flower
+ *  colours, each a picker; the buttons load a reference's set into them (then she saves as ever). */
+const LEAF_KEYS = ["resLeaf1", "resLeaf2", "resLeaf3", "resLeaf4", "resLeaf5", "resLeaf6"] as const;
+const FLOWER_KEYS = ["resFlower1", "resFlower2", "resFlower3", "resFlower4", "resFlower5"] as const;
+/** Sets a knob of this group by its key, wherever its folder puts it (the store's path ends with the key). */
+function setKnob(key: string, value: unknown): void {
+  const data = levaStore.getData() as Record<string, unknown>;
+  for (const path of Object.keys(data)) if (path.startsWith(PLACE_GROUP + ".") && path.endsWith("." + key)) levaStore.setValueAtPath(path, value, true);
+}
+function loadPalette(leaves: readonly string[], flowers: readonly string[]): void {
+  LEAF_KEYS.forEach((k, i) => setKnob(k, leaves[i % leaves.length]));
+  FLOWER_KEYS.forEach((k, i) => setKnob(k, flowers[i % flowers.length]));
+}
+/** The old single green (식생 색), darker and lighter, as a palette. */
+function greenPalette(hex: string): { leaves: string[]; flowers: string[] } {
+  const c = new THREE.Color(hex), at = (m: number) => "#" + c.clone().multiplyScalar(m).getHexString();
+  return { leaves: [at(0.55), at(0.8), at(1), at(1.15), at(0.7), at(1.3)], flowers: [at(1.5)] };
+}
 const PLACE_MODES: Record<string, PresenceMode> = {
   "겹침 — 현재 위에 남은 것이 함께 섬": "overlay",
   "렌즈 — 내 둘레 반경 안에서만": "lens",
@@ -42,21 +56,48 @@ export function useScanFutureKnobs(isV2: boolean) {
           resDevelop: { value: 1.2, min: 0, max: 5, step: 0.1, label: "하얗게 바래는 시간 (s)" },
           resLife: { value: 0, min: 0, max: 120, step: 1, label: "남는 시간 (s, 0 = 관찰자가 떠날 때까지)" },
           resDot: { value: 2, min: 0.5, max: 6, step: 0.1, label: "점 크기 (px)" },
+          resReach: { value: 14, min: 4, max: 40, step: 0.5, label: "보이는 거리 (월드)" },
           resColour: { value: "#ffffff", label: "남은 부재의 색" },
           resConcrete: { value: 0.7, min: 0, max: 1, step: 0.05, label: "콘크리트 밝기 (철골·말뚝 = 1)" },
           resPlantDensity: { value: 8, min: 0, max: 60, step: 1, label: "식생 점 밀도" },
           // (A + C, the artist 2026-11-27: "미래 색을 좀 더 꿈처럼 다채롭게")
-          resPalette: { options: RESIDUE_PALETTES, value: "garden" as ResiduePalette, label: "식생 팔레트" },
+          "식생 팔레트 — 직접 고르기": folder(
+            {
+              "정원 IMG_1586 색 불러오기": button(() => loadPalette(RESIDUE_PRESETS.garden.leaves, RESIDUE_PRESETS.garden.flowers)),
+              "밤 숲 IMG_1587 색 불러오기": button(() => loadPalette(RESIDUE_PRESETS.night.leaves, RESIDUE_PRESETS.night.flowers)),
+              "초록 하나 (식생 색) 불러오기": button(() => {
+                const g = greenPalette(String((levaStore.getData() as Record<string, { value?: unknown }>)[`${PLACE_GROUP}.미래 읽기.plantColor`]?.value ?? "#2f8f3f"));
+                loadPalette(g.leaves, g.flowers);
+              }),
+              resLeaf1: { value: RESIDUE_PRESETS.garden.leaves[0], label: "잎 1" },
+              resLeaf2: { value: RESIDUE_PRESETS.garden.leaves[1], label: "잎 2" },
+              resLeaf3: { value: RESIDUE_PRESETS.garden.leaves[2], label: "잎 3" },
+              resLeaf4: { value: RESIDUE_PRESETS.garden.leaves[3], label: "잎 4" },
+              resLeaf5: { value: RESIDUE_PRESETS.garden.leaves[4], label: "잎 5" },
+              resLeaf6: { value: RESIDUE_PRESETS.garden.leaves[5], label: "잎 6" },
+              resFlower1: { value: RESIDUE_PRESETS.garden.flowers[0], label: "꽃 1" },
+              resFlower2: { value: RESIDUE_PRESETS.garden.flowers[1], label: "꽃 2" },
+              resFlower3: { value: RESIDUE_PRESETS.garden.flowers[2], label: "꽃 3" },
+              resFlower4: { value: RESIDUE_PRESETS.garden.flowers[3], label: "꽃 4" },
+              resFlower5: { value: RESIDUE_PRESETS.garden.flowers[4], label: "꽃 5" },
+            },
+            { collapsed: false },
+          ),
           resSat: { value: 1, min: 0, max: 1.8, step: 0.05, label: "식생 채도" },
           resFlower: { value: 0.5, min: 0, max: 1, step: 0.05, label: "꽃 비율" },
+          resTreeFull: { value: 4, min: 1, max: 10, step: 0.5, label: "나무 풍성함 (×)" },
           resSizeVar: { value: 0.6, min: 0, max: 1, step: 0.05, label: "점 크기 편차" },
           resSoft: { value: 0.6, min: 0, max: 1, step: 0.05, label: "점 부드러움 (0 = 현재처럼 또렷)" },
           resGlow: { value: true, label: "겹치면 밝아짐" },
           resBloom: { value: 0.8, min: 0, max: 1, step: 0.05, label: "흩날릴 때 피는 색" },
+          // (the artist, 2026-11-27: "퍼질 때 점들이 연속적으로 이어져 보였으면" — each point a thread as it blows away)
+          resTrail: { value: 0.8, min: 0, max: 1, step: 0.05, label: "흩날릴 때 실처럼 이어짐 (0 = 점만)" },
+          resTrailSec: { value: 0.6, min: 0.05, max: 2.5, step: 0.05, label: "실의 길이 (s)" },
           resScatter: { value: 2.5, min: 0.3, max: 8, step: 0.1, label: "흩날리는 시간 (s)" },
           resScatterDist: { value: 5, min: 0, max: 20, step: 0.5, label: "흩날리는 거리 (월드)" },
-          resStagger: { value: 1.2, min: 0, max: 4, step: 0.1, label: "흩날림 엇갈림 (s)" },
-          resRise: { value: 1.2, min: 0, max: 6, step: 0.1, label: "위로 뜨는 정도 (월드)" },
+          resStagger: { value: 1.2, min: 0, max: 4, step: 0.1, label: "바람이 훑고 지나가는 시간 (s)" },
+          resRise: { value: 1.2, min: 0, max: 6, step: 0.1, label: "식생이 떠오르는 정도 (월드)" },
+          resTurb: { value: 1, min: 0, max: 3, step: 0.05, label: "흩날림 소용돌이 (0 = 곧게)" },
         },
         { collapsed: false },
       ),
@@ -104,7 +145,13 @@ export function useScanFutureKnobs(isV2: boolean) {
     colour: v.resColour,
     concrete: v.resConcrete,
     plantDensity: v.resPlantDensity,
-    palette: v.resPalette as ResiduePalette,
+    leaves: LEAF_KEYS.map((k) => v[k]),
+    flowers: FLOWER_KEYS.map((k) => v[k]),
+    reach: v.resReach,
+    trail: v.resTrail,
+    trailSec: v.resTrailSec,
+    treeFull: v.resTreeFull,
+    turb: v.resTurb,
     sat: v.resSat,
     flower: v.resFlower,
     sizeVar: v.resSizeVar,
