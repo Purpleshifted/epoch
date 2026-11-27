@@ -19,7 +19,7 @@
  */
 
 import { chordName, magentaChordName, type PlaceChord, type WorldKey } from "./harmony";
-import { stayingChord, walkingChord } from "./colour";
+import { stayingChord, tenseChord, walkingChord } from "./colour";
 import { apartShift, bassUnder, callsOn, endClosed, endOpen, interlock, landWith, octaveToward, placeApart, rotate, shiftNotes } from "./dialogue";
 import { wordMotifOf } from "@/lib/parliament/glyph";
 import { Magenta } from "./magenta";
@@ -178,6 +178,14 @@ export interface SoundParams {
   turnAmount: number;
   /** Which share of the walking bars is suspended or opened (sus4 · sus2 · add9). */
   colourAmount: number;
+  /**
+   * TENSION WHEN PEOPLE GATHER (colour.ts tenseChord, §13g — the artist, 2026-11-27: "더 텐스한 화성진행도 듣고싶음, 사람이
+   * 모였을 떄 특히"; with harmonyTurns, the redesigned view only): 0..1 at its fullest — × how gathered (others within
+   * hearing / crowdFull) = the share of eight-bar phrases that go tense, and how dark they may get. 0 = off.
+   */
+  tension: number;
+  /** How many others within hearing make it fully gathered. */
+  crowdFull: number;
   /** How much of my motif goes into the long open space (0..1): the signal sent out, its tail. */
   motifVerb: number;
   /** How much of the building's dullness the patch gets (0 = none, 1 = as everything else). */
@@ -264,6 +272,8 @@ export const DEFAULT_SOUND: SoundParams = {
   harmonyTurns: true,
   turnAmount: 0.8,
   colourAmount: 0.3,
+  tension: 0.8,
+  crowdFull: 2,
   ncDull: 0.7,
   ncMap: true,
   ncMapDepth: 0.8,
@@ -351,6 +361,8 @@ export interface SoundDebug {
   found: { played: number; last: string; waiting: string | null };
   /** Asking and answering as counterpoint (§13d): the last bar it shaped — "부름 v_x @12", "빈 마디 v_x @13", "대답 v_x @14 → 새 어휘"; empty when none. */
   dialogue: string;
+  /** How tense the harmony may get now (§13g), 0 = not gathered or off. */
+  tension: number;
 }
 
 export class SoundEngine {
@@ -421,6 +433,8 @@ export class SoundEngine {
   private planned = -1;
   private lastPlan: BarPlan | null = null;
   private lockedBars = 0;
+  /** How tense the harmony may get now (§13g: tension × how gathered). */
+  private tensionNow = 0;
   private phrase: { phrase: Phrase; from: number; kind: string } | null = null;
   private magenta = new Magenta();
   private magentaState: SoundDebug["magenta"] = "off";
@@ -493,6 +507,7 @@ export class SoundEngine {
       place: this.placeLine + (this.lastPlan?.arrival ? ` · 도착 ${this.lastPlan.arrival}` : ""),
       found: { played: this.foundPlayed, last: this.foundLast, waiting: this.foundWaiting?.id ?? null },
       dialogue: this.dialogueLine,
+      tension: this.tensionNow,
     };
   }
 
@@ -714,17 +729,25 @@ export class SoundEngine {
       this.arrivalGlow = 1;
       this.arrivalAt = this.ctx.currentTime;
     }
+    // (tension when gathered, §13g: how many are within hearing, against how many make it full)
+    const gathered = Math.min(1, sig.neighbours.filter((n) => n.dist <= p.hearRadius).length / Math.max(1, p.crowdFull));
+    this.tensionNow = p.harmonyTurns ? Math.max(0, p.tension) * gathered : 0;
+    const tension = this.tensionNow;
     const plan = planBar({
       bar,
       sig,
       key,
       place: this.placeFor(sig),
       // (more turns, §13f: staying, the place's own progression — the place = its building's key or the world's band and
-      // its chord; walking, a suspension or an added ninth now and then; read after placeFor has set the zone's key)
+      // its chord; walking, a suspension or an added ninth now and then; read after placeFor has set the zone's key.
+      // Gathered, §13g: first the chance of a tense eight-bar phrase, staying or walking)
       colour: p.harmonyTurns
-        ? (c: PlaceChord) =>
-            sig.stay > 0.5 ? stayingChord(c, `${this.zoneKey ? keyName(this.zoneKey) : "w"}#${c.band}#${c.rootClass}`, bar, p.turnAmount) : walkingChord(c, bar, p.colourAmount)
+        ? (c: PlaceChord) => {
+            const tag = `${this.zoneKey ? keyName(this.zoneKey) : "w"}#${c.band}#${c.rootClass}`;
+            return tenseChord(c, tag, bar, tension) ?? (sig.stay > 0.5 ? stayingChord(c, tag, bar, p.turnAmount) : walkingChord(c, bar, p.colourAmount));
+          }
         : null,
+      tension,
       arrival,
       me: this.me.motif,
       others: this.motifs,

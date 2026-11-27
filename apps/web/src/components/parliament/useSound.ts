@@ -104,6 +104,8 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       harmonyTurns: { value: DEFAULT_SOUND.harmonyTurns, label: "화성을 더 다양하게 (개편 개인뷰만) — 머물면 그 자리의 진행이 돎(빌려온 코드·반음계 중음·나폴리·페달) · 걸을 땐 가끔 sus·add9 · 도착은 버금딸림 → 딸림 → (가끔 거짓 종지) → 으뜸 (끄면 전처럼)", render: () => isV2 && newLook() },
       turnAmount: { value: DEFAULT_SOUND.turnAmount, min: 0, max: 1, step: 0.05, label: "머물 때 진행이 움직이는 정도 (0 = 한 코드)", render: (get: (path: string) => unknown) => isV2 && newLook() && !!get(`${ROOT}.harmonyTurns`) },
       colourAmount: { value: DEFAULT_SOUND.colourAmount, min: 0, max: 1, step: 0.05, label: "걸을 때 코드 색 (sus·add9) 비율", render: (get: (path: string) => unknown) => isV2 && newLook() && !!get(`${ROOT}.harmonyTurns`) },
+      tension: { value: DEFAULT_SOUND.tension, min: 0, max: 1, step: 0.05, label: "모이면 긴장 (0 = 끔) — 곁에 사람이 많을수록 8마디 긴장 진행(반음씩 내려가는 베이스·감7·7b9/#9/#5·딸림 페달·트라이톤 대리)이 더 자주·더 어둡게, 으뜸은 다음 프레이즈에야 · 같이 지을 땐 도착도", render: (get: (path: string) => unknown) => isV2 && newLook() && !!get(`${ROOT}.harmonyTurns`) },
+      crowdFull: { value: DEFAULT_SOUND.crowdFull, min: 1, max: 6, step: 1, label: "몇 명이 들리면 최대 긴장", render: (get: (path: string) => unknown) => isV2 && newLook() && !!get(`${ROOT}.harmonyTurns`) && (get(`${ROOT}.tension`) as number) > 0 },
       // the life's recording (useLifeRecording.ts, docs/recording.md): the headset's mix from the name's melody to the
       // end of the reverb, kept here and sent up; the specimen card's QR opens it
       record: { value: true, label: "녹음 — 이름의 멜로디부터 죽음의 잔향 끝까지, 헤드셋 믹스만 (표본 카드의 QR)", render: v2 },
@@ -243,7 +245,7 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
     master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, sealRadius, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, bassSpread, bassDub, bassDuck, bassDrop,
     motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb,
     motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb,
-    bassFrom, pathRadius, afterlifeTail, afterglow, foundLevel, askCounterpoint, ensembleCounterpoint, ensembleSwell, apartness, harmonyTurns, turnAmount, colourAmount,
+    bassFrom, pathRadius, afterlifeTail, afterglow, foundLevel, askCounterpoint, ensembleCounterpoint, ensembleSwell, apartness, harmonyTurns, turnAmount, colourAmount, tension, crowdFull,
   } = c;
   const params = useMemo<SoundParams>(
     () => ({
@@ -259,8 +261,10 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       harmonyTurns: harmonyTurns && newLook(),
       turnAmount,
       colourAmount,
+      tension,
+      crowdFull,
     }),
-    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, bassSpread, bassDub, bassDuck, bassDrop, motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb, motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb, bassFrom, afterlifeTail, afterglow, foundLevel, askCounterpoint, ensembleCounterpoint, ensembleSwell, apartness, harmonyTurns, turnAmount, colourAmount],
+    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, bassSpread, bassDub, bassDuck, bassDrop, motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb, motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb, bassFrom, afterlifeTail, afterglow, foundLevel, askCounterpoint, ensembleCounterpoint, ensembleSwell, apartness, harmonyTurns, turnAmount, colourAmount, tension, crowdFull],
   );
   const sigCfg = useMemo<SignalConfig>(() => ({ ...DEFAULT_SIGNALS, hearRadius, sealRadius, pathRadius }), [hearRadius, sealRadius, pathRadius]);
   const { record: recordOn, recordKbps } = c;

@@ -19,11 +19,11 @@
  *   PAD         staying among others holds the chord tones (the building being born) — a sustained pad.
  */
 
-import { placeChord, type PlaceChord, type WorldKey, DEFAULT_HARMONY, diatonicChord } from "./harmony";
+import { bassOf, placeChord, type PlaceChord, type WorldKey, DEFAULT_HARMONY, diatonicChord } from "./harmony";
 import { midiToHz, realize, type Motif, type MotifNote, DEFAULT_MOTIF, hashString, rng } from "./motif";
 import type { PersonalSignals } from "./signals";
 import { CYCLES_PER_PHRASE, STEPS_PER_CYCLE, blend, stepsToCycle, type Phrase } from "./variation";
-import { deceptiveOf, predominantOf } from "./colour";
+import { deceptiveOf, predominantOf, tenseArrival } from "./colour";
 
 export interface SequencerParams {
   /** Seconds per bar (the grid). */
@@ -146,6 +146,8 @@ export interface BarInputs {
    * ninth now and then while walking. Applied to the place's chord outside an arrival; absent = the chord as it was.
    */
   colour?: ((chord: PlaceChord) => PlaceChord) | null;
+  /** TENSION WHEN GATHERED (colour.ts, §13g): 0..1 — how often the arrival's pre-dominant and dominant are made tense. */
+  tension?: number;
 }
 
 /** Place a motif's cycle into a bar at the density: 0.5 = only even bars, 1 = once, 2 = twice (compressed). */
@@ -169,8 +171,8 @@ export function planBar(inp: BarInputs): BarPlan {
   if (inp.colour && !arrival) chord = inp.colour(chord);
   // the cadence: a bar of the dominant leaning in, then the tonic (the place's own chord) arriving — longer, a
   // pre-dominant first, now and then a deceptive turn before home (§13f)
-  if (arrival === "pre") chord = predominantOf(key, bar, chord.band);
-  else if (arrival === "dominant") chord = dominantOf(key, chord);
+  if (arrival === "pre") chord = tenseArrival(key, "pre", bar, chord.band, inp.tension ?? 0) ?? predominantOf(key, bar, chord.band);
+  else if (arrival === "dominant") chord = tenseArrival(key, "dominant", bar, chord.band, inp.tension ?? 0) ?? dominantOf(key, chord);
   else if (arrival === "deceptive") chord = deceptiveOf(key, chord.band);
   const lock = arrival === "tonic" ? 1 : arrival === "deceptive" ? Math.max(0.9, lockOf(sig)) : lockOf(sig);
   const d = density(sig.speed, p.speedMax);
@@ -234,10 +236,10 @@ export function planBar(inp: BarInputs): BarPlan {
   const bass: BarPlan["bass"] = [];
   if (sig.pathP >= p.bassFrom) {
     const level = Math.min(1, (sig.pathP - p.bassFrom) / (1 - p.bassFrom) + 0.25);
-    const pitch = 36 + chord.rootClass; // C2 … B2
+    const pitch = bassOf(chord); // C2 … B2, or the chord's own line (§13g)
     bass.push({ at: 0, pitch, level });
     if (d === 2) bass.push({ at: 0.5, pitch, level: level * 0.7 });
-  } else if (arrival === "tonic") bass.push({ at: 0, pitch: 36 + chord.rootClass, level: 1 });
+  } else if (arrival === "tonic") bass.push({ at: 0, pitch: bassOf(chord), level: 1 });
 
   // pad: the chord held while building; the cadence brings it in at once (the dominant leaning, the tonic full)
   let padLevel = sig.stay * company;
@@ -245,7 +247,7 @@ export function planBar(inp: BarInputs): BarPlan {
   if (arrival === "dominant") padLevel = Math.max(padLevel, 0.7);
   if (arrival === "deceptive") padLevel = Math.max(padLevel, 0.85);
   if (arrival === "tonic") padLevel = 1;
-  const pad = padLevel > 0.2 ? { pitches: [36 + chord.rootClass, ...chord.classes.map((c) => 48 + c)], level: padLevel } : { pitches: [], level: 0 };
+  const pad = padLevel > 0.2 ? { pitches: [bassOf(chord), ...chord.classes.map((c) => 48 + c)], level: padLevel } : { pitches: [], level: 0 };
 
   return { bar, chord, lock, density: d, answer, me: mine, others, bass, pad, arrival };
 }

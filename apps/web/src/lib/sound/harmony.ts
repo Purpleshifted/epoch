@@ -109,7 +109,14 @@ export interface PlaceChord {
   classes: number[];
   /** Pitch class of the chord root. */
   rootClass: number;
+  /** A chord whose name its intervals cannot tell (the tense ones of §13g: "7b9", "dim7", "m(maj7)" …): written after the root. */
+  quality?: string;
+  /** The bass as an exact MIDI pitch (a descending bass line, a low pedal — §13g); else 36 + rootClass. */
+  bassMidi?: number;
 }
+
+/** The bass pitch of a chord (C2 … B2 unless it carries its own line). */
+export const bassOf = (c: PlaceChord): number => c.bassMidi ?? 36 + c.rootClass;
 
 /** The chord of a place. */
 export function placeChord(key: WorldKey, x: number, z: number, cfg: HarmonyConfig = DEFAULT_HARMONY): PlaceChord {
@@ -158,6 +165,7 @@ export function snapToClasses(pitch: number, classes: readonly number[]): number
 
 /** Chord name for the debug line / doc, e.g. "Dm7" in "A Aeolian". */
 export function chordName(key: WorldKey, pc: PlaceChord): string {
+  if (pc.quality != null) return KEY_NAMES[pc.classes[0]] + pc.quality + (pc.classes[0] !== pc.rootClass ? `/${KEY_NAMES[pc.rootClass]}` : "");
   const third = (pc.classes[1] - pc.classes[0] + 12) % 12;
   const fifth = (pc.classes[2] - pc.classes[0] + 12) % 12;
   const seventh = pc.classes.length >= 4 ? (pc.classes[3] - pc.classes[0] + 12) % 12 : -1;
@@ -179,6 +187,8 @@ export function magentaChordName(name: string): string {
   return name
     .replace(/\/.*$/, "")
     .replace(/sus[24]|add9/g, "")
+    .replace("(maj7)", "")
+    .replace(/[b#](9|11)|#5/g, "")
     .replace(/(m?)6$/, "$1")
     .replace("m7b5", "m")
     .replace("dim", "m");
