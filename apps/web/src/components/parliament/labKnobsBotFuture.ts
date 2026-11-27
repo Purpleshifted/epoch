@@ -65,6 +65,8 @@ export function useBotFutureKnobs(isV2: boolean, bodyUrl: string | null) {
           // (the cut-out by default — the artist, 2026-11-27: "미래 관찰자 모양은 이전에 frame 에서 쓰던 실제 프레임 누끼딴 걸로")
           winShape: { options: { "실제 사람 — frames의 누끼 클립": "clip", "걷는 몸 모양": "body", "사각 창": "sheet", "장노출 사람 (시험 · 주소 ?body=person)": "person" }, value: "clip", label: "창의 모양" },
           winClip: { options: CLIP_OPTIONS, value: "auto", label: "누끼 클립", render: (get) => get(`${GROUP}.창.winShape`) === "clip" || bodyUrl === "clip" },
+          // (the artist, 2026-11-27: "움직이는 방향 뒤로 번져 보이는 건?")
+          winTrail: { value: 0.8, min: 0, max: 2.5, step: 0.05, label: "움직이는 방향 뒤로 번짐 (몸 칸 폭 대비 · 0 = 없음)", render: (get) => get(`${GROUP}.창.winShape`) === "clip" || bodyUrl === "clip" },
           winSee: { value: 1, min: 0, max: 1, step: 0.05, label: "몸의 진하기 (몸으로 비치는 미래)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
           winPersonH: { value: 0.8, min: 0.3, max: 4, step: 0.05, label: "사람의 키 (월드 · 0.7 ≈ 1.7 m)", render: (get) => ["person", "clip"].includes(get(`${GROUP}.창.winShape`) as string) || bodyUrl === "person" || bodyUrl === "clip" },
           winBoost: { value: 12, min: 0.5, max: 40, step: 0.5, label: "몸 안의 색 진하기", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },

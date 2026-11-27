@@ -25,6 +25,7 @@ import { EXPOSE_GLSL, EXPOSURE_LAYER, paperLook } from "./paperLook";
 import { markSpan } from "./usePerfMeter";
 import { ATLAS_GLSL, loadSpriteSheet, type SpriteIndex } from "./spritePeople";
 import { PICTO_LAYER } from "./framePeople";
+import { newLook } from "./mobileLab";
 
 export const WINDOWS_MAX = 12;
 
@@ -110,17 +111,37 @@ uniform vec2 uRes;
 uniform float uA, uPose, uWalk, uShape;
 uniform vec3 uBack;
 uniform sampler2D uClip;
-uniform float uCols, uPer, uAtlasRows, uSlot, uFrame, uMirror;
+uniform float uCols, uPer, uAtlasRows, uSlot, uFrame, uMirror, uTrail, uStep, uGrow;
 ${ATLAS_GLSL}
 varying vec2 vUv;
 float cap(vec2 p, vec2 a, vec2 b, float r) { vec2 pa = p - a, ba = b - a; return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0)) - r; }
+// (the cut-out at one frame, c in its own cell 0 … 1 as seen on the screen — mirrored when it walks the other way; nothing
+// outside the cell, so no neighbouring frame of the strip bleeds in)
+float clipA(float frame, vec2 c) {
+  if (c.x < 0.004 || c.x > 0.996 || c.y < 0.0 || c.y > 1.0) return 0.0;
+  vec2 cu = vec2(uMirror < 0.0 ? 1.0 - c.x : c.x, c.y);
+  return smoothstep(0.15, 0.65, texture2D(uClip, atlasUv(uSlot, frame, cu)).a);
+}
 void main() {
   float m;
   if (uShape > 1.5) {
-    // (the cut-out's own edge, as the matte has it; mirrored when it walks the other way)
-    vec2 cu = vec2(uMirror < 0.0 ? 1.0 - vUv.x : vUv.x, vUv.y);
-    cu.x = clamp(cu.x, 0.004, 0.996);
-    m = smoothstep(0.15, 0.65, texture2D(uClip, atlasUv(uSlot, uFrame, cu)).a);
+    // (the card is wider than the cell by uGrow on each side: room for the smear)
+    vec2 c = vec2(vUv.x * (1.0 + 2.0 * uGrow) - uGrow, vUv.y);
+    m = clipA(uFrame, c);
+    // SMEARED BEHIND ITS WAY (the artist, 2026-11-27: "움직이는 방향 뒤로 번져 보이는 건?"): what a long exposure keeps of
+    // a walker — where the body was a moment ago, each moment at the stride it had then, fainter the longer ago. Drawn
+    // as it is, every frame the same for the same place and stride: no feedback, no flicker
+    if (abs(uTrail) > 0.001) {
+      // (sixteen moments, each pixel's a little apart: one continuous drag, not a row of copies)
+      float tr = 0.0, ws = 0.0, d = ign(gl_FragCoord.xy) + 0.5;
+      for (int k = 1; k <= 16; k++) {
+        float f = (float(k) - d) / 16.0, w = (1.0 - f) * (1.0 - f);
+        float fr = mod(uFrame - floor(f * uStep + 0.5), uCols);
+        tr += w * clipA(fr, c + vec2(uTrail * f, 0.0));
+        ws += w;
+      }
+      m = max(m, min(1.0, 1.6 * tr / ws) * 0.85);
+    }
   } else if (uShape < 0.5) {
     vec2 p = vec2((vUv.x - 0.5) * 0.6, vUv.y);
     float sw = sin(uPose * 6.0) * uWalk;
@@ -525,7 +546,7 @@ export class FutureWindows {
           transparent: true,
           depthWrite: false,
           side: THREE.DoubleSide,
-          uniforms: { uTex: S.uTex, uDens: S.uDens, uMono: S.uMono, uDistort: S.uDistort, uDistAmt: S.uDistAmt, uTime: S.uTime, uSeed: { value: i * 0.37 + 0.11 }, uInk: S.uInk, uPlant: S.uPlant, uOwn: S.uOwn, uSmear: S.uSmear, uRich: S.uRich, uOnWhite: S.uOnWhite, uRes: S.uRes, uBack: S.uBack, uA: { value: 0 }, uPose: { value: 0 }, uWalk: { value: 0 }, uShape: { value: 0 }, uClip: S.uClip, uCols: S.uCols, uPer: S.uPer, uAtlasRows: S.uAtlasRows, uSlot: { value: 0 }, uFrame: { value: 0 }, uMirror: { value: 1 } },
+          uniforms: { uTex: S.uTex, uDens: S.uDens, uMono: S.uMono, uDistort: S.uDistort, uDistAmt: S.uDistAmt, uTime: S.uTime, uSeed: { value: i * 0.37 + 0.11 }, uInk: S.uInk, uPlant: S.uPlant, uOwn: S.uOwn, uSmear: S.uSmear, uRich: S.uRich, uOnWhite: S.uOnWhite, uRes: S.uRes, uBack: S.uBack, uA: { value: 0 }, uPose: { value: 0 }, uWalk: { value: 0 }, uShape: { value: 0 }, uClip: S.uClip, uCols: S.uCols, uPer: S.uPer, uAtlasRows: S.uAtlasRows, uSlot: { value: 0 }, uFrame: { value: 0 }, uMirror: { value: 1 }, uTrail: { value: 0 }, uStep: { value: 0 }, uGrow: { value: 0 } },
         });
         const mesh = new THREE.Mesh(this.winGeom, mat);
         mesh.frustumCulled = false;
@@ -647,7 +668,9 @@ export class FutureWindows {
     // THE CUT-OUT (winShape "clip"): the few clips packed the first time they are asked for; until they are there, the
     // drawn body stands in. Drawn on the pictograms' layer — InkPaper lays it over the finished frame, out of its
     // softening by depth (the drawn body was taken for far ground and blurred to a grey blob)
-    const clipMode = cfg.winShape === "clip";
+    // (the lab's look only: on the lab's pages and the experiment address — the exhibition's personal view keeps the
+    // drawn body it had, whatever the default says; mobileLab.newLook)
+    const clipMode = cfg.winShape === "clip" && newLook();
     if (clipMode && !this.clipsAsked) {
       this.clipsAsked = true;
       const want = new Set(OBSERVER_CLIPS);
@@ -795,7 +818,14 @@ export class FutureWindows {
         U.uSlot.value = this.clips.index.slot[row];
         U.uFrame.value = w.walking > 0.5 ? Math.floor(w.phase * sheet.cols) % sheet.cols : R.ds?.[0] ?? 0;
         const tallC = cfg.winPersonH / Math.max(0.3, R.fill ?? 1);
-        w.mesh.scale.set((tallC * sheet.cellW) / sheet.cellH, tallC, 1);
+        // the smear behind its way (cell widths; on the screen only the part of its way across my view — coming at me
+        // or going away it hardly smears, as in a photograph); the stride a sample further back: about seven frames a
+        // cell width at the clips' pace. A window left behind keeps the smear it had.
+        const L = Math.max(0, cfg.winTrail ?? 0), smear = L * right * w.walking;
+        U.uGrow.value = L;
+        U.uTrail.value = smear;
+        U.uStep.value = 7 * Math.abs(smear);
+        w.mesh.scale.set(((tallC * sheet.cellW) / sheet.cellH) * (1 + 2 * L), tallC, 1);
       }
       if (person) {
         // (the shared body: this window's pose in row `bodies`, its place and heading in the instance)

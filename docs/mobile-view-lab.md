@@ -483,3 +483,20 @@ The artist: "미래 관찰자 모양은 이전에 frame 에서 쓰던 실제 프
 - Not changed yet:
   - the near-fill (the grey film over the whole screen when I am near a window);
   - what shows inside: still the frames' ink picture on a grey back, not yet scan-future's line language.
+- **The lab's look only** (coordinator, 2026-11-27): the exhibition's personal view reads this group's defaults, so the
+  cut-out (and its smear) is drawn only where `mobileLab.newLook()` is true — the lab's pages and the experiment
+  address. Elsewhere `clip` falls back to the drawn body it had.
+
+#### Smeared behind its way (2026-11-27)
+
+The artist: "움직이는 방향 뒤로 번져 보이는 건?" — `창 › 움직이는 방향 뒤로 번짐` (`winTrail`, of the cell's width, default
+0.8; 0 = none).
+- In the window's shader: sixteen moments behind the body, each where the body was a moment ago and at the stride it
+  had then (about seven frames a cell width), fainter the longer ago. The sample offset differs per pixel, so the drag
+  is continuous, not a row of copies. Drawn as it is each frame: no feedback, so nothing flickers.
+- Only the part of its way across my view smears (coming at me or going away it hardly does, as in a photograph). The
+  card is widened by the length on both sides to hold it. A window left behind keeps the smear it had.
+- The future shows through the smear as through the body.
+- Capture `trail-v1.jpg` (before · after · IMG_1575): the side clip drags back over about a body's width, the legs
+  as several strides. That capture had twelve moments (the row of copies showed at the head); now sixteen with the
+  per-pixel offset, not captured again.
