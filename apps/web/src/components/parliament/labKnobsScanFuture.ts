@@ -98,6 +98,10 @@ export function useScanFutureKnobs(isV2: boolean) {
               kpDot: { value: K.part.dot, min: 0.5, max: 8, step: 0.1, label: "점 크기 (px)" },
               kpSizeVar: { value: K.part.sizeVar, min: 0, max: 1, step: 0.05, label: "점 크기 편차 (0 = 고르게)" },
               kpSoft: { value: K.part.soft, min: 0, max: 1, step: 0.05, label: "점 부드러움 (0 = 또렷)" },
+              // (the artist, 2026-11-27: "각 레바별로 점 수나 밀도 정할 수 있게": each kind's count here, × what it makes)
+              kpDensity: { value: K.part.density, min: 0, max: 4, step: 0.05, label: "점 수 (× — 1 = 지금, 0 = 없음; 둔덕·흙 포함)" },
+              // (moved here from 미래 읽기, saved value and all)
+              surface: { value: 30, min: 5, max: 120, step: 1, label: "겉면 점 밀도 (부재 한 면적당)" },
             },
             { collapsed: true },
           ),
@@ -144,6 +148,7 @@ export function useScanFutureKnobs(isV2: boolean) {
               ksDot: { value: K.stem.dot, min: 0.5, max: 8, step: 0.1, label: "점 크기 (px)" },
               ksSizeVar: { value: K.stem.sizeVar, min: 0, max: 1, step: 0.05, label: "점 크기 편차 (0 = 고르게)" },
               ksSoft: { value: K.stem.soft, min: 0, max: 1, step: 0.05, label: "점 부드러움 (0 = 또렷)" },
+              ksDensity: { value: K.stem.density, min: 0, max: 4, step: 0.05, label: "점 수 (× — 1 = 지금, 0 = 없음)" },
             },
             { collapsed: true },
           ),
@@ -217,8 +222,6 @@ export function useScanFutureKnobs(isV2: boolean) {
           ),
           resSat: { value: 1, min: 0, max: 1.8, step: 0.05, label: "식생 채도" },
           resFlower: { value: 0.5, min: 0, max: 1, step: 0.05, label: "꽃 비율" },
-          resPlantDensity: { value: 8, min: 0, max: 60, step: 1, label: "식생 점 밀도" },
-          resTreeFull: { value: 4, min: 1, max: 10, step: 0.5, label: "나무 풍성함 (×)" },
           // (the artist, 2026-11-27: "컬러팔레트가 시간에 따라 유기적으로 변하게 … 식생에 대해서만", "대비되는 색 … 마지막에만 확
           // 번져서")
           "식생 · 색의 흐름 (시간)": folder(
@@ -235,6 +238,10 @@ export function useScanFutureKnobs(isV2: boolean) {
               klDot: { value: K.leaf.dot, min: 0.5, max: 8, step: 0.1, label: "점 크기 (px)" },
               klSizeVar: { value: K.leaf.sizeVar, min: 0, max: 1, step: 0.05, label: "점 크기 편차 (0 = 고르게)" },
               klSoft: { value: K.leaf.soft, min: 0, max: 1, step: 0.05, label: "점 부드러움 (0 = 또렷)" },
+              klDensity: { value: K.leaf.density, min: 0, max: 4, step: 0.05, label: "점 수 (× — 1 = 지금, 0 = 없음; 나무·풀·꽃 전부)" },
+              // (moved here from the 식생 folder, saved values and all)
+              resPlantDensity: { value: 8, min: 0, max: 60, step: 1, label: "풀숲 점 밀도 (한 면적당)" },
+              resTreeFull: { value: 4, min: 1, max: 10, step: 0.5, label: "나무 수관 풍성함 (× — 줄기 점 수도 따라감)" },
             },
             { collapsed: true },
           ),
@@ -293,7 +300,6 @@ export function useScanFutureKnobs(isV2: boolean) {
           lastSteel: { value: DEFAULT_PRESENCE.lastSteel, min: 0, max: 1, step: 0.05, label: "오래 남음 — 철골" },
           lastPile: { value: DEFAULT_PRESENCE.lastPile, min: 0, max: 1, step: 0.05, label: "오래 남음 — 말뚝" },
           wild: { value: 0.5, min: 0, max: 1, step: 0.05, label: "놔둔 땅의 숲 (0 = 없음)" },
-          surface: { value: 30, min: 5, max: 120, step: 1, label: "부재 겉면의 점 밀도" },
           // (the old overlay's green, read only by the 초록 하나 palette button now)
           plantColor: { value: "#2f8f3f", label: "식생 색", render: HIDDEN },
         },
@@ -326,10 +332,11 @@ export function useScanFutureKnobs(isV2: boolean) {
     plantFlowSec: v.resPlantFlowSec,
     plantFlowScale: v.resPlantFlowScale,
     plantContrast: v.resPlantContrast,
+    // (each kind's own everything, its 점 수 included)
     kinds: {
-      part: { dot: v.kpDot, sizeVar: v.kpSizeVar, soft: v.kpSoft, spread: v.kpSpread, develop: v.kpDevelop, jitter: v.kpJitter, ghostAlpha: v.kpGhostAlpha, ghostLife: v.kpGhostLife, bleed: v.kpBleed, tear: v.kpTear, drip: v.kpDrip, block: v.kpBlock, thin: v.kpThin, blow: { time: v.kpBlowTime, dist: v.kpBlowDist, rise: v.kpBlowRise, turb: v.kpBlowTurb, bloom: v.kpBlowBloom }, smear: v.kpSmear, smearAlpha: v.kpSmearAlpha },
-      leaf: { dot: v.klDot, sizeVar: v.klSizeVar, soft: v.klSoft, spread: v.klSpread, develop: v.klDevelop, jitter: v.klJitter, ghostAlpha: v.klGhostAlpha, ghostLife: v.klGhostLife, bleed: v.klBleed, tear: v.klTear, drip: v.klDrip, block: v.klBlock, thin: v.klThin, blow: { time: v.klBlowTime, dist: v.klBlowDist, rise: v.klBlowRise, turb: v.klBlowTurb, bloom: v.klBlowBloom }, smear: v.klSmear, smearAlpha: v.klSmearAlpha },
-      stem: { dot: v.ksDot, sizeVar: v.ksSizeVar, soft: v.ksSoft, spread: v.ksSpread, develop: v.ksDevelop, jitter: v.ksJitter, ghostAlpha: v.ksGhostAlpha, ghostLife: v.ksGhostLife, bleed: v.ksBleed, tear: v.ksTear, drip: v.ksDrip, block: v.ksBlock, thin: v.ksThin, blow: { time: v.ksBlowTime, dist: v.ksBlowDist, rise: v.ksBlowRise, turb: v.ksBlowTurb, bloom: v.ksBlowBloom }, smear: v.ksSmear, smearAlpha: v.ksSmearAlpha },
+      part: { dot: v.kpDot, sizeVar: v.kpSizeVar, soft: v.kpSoft, density: v.kpDensity, spread: v.kpSpread, develop: v.kpDevelop, jitter: v.kpJitter, ghostAlpha: v.kpGhostAlpha, ghostLife: v.kpGhostLife, bleed: v.kpBleed, tear: v.kpTear, drip: v.kpDrip, block: v.kpBlock, thin: v.kpThin, blow: { time: v.kpBlowTime, dist: v.kpBlowDist, rise: v.kpBlowRise, turb: v.kpBlowTurb, bloom: v.kpBlowBloom }, smear: v.kpSmear, smearAlpha: v.kpSmearAlpha },
+      leaf: { dot: v.klDot, sizeVar: v.klSizeVar, soft: v.klSoft, density: v.klDensity, spread: v.klSpread, develop: v.klDevelop, jitter: v.klJitter, ghostAlpha: v.klGhostAlpha, ghostLife: v.klGhostLife, bleed: v.klBleed, tear: v.klTear, drip: v.klDrip, block: v.klBlock, thin: v.klThin, blow: { time: v.klBlowTime, dist: v.klBlowDist, rise: v.klBlowRise, turb: v.klBlowTurb, bloom: v.klBlowBloom }, smear: v.klSmear, smearAlpha: v.klSmearAlpha },
+      stem: { dot: v.ksDot, sizeVar: v.ksSizeVar, soft: v.ksSoft, density: v.ksDensity, spread: v.ksSpread, develop: v.ksDevelop, jitter: v.ksJitter, ghostAlpha: v.ksGhostAlpha, ghostLife: v.ksGhostLife, bleed: v.ksBleed, tear: v.ksTear, drip: v.ksDrip, block: v.ksBlock, thin: v.ksThin, blow: { time: v.ksBlowTime, dist: v.ksBlowDist, rise: v.ksBlowRise, turb: v.ksBlowTurb, bloom: v.ksBlowBloom }, smear: v.ksSmear, smearAlpha: v.ksSmearAlpha },
     },
   });
 

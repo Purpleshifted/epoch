@@ -56,6 +56,10 @@ export interface KindLook {
   dot: number;
   sizeVar: number;
   soft: number;
+  /** HOW MANY OF ITS POINTS (the artist, 2026-11-27: "각 레바별로 점 수나 밀도 정할 수 있게"): × what its own counts give
+   *  (1 = as before; under 1 a steady share of them is left out, over 1 more are made the same way — more points on a
+   *  part's faces, more leaf clumps in a crown and points in a meadow, more along a stem). */
+  density: number;
   /** Found: how fast it develops from the touch outwards (world/s), seconds from the scan's colour to its own. */
   spread: number;
   develop: number;
@@ -143,7 +147,7 @@ export const COLOUR_PROFILES: readonly { label: string; leaves: string[]; flower
   { label: "청록 엉겅퀴 (IMG_1976)", leaves: ["#4ec8c0", "#2c9ab0", "#6ae0c0", "#3a7ab8", "#8ad8d0", "#2aa0a0"], flowers: ["#ff2a2a", "#e0201f", "#ff5a3a", "#c0306a", "#ff8a6a"], part: "#e8eef0", stem: "#8a5a5a" },
 ];
 
-const KIND_BASE: Omit<KindLook, "blow"> = { dot: 2, sizeVar: 0.6, soft: 0.6, spread: 5, develop: 1.2, jitter: 0.04, ghostAlpha: 0.45, ghostLife: 3, bleed: 0.5, tear: 0.3, drip: 0.4, block: 0.35, thin: 0.4, smear: 0, smearAlpha: 0.45 };
+const KIND_BASE: Omit<KindLook, "blow"> = { dot: 2, sizeVar: 0.6, soft: 0.6, density: 1, spread: 5, develop: 1.2, jitter: 0.04, ghostAlpha: 0.45, ghostLife: 3, bleed: 0.5, tear: 0.3, drip: 0.4, block: 0.35, thin: 0.4, smear: 0, smearAlpha: 0.45 };
 
 export const DEFAULT_RESIDUE: ResidueLook = {
   on: false,
@@ -232,8 +236,9 @@ export function residueActive(): boolean {
 const FALLBACK_DENSITY: DensityConfig = { ...DEFAULT_DENSITY, path: { ...DEFAULT_PATH, step: NO_PATHS }, slotSec: 20, gapSec: 20, maxBuilt: 8000, mergeGap: 3, mergeThick: 2, liveAt: 0.25, minVisitors: 4, step: 40, maxLevel: 6, ratio: 3, massRatio: 1.45, visitorCap: 60, radius: 2.75, timeSec: 60, down: 0.5 };
 /** Samples put into the field in one frame. */
 const FEED_PER_FRAME = 150;
-/** The most points in the pool (the parts' faces, the plants, the mounds, what is still blowing away). */
-const CAP = 120_000;
+/** The most points in the pool (the parts' faces, the plants, the mounds, what is still blowing away) — room for each
+ *  kind's 점 수 turned up (only what is there is drawn). */
+const CAP = 200_000;
 /** A smear's ribbon: this many pieces along the way it went (it follows the swirl's curve). */
 const STREAK_SEGS = 8;
 /** The most smears at once (points blowing away). */
@@ -845,16 +850,21 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
     else trees.set(q, [o]);
   }
   const full = Math.max(1, look.treeFull);
+  // (each kind's 점 수: a leaf's, a stem's — a point left out by its own steady hash, so a rebuild leaves out the same ones)
+  const dLeaf = Math.max(0, look.kinds.leaf.density), dStem = Math.max(0, look.kinds.stem.density);
   for (const [q, list] of trees) {
     // (a tree its own leaf colour, a little of another in it; the stem a birch's near-white)
     const crown = pick(leaves, hash(q, 17, 3)), alt = pick(leaves, hash(q, 19, 5));
     open("t");
-    let cx = 0, cy = 0, cz = 0, cn = 0, sx = 0, sz = 0, sn = 0, crownLow = Infinity;
+    // (the crown's points as the future gave them; the crown filled to × 나무 풍성함 × 잎 점 수 — under its own count,
+    // some of its own left out)
+    let cn = 0;
+    for (const o of list) if (T[o + 3] >= 0.2) cn++;
+    const crownWant = cn * full * dLeaf, keepCrown = cn > 0 ? Math.min(1, crownWant / cn) : 0;
+    let cx = 0, cy = 0, cz = 0, sx = 0, sz = 0, sn = 0, crownLow = Infinity;
     for (const o of list) {
       const s = hash(Math.round(T[o] * 97), Math.round(T[o + 2] * 89), o);
       const isStem = T[o + 3] < 0.2, y = T[o + 1] * unit;
-      const c = isStem ? stem : tmp.copy(crown).lerp(alt, 0.35 * hash(o, q, 7));
-      add(T[o], y, T[o + 2], c, isStem ? 0.85 : 0.75 + 0.6 * T[o + 3], s, pick(isStem ? pollen : petals, hash(o, q, 9)), isStem ? 2 : 1);
       if (isStem) {
         sx += T[o];
         sz += T[o + 2];
@@ -863,11 +873,13 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
         cx += T[o];
         cy += y;
         cz += T[o + 2];
-        cn++;
         crownLow = Math.min(crownLow, y);
       }
+      if (hash(o, q, 211) >= (isStem ? Math.min(1, dStem) : keepCrown)) continue;
+      const c = isStem ? stem : tmp.copy(crown).lerp(alt, 0.35 * hash(o, q, 7));
+      add(T[o], y, T[o + 2], c, isStem ? 0.85 : 0.75 + 0.6 * T[o + 3], s, pick(isStem ? pollen : petals, hash(o, q, 9)), isStem ? 2 : 1);
     }
-    if (cn > 0 && full > 1) {
+    if (cn > 0) {
       cx /= cn;
       cy /= cn;
       cz /= cn;
@@ -880,7 +892,7 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
         rz = Math.max(rz, Math.abs(T[o + 2] - cz));
       }
       // leaf clumps over the crown (most near its outside), points gathered round each
-      const extra = Math.round(cn * (full - 1)), clumps = 6 + Math.floor(hash(q, 23, 1) * 8);
+      const extra = Math.max(0, Math.round(crownWant - cn)), clumps = 6 + Math.floor(hash(q, 23, 1) * 8);
       for (let i = 0; i < extra; i++) {
         const cl = i % clumps;
         const ca = hash(q, cl, 29) * Math.PI * 2, cc = hash(q, cl, 31) * 2 - 1, cr = Math.pow(hash(q, cl, 37), 0.35);
@@ -896,7 +908,7 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
       if (sn > 0) {
         sx /= sn;
         sz /= sn;
-        const top = Math.max(0.3, Math.min(cy, crownLow + ry * 0.4)), cntS = Math.round(18 + 10 * full);
+        const top = Math.max(0.3, Math.min(cy, crownLow + ry * 0.4)), cntS = Math.round((18 + 10 * full) * dStem);
         const lean = (hash(q, 101, 1) - 0.5) * 0.15;
         for (let i = 0; i < cntS; i++) {
           const u = hash(q, i, 103), y = u * top;
@@ -911,7 +923,8 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
   const PC = r.plantClouds;
   for (let o = 0; o + 11 < PC.length; o += 12) {
     const x = PC[o], z = PC[o + 1], foot = PC[o + 2] * unit, R = Math.max(0.05, PC[o + 3]), H = PC[o + 4] * unit;
-    const cnt = Math.max(4, Math.min(80, Math.round(Math.PI * R * R * look.plantDensity)));
+    // (× 잎 점 수: the least and the most a cloud holds scaled with it)
+    const cnt = Math.max(Math.round(4 * Math.min(1, dLeaf)), Math.min(Math.round(80 * Math.max(1, dLeaf)), Math.round(Math.PI * R * R * look.plantDensity * dLeaf)));
     const sx = Math.round(x * 100), sz = Math.round(z * 100);
     // (a cloud its own leaf colour, a little of a neighbour's in it; a meadow flowers by its own flower share — PC[o + 6]
     // — × 꽃 비율)
@@ -927,10 +940,12 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
     close();
   }
   // THE MOUNDS: a dome of pale points, fuller the higher their score; THE DARK EARTH: a few grey points flat
+  // (× 부재 점 수, as the parts' faces — FutureResidue's futurePresence call)
+  const dPart = Math.max(0, look.kinds.part.density);
   const M = r.mounds;
   for (let o = 0; o + 3 < M.length; o += 4) {
     const x = M[o], z = M[o + 1], score = M[o + 2], sd = Math.floor(M[o + 3] * 1e6);
-    const cnt = Math.min(48, 8 + Math.round(score * 8)), R = CELL_SIZE * 0.45 * Math.min(2, Math.sqrt(score)), H = unit * 0.3 * Math.min(1.5, score);
+    const cnt = Math.round(Math.min(48, 8 + Math.round(score * 8)) * dPart), R = CELL_SIZE * 0.45 * Math.min(2, Math.sqrt(score)), H = unit * 0.3 * Math.min(1.5, score);
     open("m");
     for (let i = 0; i < cnt; i++) {
       const u1 = hash(sd, i, 1), th = hash(sd, i, 2) * Math.PI * 2, rr = R * Math.sqrt(u1);
@@ -941,7 +956,7 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
   const E = r.stains;
   for (let o = 0; o + 3 < E.length; o += 4) {
     const x = E[o], z = E[o + 1], share = E[o + 2], sd = Math.floor(E[o + 3] * 1e6);
-    const cnt = 4 + Math.round(share * 6);
+    const cnt = Math.round((4 + Math.round(share * 6)) * dPart);
     open("e");
     for (let i = 0; i < cnt; i++) {
       const th = hash(sd, i, 5) * Math.PI * 2, rr = CELL_SIZE * 0.4 * Math.sqrt(hash(sd, i, 6));
@@ -1161,12 +1176,22 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       const GA = (name: string) => gh.geometry.getAttribute(name) as THREE.BufferAttribute;
       const gPos = GA("position").array as Float32Array, gCol = GA("aCol").array as Float32Array, gSeed = GA("aSeed").array as Float32Array, gKind = GA("aKind").array as Float32Array;
       const cPos = A("position").array as Float32Array, cCol = A("aCol").array as Float32Array, cSeed = A("aSeed").array as Float32Array;
-      let m = 0;
+      // (more shown than a layer holds — 점 수 turned up: an even share of every kind, not the first ones only)
+      let shown = 0;
+      for (const p of pool0.parts) {
+        const ps = s.states.get(p.key);
+        if (ps && ps.found > 0 && ps.rel <= 0 && ps.died <= 0) shown += p.i1 - p.i0;
+      }
+      const share = Math.min(1, GHOST_CAP / Math.max(1, shown));
+      let m = 0, acc = 0;
       for (const p of pool0.parts) {
         const ps = s.states.get(p.key);
         if (!ps || ps.found <= 0 || ps.rel > 0 || ps.died > 0) continue;
         for (let i = p.i0; i < p.i1 && m < GHOST_CAP; i++) {
           if (ps.found + fDelay[i] > now) continue;
+          acc += share;
+          if (acc < 1) continue;
+          acc -= 1;
           for (let c = 0; c < 3; c++) {
             gPos[m * 3 + c] = cPos[i * 3 + c];
             gCol[m * 3 + c] = cCol[i * 3 + c];
@@ -1215,7 +1240,9 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
         if (kk !== -Infinity) K = kk;
       }
       const box: BoxConfig = { ...DEFAULT_BOXES, secPerUnit: Math.max(1, dcfg.slotSec), unit: cfg.unit, width: 0.8, density: 1.4, variety: DEFAULT_VARIETY, buildSlots: 0 };
-      const pcfg: PresenceConfig = { band: cfg.band, ruin: cfg.ruin, unit: cfg.unit, radius: lidarLook.range + 4, maxBuildings: cfg.maxBuildings, strip: cfg.strip, lastSteel: cfg.lastSteel, lastPile: cfg.lastPile, traces: false, surface: cfg.surface, surfaceCap: 160, wild: cfg.wild };
+      // (the parts' faces × 부재 점 수: the points a face's area gives, the most on one part and on all of them, scaled)
+      const dPart = Math.max(0, L.kinds.part.density), dUp = Math.max(1, dPart);
+      const pcfg: PresenceConfig = { band: cfg.band, ruin: cfg.ruin, unit: cfg.unit, radius: lidarLook.range + 4, maxBuildings: cfg.maxBuildings, strip: cfg.strip, lastSteel: cfg.lastSteel, lastPile: cfg.lastPile, traces: false, surface: cfg.surface * dPart, surfaceCap: Math.round(160 * dUp), surfaceMax: Math.round(Math.min(CAP * 0.75, 60000 * dUp)), wild: cfg.wild };
       const r = futurePresence(h.f, meRef.current.id, K, kMe, me, pcfg, box);
       const pool = buildPool(r, cfg.unit, L);
       // (what is shown until now stays as an earlier layer: where the new reading moves something, both are seen)
@@ -1303,7 +1330,9 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       dirty0 = Infinity;
       dirty1 = -1;
       g.setDrawRange(0, pool.n);
-      (window as unknown as { __residue?: unknown }).__residue = { k: K, kMe, parts: pool.parts.length, points: pool.n, held: [...s.states.values()].filter((q) => q.found > 0 && q.rel <= 0).length, present: s.present, observer: Math.round(nearD * 10) / 10, ms: r.ms };
+      const byKind = [0, 0, 0];
+      for (let i = 0; i < pool.n; i++) byKind[Math.min(2, Math.round(pool.kind[i]))]++;
+      (window as unknown as { __residue?: unknown }).__residue = { k: K, kMe, parts: pool.parts.length, points: pool.n, part: byKind[0], leaf: byKind[1], stem: byKind[2], held: [...s.states.values()].filter((q) => q.found > 0 && q.rel <= 0).length, present: s.present, observer: Math.round(nearD * 10) / 10, ms: r.ms };
     }
 
     // BETWEEN READINGS, a layer every layerSec: the one shown stays behind as an earlier layer, the points laid anew

@@ -45,8 +45,10 @@ export interface PresenceConfig {
   /** THE POINT CLOUD (the excavators' moment — FuturePresence.tsx): points per square world unit of a part's surface;
    *  0 = none made. */
   surface?: number;
-  /** The most points on one part's surface (absent = 160). */
+  /** The most points on one part's surface (absent = 160), and on all the parts' surfaces of one reading (absent =
+   *  60 000; the scan's residue raises both with its 부재 점 수). */
   surfaceCap?: number;
+  surfaceMax?: number;
   /** Plants over the ground nobody kept (futureVillage.ts ground.density: the wild forest), 0 … 1; absent = none. */
   wild?: number;
 }
@@ -205,7 +207,7 @@ export function futurePresence(field: DensityField, me: string, K: number, kMe: 
     }
     for (const b of keptHere) {
       pushEdges(edges, b, -footY);
-      if (perArea > 0 && surface.length < 60000 * 4) {
+      if (perArea > 0 && surface.length < (cfg.surfaceMax ?? 60000) * 4) {
         const from = surface.length / 4;
         pushSurface(surface, b, -footY, perArea, cfg.surfaceCap ?? 160);
         for (let i = from; i < surface.length / 4; i++) surfacePart.push(partSteel.length);
