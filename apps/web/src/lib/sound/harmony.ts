@@ -161,13 +161,25 @@ export function chordName(key: WorldKey, pc: PlaceChord): string {
   const third = (pc.classes[1] - pc.classes[0] + 12) % 12;
   const fifth = (pc.classes[2] - pc.classes[0] + 12) % 12;
   const seventh = pc.classes.length >= 4 ? (pc.classes[3] - pc.classes[0] + 12) % 12 : -1;
+  // (the colours of §13f: a suspended third, an added ninth or sixth)
+  const sus = third === 5 ? "sus4" : third === 2 ? "sus2" : "";
   let q = third === 3 ? (fifth === 6 ? "dim" : "m") : "";
   if (seventh === 10) q = q === "dim" ? "m7b5" : q + "7";
   else if (seventh === 11) q += "maj7";
-  return KEY_NAMES[pc.rootClass] + q;
+  else if (seventh === 9) q += "6";
+  else if (seventh === 2) q += "add9";
+  // (a pedal: the chord's own root differs from the bass — written over it)
+  const root = pc.classes[0];
+  const over = root !== pc.rootClass ? `/${KEY_NAMES[pc.rootClass]}` : "";
+  return KEY_NAMES[root] + q + sus + over;
 }
 
 /** The chord name reduced to what Magenta's chord_pitches_improv surely knows: "", m, 7, m7, maj7. */
 export function magentaChordName(name: string): string {
-  return name.replace("m7b5", "m").replace("dim", "m");
+  return name
+    .replace(/\/.*$/, "")
+    .replace(/sus[24]|add9/g, "")
+    .replace(/(m?)6$/, "$1")
+    .replace("m7b5", "m")
+    .replace("dim", "m");
 }

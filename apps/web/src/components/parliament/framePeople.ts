@@ -241,6 +241,12 @@ export interface Walker {
   fade?: number;
   // walking across my view now (in profile), kept a little past the threshold
   sideNow?: boolean;
+  /**
+   * The body now AS DRAWN this frame (the card writer fills it): its card's height (world), how far it is lifted (world —
+   * the clip's lift and a singer's bounce) and its width factor — the tracking box is built from these, so it holds the
+   * figure the card actually shows (the artist, 2026-11-27: "가끔 봇이 옆으로 기울어서 블롭 선 밖으로 넘어갈 때가 있음").
+   */
+  drawn?: { h: number; lift: number; width: number };
 }
 
 export const VERT = /* glsl */ `
@@ -989,6 +995,8 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
     Ee[n * 4 + 1] = set?.tint[1] ?? 0;
     Ee[n * 4 + 2] = set?.tint[2] ?? 0;
     Ee[n * 4 + 3] = L.unify ? 1 : set?.width ?? 1;
+    // (the body now as drawn: the tracking box is built from it — Walker.drawn)
+    if (u === 0) w.drawn = { h: A[n * 4 + 2], lift: C[n * 4 + 3], width: Ee[n * 4 + 3] };
     n++;
   };
   const lerpStamp = (a: Stamp, b: Stamp, f: number): Stamp => {

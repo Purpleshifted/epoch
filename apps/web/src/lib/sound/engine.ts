@@ -18,12 +18,13 @@
  * models (magenta.ts) are loaded a few seconds after that and only used when they have answered.
  */
 
-import { chordName, magentaChordName, type WorldKey } from "./harmony";
+import { chordName, magentaChordName, type PlaceChord, type WorldKey } from "./harmony";
+import { stayingChord, walkingChord } from "./colour";
 import { apartShift, bassUnder, callsOn, endClosed, endOpen, interlock, landWith, octaveToward, placeApart, rotate, shiftNotes } from "./dialogue";
 import { wordMotifOf } from "@/lib/parliament/glyph";
 import { Magenta } from "./magenta";
 import { midiToHz, realize, type Motif, type MotifNote } from "./motif";
-import { ARRIVAL_IDLE, barClock, lockOf, nextArrival, planBar, type ArrivalState, type BarPlan } from "./sequencer";
+import { ARRIVAL_COOLDOWN, ARRIVAL_IDLE, barClock, lockOf, nextArrival, planBar, type ArrivalState, type BarPlan } from "./sequencer";
 import { bestKey, keyName, zoneChord, zoneOf } from "./tonality";
 import type { KnobSources } from "./noisecraftKnobs";
 import { applyOutput, makeLimiter, onOutputChange } from "./output";
@@ -155,8 +156,9 @@ export interface SoundParams {
    */
   ensembleCounterpoint: boolean;
   /**
-   * How much the hall and the pad GROW while the ensemble plays (×, 1 = as when merely staying with someone): building
-   * together fills the room (the artist, 2026-11-27: "같이 지으면 오히려 홀이랑 패드는 강해져야"; §13e).
+   * The hall and the pad while the ensemble plays (×, 1 = as when merely staying with someone — never less): the artist,
+   * 2026-11-27, first "같이 지으면 오히려 홀이랑 패드는 강해져야" (they had been made smaller), then "리버브 엄청 키울 필요
+   * 없는듯 … 줄이지만 않으면 돼" — so 1 by default, the knob for more (§13e).
    */
   ensembleSwell: number;
   /**
@@ -165,6 +167,17 @@ export interface SoundParams {
    * 겹치면 어때 꼭 대위적으로 서로 피해갈 이유는 없음"; §13d–e).
    */
   apartness: number;
+  /**
+   * MORE TURNS IN THE HARMONY (colour.ts, §13f — the artist, 2026-11-27: "화성이 좀 더 ... 진행이 다양했으면 좋겠고 (지금은
+   * 오묘한 구간은 없고 살짝 고조되다 금방 풀림)"; the redesigned view only): staying moves through a progression of the
+   * place's own that leaves the mode, walking bars are now and then suspended or opened, and an arrival builds longer
+   * (a pre-dominant, the dominant, sometimes a deceptive turn, then home).
+   */
+  harmonyTurns: boolean;
+  /** How much of the staying progression moves (0 = the place's chord held, as before; 1 = every step). */
+  turnAmount: number;
+  /** Which share of the walking bars is suspended or opened (sus4 · sus2 · add9). */
+  colourAmount: number;
   /** How much of my motif goes into the long open space (0..1): the signal sent out, its tail. */
   motifVerb: number;
   /** How much of the building's dullness the patch gets (0 = none, 1 = as everything else). */
@@ -246,8 +259,11 @@ export const DEFAULT_SOUND: SoundParams = {
   foundLevel: 1,
   askCounterpoint: true,
   ensembleCounterpoint: true,
-  ensembleSwell: 1.5,
+  ensembleSwell: 1,
   apartness: 0.3,
+  harmonyTurns: true,
+  turnAmount: 0.8,
+  colourAmount: 0.3,
   ncDull: 0.7,
   ncMap: true,
   ncMapDepth: 0.8,
@@ -689,7 +705,8 @@ export class SoundEngine {
     if (this.seenSlabs) for (const k of near) if (!this.seenSlabs.has(k)) born = true;
     this.seenSlabs = new Set(near);
     const together = this.forceTogether || (sig.coBuilders?.length ?? 0) > 0;
-    const step = nextArrival(this.arrivalState, bar, together, born && sig.stay > 0.5 && sig.neighbours.length > 0);
+    // (longer with more turns: a pre-dominant, the dominant, sometimes a deceptive turn, then home — §13f)
+    const step = nextArrival(this.arrivalState, bar, together, born && sig.stay > 0.5 && sig.neighbours.length > 0, ARRIVAL_COOLDOWN, p.harmonyTurns);
     if (this.forceTogether && step.phase === "dominant") this.forceTogether = false;
     this.arrivalState = step.state;
     const arrival = p.arrival ? step.phase : null;
@@ -702,6 +719,12 @@ export class SoundEngine {
       sig,
       key,
       place: this.placeFor(sig),
+      // (more turns, §13f: staying, the place's own progression — the place = its building's key or the world's band and
+      // its chord; walking, a suspension or an added ninth now and then; read after placeFor has set the zone's key)
+      colour: p.harmonyTurns
+        ? (c: PlaceChord) =>
+            sig.stay > 0.5 ? stayingChord(c, `${this.zoneKey ? keyName(this.zoneKey) : "w"}#${c.band}#${c.rootClass}`, bar, p.turnAmount) : walkingChord(c, bar, p.colourAmount)
+        : null,
       arrival,
       me: this.me.motif,
       others: this.motifs,
@@ -1211,8 +1234,8 @@ export class SoundEngine {
     // the arrival opens the hall at once and lets it close over ~6 s
     const glow = this.arrivalGlow * Math.exp(-(t - this.arrivalAt) / 6);
     // THE ENSEMBLE (§13e): while the record says 합주, the nearest of those around me (who really build with me first)
-    // each take a part; the hall and the pad GROW — building together fills the room (the artist, 2026-11-27: "같이 지으면
-    // 오히려 홀이랑 패드는 강해져야"), at least as open as with two people beside me, times ensembleSwell
+    // each take a part; the hall and the pad are never made smaller for it (the artist, 2026-11-27: "줄이지만 않으면 돼"),
+    // times ensembleSwell (1 = as when staying with someone)
     if (params.ensembleCounterpoint && sig.ensemble) {
       const near = sig.neighbours.filter((n) => n.dist <= params.hearRadius * ENSEMBLE_NEAR);
       const co = sig.coBuilders ?? [];
@@ -1224,7 +1247,7 @@ export class SoundEngine {
         .map((n) => n.o);
     } else this.ensembleIds = [];
     const staying = params.reverbMax * sig.stay * company;
-    const hall = Math.max(this.ensembleIds.length ? Math.max(staying, params.reverbMax * 0.7) * params.ensembleSwell : staying, params.reverbMax * params.arrivalHall * glow);
+    const hall = Math.max(this.ensembleIds.length ? staying * Math.max(1, params.ensembleSwell) : staying, params.reverbMax * params.arrivalHall * glow);
     this.rooms.hall.gain.setTargetAtTime(hall, t, glow > 0.3 ? 0.15 : 0.8);
     const dryRooms = 1 - Math.min(1, hall);
     this.rooms.concrete.gain.setTargetAtTime(0.35 * sig.sealed * dryRooms, t, 0.4);
@@ -1803,11 +1826,8 @@ export class SoundEngine {
     // the arrival's tonic bar: the heartbeat must not duck the voices on the downbeat they bloom on (10/31: with the
     // breath it read as the sound being eaten at the wave's peak)
     if (!alone) for (const b of plan.bass) this.bassNote(b.pitch, nextStart + b.at * barSec, b.level, plan.arrival === "tonic" && b.at < 0.05 ? 0 : 1);
-    // (the ensemble's parts must be heard: the pad steps back while it plays — §13e; the tonic's arrival stays whole)
-    // (building together fills the room: while the ensemble plays the pad is there — the place's chord, at least as full as
-    // with two people beside me — and grows by ensembleSwell; §13e)
-    const padPitches = ensembleOn && !plan.pad.pitches.length ? [36 + plan.chord.rootClass, ...plan.chord.classes.map((c) => 48 + c)] : plan.pad.pitches;
-    const padLevel = ensembleOn ? Math.max(plan.pad.level, 0.7) * p.ensembleSwell : plan.pad.level;
-    this.setPad(padPitches, alone ? 0 : padLevel, nextStart, plan.arrival === "tonic");
+    // (the ensemble never makes the pad smaller; ensembleSwell above 1 makes it fuller — §13e)
+    const padLevel = ensembleOn ? plan.pad.level * Math.max(1, p.ensembleSwell) : plan.pad.level;
+    this.setPad(plan.pad.pitches, alone ? 0 : padLevel, nextStart, plan.arrival === "tonic");
   }
 }

@@ -364,6 +364,12 @@ export function SessionHud({
       emitLifeEvent({ kind: e.key, text: formatEntry(e, lang).text.replace(/\{\}/g, "♪"), level: e.level, lifeT: e.t, who: (e.args as { who?: { o?: string } } | undefined)?.who?.o, with: e.args.with?.map((x) => x.o), n: e.args.n });
     }
   }, [rec.entries, lang]);
+  // …and the life's own begin and end (until 2026-11-27 only the recording's markers, so nobody listening heard them:
+  // a question open at the death kept its box and its hold on the end's screen — "죽을 때 응답 안 하면 블롭이 남음")
+  useEffect(() => {
+    if (phase === "live") emitLifeEvent({ kind: "life.begin", text: "", level: 0 });
+    else if (phase === "ended") emitLifeEvent({ kind: "ended", text: "", level: 2 });
+  }, [phase]);
 
   const since = Math.max(0, (now - phaseAt) / 1000);
 
