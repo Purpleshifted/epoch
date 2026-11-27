@@ -289,6 +289,7 @@ export function RoleField({
       onLifeEvent((e) => {
         if (e.kind === "ensemble.start") ensembleNow.current = true;
         else if (e.kind === "ensemble.end" || e.kind === "life.begin" || e.kind === "ended") ensembleNow.current = false;
+        if (e.kind === "ended" || e.kind === "life.begin") askerNow.current = null; // (no question outlives the life)
         if ((e.kind === "word.new" || e.kind === "word.asked") && e.who)
           askerNow.current = {
             o: e.who,

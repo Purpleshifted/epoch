@@ -273,7 +273,12 @@ export function useLifeRecording(session: LifeSession | null, sound: SoundSetup 
         const events: RecordingMarker[] = [];
         const startedAt = rec.startedAt;
         events.push({ t: 0, kind: "name", text: "", level: 0 });
-        const off = onLifeEvent((e) => events.push({ t: (Date.now() - startedAt) / 1000, kind: e.kind, text: e.text, level: e.level }));
+        // (the life's own begin and end are written below by this hook; SessionHud says them on the bus too, for the
+        // layers that let go of a question at the end — not taken twice)
+        const off = onLifeEvent((e) => {
+          if (e.kind === "life.begin" || e.kind === "ended") return;
+          events.push({ t: (Date.now() - startedAt) / 1000, kind: e.kind, text: e.text, level: e.level });
+        });
         run.current = { id: v.id, sessionNo: s.sessionNo, rec, events, startedAt, lived: false, endedAt: 0, off };
         // whatever an earlier life left here that is not waiting to go up is cleared away
         void discardUnwanted(v.id);
