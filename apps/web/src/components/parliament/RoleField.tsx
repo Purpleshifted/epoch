@@ -61,7 +61,7 @@ import {
   type Snapshot,
   worldNow,
 } from "@/lib/parliament";
-import { KEY_NAMES, personalSignals, worldKey, type WorldKey } from "@/lib/sound";
+import { KEY_NAMES, personalSignals, worldKey, type Motif, type WorldKey } from "@/lib/sound";
 import { DitherGround } from "./DitherGround";
 import { newLook } from "./mobileLab";
 import { FuturePresence, futurePeek, type FuturePresenceVisual } from "./FuturePresence";
@@ -273,12 +273,19 @@ export function RoleField({
   // around while the question is open (engine ASKER_LEVEL), and my answer is heard on the next bar's edge — my melody
   // and theirs together for a bar, then the new word the record wrote down (engine.playAnswer). From the record's lines
   // (lifeEvents: SessionHud's witness), so the sound and the stream say the same thing.
-  const askerNow = useRef<{ o: string; until: number } | null>(null);
+  // (word: what a question asked again says, as the record writes it — their melody with mine in it; the engine's call
+  // plays it when the ask is heard as counterpoint, sound-logic §13d)
+  const askerNow = useRef<{ o: string; until: number; word: Motif | null } | null>(null);
   const answerDue = useRef<{ other: string; seed: number } | null>(null);
   useEffect(
     () =>
       onLifeEvent((e) => {
-        if ((e.kind === "word.new" || e.kind === "word.asked") && e.who) askerNow.current = { o: e.who, until: performance.now() + DEFAULT_WITNESS.askOpenSec * 1000 };
+        if ((e.kind === "word.new" || e.kind === "word.asked") && e.who)
+          askerNow.current = {
+            o: e.who,
+            until: performance.now() + DEFAULT_WITNESS.askOpenSec * 1000,
+            word: e.kind === "word.asked" ? newWordMotifOf(e.who, me.current.id, Math.floor(e.lifeT ?? 0)) : null,
+          };
         else if (e.kind === "word.answered" && e.who) {
           askerNow.current = null;
           answerDue.current = { other: e.who, seed: Math.floor(e.lifeT ?? 0) };
@@ -605,9 +612,10 @@ export function RoleField({
         // V2 session: the visitor's motif is only given once their role is fixed (LIVE); before that the engine hears
         // nobody (no id → no motif of mine, no voices of others) and is silent (muffleSound)
         const present = !lifeRef || lifeRef.current.phase === "live";
+        const asked = askerNow.current && performance.now() < askerNow.current.until ? askerNow.current : null;
         sound.engine.update(
           present ? me.current.id : "",
-          present ? { ...sig, asker: askerNow.current && performance.now() < askerNow.current.until ? askerNow.current.o : null } : { ...sig, neighbours: [] },
+          present ? { ...sig, asker: asked?.o ?? null, askerWord: asked?.word ?? null } : { ...sig, neighbours: [] },
           muffleSound(sound.params, lifeRef?.current),
           playerYawRef?.current ?? 0,
           epochMs.current,
@@ -615,7 +623,7 @@ export function RoleField({
         );
         const d = sound.engine.debug;
         const k = tonal.current.key;
-        soundLine = `${sound.status} · ${KEY_NAMES[k.root]} ${k.mode.name} · bar ${d.bar} ${d.chord} · lock ${d.lock.toFixed(2)} · ×${d.density}${d.answer ? " · answer" : ""} · near ${sig.neighbours.length} · path ${sig.pathP.toFixed(2)} stay ${sig.stay.toFixed(2)} sealed ${sig.sealed.toFixed(2)} · magenta ${d.magenta}${d.place ? " · 건물 " + d.place : ""}${d.phrase ? " · " + d.phrase : ""}${d.nc ? " · " + d.nc : ""}${d.found.played || d.found.waiting ? ` · 찾은 말 ${d.found.played}${d.found.last ? " (" + d.found.last + ")" : ""}${d.found.waiting ? " 대기 " + d.found.waiting : ""}` : ""}${present ? "" : ` · 세션 ${lifeRef!.current.phase} (무음)`}`;
+        soundLine = `${sound.status} · ${KEY_NAMES[k.root]} ${k.mode.name} · bar ${d.bar} ${d.chord} · lock ${d.lock.toFixed(2)} · ×${d.density}${d.answer ? " · answer" : ""} · near ${sig.neighbours.length} · path ${sig.pathP.toFixed(2)} stay ${sig.stay.toFixed(2)} sealed ${sig.sealed.toFixed(2)} · magenta ${d.magenta}${d.place ? " · 건물 " + d.place : ""}${d.phrase ? " · " + d.phrase : ""}${d.nc ? " · " + d.nc : ""}${d.found.played || d.found.waiting ? ` · 찾은 말 ${d.found.played}${d.found.last ? " (" + d.found.last + ")" : ""}${d.found.waiting ? " 대기 " + d.found.waiting : ""}` : ""}${d.dialogue ? " · " + d.dialogue : ""}${present ? "" : ` · 세션 ${lifeRef!.current.phase} (무음)`}`;
       }
       if (sound) markSpan("sound", performance.now() - tSound);
       (window as unknown as { __parliament?: ParliamentDebug }).__parliament = {
