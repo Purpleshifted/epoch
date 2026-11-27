@@ -40,7 +40,7 @@ import { visitorWorld } from "./useBotServer";
 import { markSpan } from "./usePerfMeter";
 import type { FuturePresenceVisual } from "./FuturePresence";
 import { FUTURE_LAYER, PRESENT_DEPTH_GLSL, futureInk, presentDepth } from "./futureLayer";
-import { futureFrame, noteFind } from "./futureCue";
+import { futureFrame, noteFind } from "@/lib/sound/futureCue";
 
 /** (futureCue: where I look, reused each frame) */
 const CUE_FWD = new THREE.Vector3();

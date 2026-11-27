@@ -1,5 +1,5 @@
 /**
- * futureCue.ts — WHEN THE FUTURE PASSES ME, said to whoever listens (docs/sound-logic.md §13k — the artist, 2026-11-28:
+ * sound/futureCue.ts — WHEN THE FUTURE PASSES ME, said to whoever listens (docs/sound-logic.md §13k — the artist, 2026-11-28:
  * "'미래' 찾아왔을 때 비주얼로 미래 보이는 건 반영됐는데 소리 효과가 없음 … 백일몽이 나를 스쳐가는 느낌처럼"). The scan's
  * residue (FutureResidue.tsx) tells this module, once a frame, whether the future is with me and when it is let go, and
  * each time a part of it is found; out of that come two cues the sound turns into a daydream passing (useSound →

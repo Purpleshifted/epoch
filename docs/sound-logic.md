@@ -347,7 +347,7 @@ intersection/umwelt의 NoiseCraft 시퀀서 논리 이식 (`noisecraft/public/se
 
 작가(11/28): "'미래' 찾아왔을 때 비주얼로 미래 보이는 건 반영됐는데 소리 효과가 없음. 음색이나 화성을 퓨처리스틱 + 원래 하던 꽃 효과 + 뭔가 전파스러운? 거나 음향효과 추가해서 백일몽이 나를 스쳐가는 느낌처럼 연출하고 싶음".
 
-- **언제**(`components/parliament/futureCue.ts`, 랩 scan-future의 FutureResidue에 두 줄: 찾을 때 `noteFind`, 프레임마다 `futureFrame`):
+- **언제**(`lib/sound/futureCue.ts`, 테스트 `futureCue.test.ts`, 랩 scan-future의 FutureResidue에 두 줄: 찾을 때 `noteFind`, 프레임마다 `futureFrame`):
   - **온다**: 관찰자가 나와 겹치기 시작할 때(`언제 보이나` = 관찰자) 또는 F를 누를 때(= F), **관찰자가 선 쪽에서** 온다. `항상` 모드에선 미래가 늘 있으므로, **6초 넘게 아무것도 안 찾다가 다시 찾을 때**(새로운 잔해의 구역) 찾은 자리 쪽에서 오되 15초에 한 번까지만.
   - **떠난다**: 찾은 것이 바람에 날려 갈 때(겹침이 끝나고 `남는 시간`이 지난 뒤), **바람이 부는 쪽으로** 간다.
 - **무엇이**(엔진 `daydream`, 길이 `futureDur` 7 s, 떠날 땐 절반. 왼쪽→오른쪽으로 패닝하며 홀로도 보냄):

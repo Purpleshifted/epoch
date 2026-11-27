@@ -11,7 +11,7 @@ import { folder, levaStore, useControls } from "leva";
 import { savable } from "./levaSave";
 import { useParliamentVersion } from "./version";
 import { newLook } from "./mobileLab";
-import { onFutureCue } from "./futureCue";
+import { onFutureCue } from "@/lib/sound/futureCue";
 import { playFuturePassing } from "./futureSound";
 import { DEFAULT_MOTIF_PRESET, DEFAULT_SIGNALS, DEFAULT_SOUND, MOTIF_PRESETS, MOTIF_PRESET_NAMES, SoundEngine, type SignalConfig, type SoundParams } from "@/lib/sound";
 
