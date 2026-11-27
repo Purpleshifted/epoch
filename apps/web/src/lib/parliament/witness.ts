@@ -177,6 +177,9 @@ export interface WitnessConfig {
   askEverySec: number;
   /** Building together, voices that spoke within this long of one another make a story (two) or a narrative (more). */
   storySec: number;
+  /** Whether the record writes the story's and the bond's lines at all: off unless who makes the log says so (the lab's
+   *  new look only — the exhibition's personal view keeps its record as it was; SessionHud). */
+  tales: boolean;
   /** … and the question stays open for an answer this long. */
   askOpenSec: number;
 }
@@ -198,6 +201,7 @@ export const DEFAULT_WITNESS: WitnessConfig = {
   ensembleSec: 3,
   askEverySec: 16,
   storySec: 30, // (asks come at least wordGapSec apart: two voices within this long are "at once" for the record)
+  tales: false,
   askOpenSec: 7,
 };
 
@@ -400,7 +404,7 @@ export class WitnessLog {
     // answered before: the bond goes on (its own line, after the word's)
     const times = (this.answeredBy.get(who.o) ?? 0) + 1;
     this.answeredBy.set(who.o, times);
-    if (times >= 2) this.write(t, "bond.again", { who, n: times, dots: glyphOf(who.o) }, 1);
+    if (this.cfg.tales && times >= 2) this.write(t, "bond.again", { who, n: times, dots: glyphOf(who.o) }, 1);
     return first;
   }
 
@@ -522,7 +526,7 @@ export class WitnessLog {
     }
     // a story: building together, two voices that spoke within a while of one another (counterpoint) — a narrative when
     // more join; one line each time the voices grow, anew with each building-together
-    if (this.ensemble?.value) {
+    if (this.cfg.tales && this.ensemble?.value) {
       const live = [...this.voices].filter(([, v]) => obs.t - v.t <= this.cfg.storySec);
       if (live.length >= 2 && live.length > this.storyN) {
         this.storyN = live.length;

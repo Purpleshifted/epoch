@@ -30,6 +30,7 @@ import {
   NOTICE_LINE_SEC,
   SCRIPT,
   STEP_MS,
+  DEFAULT_WITNESS,
   WitnessLog,
   causeOfDeath,
   fmtClock,
@@ -58,6 +59,7 @@ import {
   type Surface,
 } from "@/lib/parliament";
 import type { Visitor } from "./RoleField";
+import { newLook } from "./mobileLab";
 import { FootprintMap } from "./FootprintMap";
 import { Glyph } from "./Glyph";
 import { qrModules } from "@/lib/qr";
@@ -251,7 +253,9 @@ export function SessionHud({
   const lang = phase === "ended" && endLang ? endLang : langProp;
   const S = SCRIPT[lang];
   const say = lang === "ko" || phase === "ended" ? "hud-ko" : "";
-  const [log] = useState(() => new WitnessLog());
+  // (the story's and the bond's lines only with the lab's new look: the exhibition's personal view keeps its record —
+  // the rule of 2026-11-27, mobileLab.newLook)
+  const [log] = useState(() => new WitnessLog(newLook() ? { ...DEFAULT_WITNESS, tales: true } : undefined));
   const [watch] = useState(() => new LedgerWatch());
   const lastObs = useRef<Observation | null>(null);
   /** Wall ms the pointer was locked (0 = not locked): the hands reach the keys only then. */
