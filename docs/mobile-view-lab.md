@@ -140,6 +140,24 @@ look hung at load 230):**
 - C · blowing away, each point takes its bloom colour (a petal's from the palette for plants, a pale pollen of the whole
   palette for what is left) and swells a little before shrinking (`흩날릴 때 피는 색`).
 
+**Her palette, threads, a natural blowing away, fuller trees (2026-11-27, 8a6b1c9):** "색 팔레트 내가 고를 수 있게",
+"퍼질 때 점들이 연속적으로 이어져 보였으면", "흩날림 더 자연스러워야하고, 나무는 더 풍성해보여야".
+- `식생 팔레트 — 직접 고르기`: 잎 1–6 and 꽃 1–5 pickers (default the garden), three buttons load 정원 1586 / 밤 숲 1587 /
+  the old single green into them (then save as ever). The palette select is gone.
+- Threads: each point that had appeared draws a line (additive) from where it was `실의 길이` seconds ago to where it is
+  (`흩날릴 때 실처럼 이어짐`, 0 = points only).
+- The blowing away: a gust sweeps through from upwind along the observer's way (`바람이 훑고 지나가는 시간`, was
+  흩날림 엇갈림); plants lift and drift far (`식생이 떠오르는 정도`), what is left sinks a little as dust before the
+  wind takes it; one swirling flow shared by neighbouring points (`흩날림 소용돌이`); each point its own flight time,
+  an eased start and a drag at the end.
+- Trees: the crown filled with leaf clumps round its own points (`나무 풍성함 ×`, 4), the stem drawn whole from the
+  ground with a birch's dark marks.
+- The residue writes its depth again (with the glow on it had not, and the photograph's pass gave it the far blur) and
+  shows within `보이는 거리` (14 world, fading from about half of it): far points had made a glowing band.
+- Headless check (Chrome for Testing, `?botserver=0&futurepass=1`): no errors; at the release the points rise in
+  their bloom colours as soft lights and are gone in about 2 s. Not yet seen by her (her Chrome could not load :3029
+  until the dev server was restarted at her word — it had grown to ~5 GB on the 8 GB Mac).
+
 **Status (2026-11-23): PAUSED by the coordinator (machine overloaded) after the reference study; nothing built, no
 question put to the artist yet.** Code untouched (`FuturePresence.tsx`, `futurePresence.ts`, `labKnobsScanFuture.ts` =
 HEAD). Resume = put the three directions below to her and build her pick.
