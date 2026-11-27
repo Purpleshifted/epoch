@@ -9,7 +9,10 @@
 import * as THREE from "three";
 import { ATLAS_GLSL, type SpriteIndex } from "./spritePeople";
 import { rhythmOf } from "@/lib/parliament";
-import { musicNow } from "./musicClock";
+import { musicNow, voiceHop } from "./musicClock";
+
+/** How high (a share of its height) a figure singing to me leaves the ground on each note (voiceHop). */
+export const SING_BOUNCE = 0.12;
 
 export const MAX_CARDS = 4096;
 /** The pictograms' own layer: the street's softening (InkPaper's blur by depth, its exposure) leaves it out and draws it
@@ -955,11 +958,20 @@ export function drawFrames(geom: THREE.InstancedBufferGeometry, mat: THREE.Shade
     // (the pictogram has no colour flowing: "이럴거면 색 효과 넣을 필요 없음")
     Ff[n * 4 + 1] = L.pix ? 0 : Q.grad * G2.amt;
     // (talking: the head hops on each note of their melody — up two cells, then one, then down, within the step)
+    // SINGING TO ME (the artist, 2026-11-27: "나한테 말 거는 애 머리 통통 튀게"): while the sound runs, whoever sings to
+    // me — the asker, whom I answer, an ensemble's part — BOUNCES on each note as it is heard (lib/sound engine hopOf):
+    // the head hops and the whole figure leaves the ground a little (the head alone has no room above it in the card)
     let hop = 0;
-    if (L.pix && (stateOf(w) === "talk" || w.talking)) {
-      // (on the music's own bar when it sounds — musicClock.ts; the screen's fixed bar when silent)
-      const m = musicNow();
-      if (rhythmOf(w.id ?? String(Math.round(w.hash * 1e6)))[m.step]) hop = m.into < 0.35 ? 2 : m.into < 0.7 ? 1 : 0;
+    if (L.pix) {
+      const sung = voiceHop(w.id ?? "");
+      if (sung !== null) {
+        hop = 2 * sung;
+        if (u === 0 && sung > 0) C[n * 4 + 3] += SING_BOUNCE * sung * A[n * 4 + 2];
+      } else if (stateOf(w) === "talk" || w.talking) {
+        // (no sound: on the screen's fixed bar)
+        const m = musicNow();
+        if (rhythmOf(w.id ?? String(Math.round(w.hash * 1e6)))[m.step]) hop = m.into < 0.35 ? 2 : m.into < 0.7 ? 1 : 0;
+      }
     }
     Ff[n * 4 + 3] = hop;
     Gg[n * 4] = G2.dir;

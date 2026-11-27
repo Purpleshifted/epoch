@@ -35,6 +35,7 @@ import {
   GLYPH_ROWS,
   glyphOf,
   rhythmOf,
+  wordKeyOf,
   stepAt,
   PART_CAPACITY,
   PART_KINDS,
@@ -2740,9 +2741,10 @@ const QUIET_COLOR = { me: "#ffffff", bot: "#8a8f96", visitor: "#d4d7db" } as con
 const trialMe: { y: number | null; standIn: boolean } = { y: null, standIn: false };
 
 const glyphTextures = new Map<string, THREE.CanvasTexture>();
-/** A being's melody glyph (glyph.ts) as a small white-on-clear texture, made once per id. */
+/** A being's melody glyph (glyph.ts) as a small white-on-clear texture, made once per id and word (an answer gives a new one). */
 function glyphTexture(id: string): THREE.CanvasTexture {
-  let t = glyphTextures.get(id);
+  const key = `${id}#${wordKeyOf(id)}`;
+  let t = glyphTextures.get(key);
   if (t) return t;
   if (glyphTextures.size > 64) {
     for (const old of glyphTextures.values()) old.dispose();
@@ -2758,7 +2760,7 @@ function glyphTexture(id: string): THREE.CanvasTexture {
   t = new THREE.CanvasTexture(c);
   t.magFilter = THREE.NearestFilter;
   t.minFilter = THREE.LinearFilter;
-  glyphTextures.set(id, t);
+  glyphTextures.set(key, t);
   return t;
 }
 
@@ -2787,7 +2789,9 @@ const COLUMN_FRAG = /* glsl */ `
 function MeMark({ m, y, look, topRef, label }: { m: Mark; y: number; look: MeLook; topRef: React.MutableRefObject<number>; label: string | null }) {
   const color = look.white ? QUIET_COLOR.me : MARK_COLOR.me;
   const k = look.scale * (m.stale ? 0.7 : 1);
-  const rhythm = useMemo(() => rhythmOf(m.id), [m.id]);
+  // (its newest word's rhythm once it has answered someone — glyph.ts learnWords; the key changes with the word)
+  const word = wordKeyOf(m.id);
+  const rhythm = useMemo(() => rhythmOf(m.id), [m.id, word]); // eslint-disable-line react-hooks/exhaustive-deps
   const mats = useMemo(
     () => ({
       dot: new THREE.MeshBasicMaterial({ depthTest: false, transparent: true }),
@@ -2806,7 +2810,7 @@ function MeMark({ m, y, look, topRef, label }: { m: Mark; y: number; look: MeLoo
   }, [mats, color]);
   useEffect(() => {
     if (look.style === "glyph") mats.sprite.map = glyphTexture(m.id);
-  }, [mats, look.style, m.id]);
+  }, [mats, look.style, m.id, word]);
   const up = useRef<THREE.Mesh>(null);
   const cap = useRef<THREE.Mesh>(null);
   const column = useRef<THREE.Mesh>(null);
@@ -2905,11 +2909,12 @@ function MeMark({ m, y, look, topRef, label }: { m: Mark; y: number; look: MeLoo
 function OtherGlyph({ id, x, y, z, color }: { id: string; x: number; y: number; z: number; color: string }) {
   const mat = useMemo(() => new THREE.SpriteMaterial({ depthTest: false, transparent: true, opacity: 0.8 }), []);
   useEffect(() => () => mat.dispose(), [mat]);
+  const word = wordKeyOf(id);
   useEffect(() => {
     mat.map = glyphTexture(id);
     mat.color.set(color);
     mat.needsUpdate = true;
-  }, [mat, id, color]);
+  }, [mat, id, color, word]);
   return <sprite position={[x, y, z]} scale={[1.6, 1.6, 1]} material={mat} />;
 }
 

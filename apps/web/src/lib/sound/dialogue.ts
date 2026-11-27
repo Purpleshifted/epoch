@@ -107,3 +107,74 @@ export function interlock(mine: readonly MotifNote[], theirs: readonly MotifNote
 
 /** A question's bars from the one it opened on: even = the asker calls, odd = left empty (the visitor's turn). */
 export const callsOn = (k: number): boolean => k % 2 === 0;
+
+// ── THE ENSEMBLE (building together, §13e): several lines at once, each its own place, meshed, landing together ──
+
+/** Each note held to the line's next onset (85 %, as realize() does), the last to the bar's end. */
+function holdToNext(ns: readonly MotifNote[]): MotifNote[] {
+  return ns.map((n, i) => ({ ...n, len: ((i + 1 < ns.length ? ns[i + 1].at : 1) - n.at) * 0.85 }));
+}
+
+/** A line entering `shift` of the bar late, its tail wrapped to the bar's head (a canon's entry on a repeating bar). */
+export function rotate(ns: readonly MotifNote[], shift = 0.5, steps = 8): MotifNote[] {
+  const moved = ns.map((n) => ({ ...n, at: (Math.round(((n.at + shift) % 1) * steps) % steps) / steps })).sort((a, b) => a.at - b.at);
+  const out: MotifNote[] = [];
+  for (const n of moved) if (!out.length || out[out.length - 1].at !== n.at) out.push(n);
+  return holdToNext(out);
+}
+
+/**
+ * Where (by octaves) a line sits among `lines` already placed: the first of 0, +12, −12, +24, −24 whose centre is at
+ * least `gap` semitones from every placed line's centre, inside lo … hi; else the one farthest from its nearest.
+ */
+export function placeApart(lines: readonly (readonly MotifNote[])[], l: readonly MotifNote[], gap = 9, lo = DIALOGUE_LO, hi = DIALOGUE_HI): number {
+  if (!l.length) return 0;
+  const centres = lines.filter((x) => x.length).map(mean);
+  const c = mean(l);
+  let tlo = Infinity;
+  let thi = -Infinity;
+  for (const n of l) {
+    tlo = Math.min(tlo, n.pitch);
+    thi = Math.max(thi, n.pitch);
+  }
+  let best = 0;
+  let bestD = -Infinity;
+  for (const s of [0, 12, -12, 24, -24]) {
+    if (tlo + s < lo || thi + s > hi) continue;
+    const d = centres.length ? Math.min(...centres.map((x) => Math.abs(c + s - x))) : Infinity;
+    if (d >= gap) return s;
+    if (d > bestD) {
+      bestD = d;
+      best = s;
+    }
+  }
+  return best;
+}
+
+/**
+ * A BASS under the lines: a line's first two notes on the downbeat and the half bar (an ostinato — the floor the
+ * ensemble stands on), moved down by octaves until it sits under every placed note (a fifth of room), not below `lo`.
+ */
+export function bassUnder(lines: readonly (readonly MotifNote[])[], l: readonly MotifNote[], lo = 36): MotifNote[] {
+  if (!l.length) return [];
+  const a = l[0];
+  const b = l[1] ?? l[0];
+  let floor = Infinity;
+  for (const x of lines) for (const n of x) floor = Math.min(floor, n.pitch);
+  const two = [
+    { ...a, at: 0, len: 0.45 },
+    { ...b, at: 0.5, len: 0.45 },
+  ];
+  let s = 0;
+  const top = Math.max(a.pitch, b.pitch);
+  const bottom = Math.min(a.pitch, b.pitch);
+  while (Number.isFinite(floor) && top + s > floor - 7 && bottom + s - 12 >= lo) s -= 12;
+  return shiftNotes(two, s);
+}
+
+/** The ARRIVAL: a line's first note on the downbeat with everyone's, the rest meshed into what is already there. */
+export function landWith(placed: readonly MotifNote[], l: readonly MotifNote[], steps = 8): MotifNote[] {
+  if (!l.length) return [];
+  const rest = interlock(placed, l.slice(1), steps);
+  return [{ ...l[0], at: 0, len: ((rest[0]?.at ?? 1) - 0) * 0.85 }, ...rest];
+}

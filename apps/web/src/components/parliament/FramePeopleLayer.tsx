@@ -15,7 +15,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { DEFAULT_WITNESS, individualNo, nearestImage, rhythmOf, type Other } from "@/lib/parliament";
-import { musicNow } from "./musicClock";
+import { musicNow, voiceHop } from "./musicClock";
 import { emitLifeEvent, onLifeEvent } from "./lifeEvents";
 import { savedGroup } from "./levaSave";
 import { lidarActive } from "./LidarScan";
@@ -38,6 +38,7 @@ import {
   setBlend,
   setsFromValues,
   stateOfWalker,
+  SING_BOUNCE,
   type ClipInfo,
   type Look,
   type Walker,
@@ -74,6 +75,8 @@ export interface StreetBody {
 const JUMP_M = 20;
 /** Below this pace (m/s) a bot stands. */
 const STILL_MPS = 0.15;
+/** How far the asker's box swells out on each of its notes as heard (a share of its width, each side). */
+const ASK_SWELL = 0.25;
 
 function idHash(o: string): number {
   let h = 2166136261;
@@ -387,9 +390,11 @@ export function FramePeopleLayer({
           const rectOf = (w: BotWalker): Rect | null => {
             const h = personHeight(L, w, undefined) * (w.boost ?? 1) * unit;
             const half = (h * 0.5 * (10 / 15)) / 2;
+            // (a figure singing to me bounces off the ground on its notes — framePeople SING_BOUNCE: its box goes up with it)
+            const lift = SING_BOUNCE * (voiceHop(w.id ?? "") ?? 0) * h;
             let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
             for (const [sx, sy] of [[-1, 0], [1, 0], [-1, 1], [1, 1]] as const) {
-              v.set(w.x + right.x * half * sx, h * sy, w.z + right.z * half * sx).project(camera);
+              v.set(w.x + right.x * half * sx, h * sy + lift, w.z + right.z * half * sx).project(camera);
               if (v.z > 1) return null;
               const px = (v.x * 0.5 + 0.5) * cw, py = (1 - (v.y * 0.5 + 0.5)) * ch;
               x0 = Math.min(x0, px);
@@ -439,12 +444,15 @@ export function FramePeopleLayer({
             }
             if (told) storyRects.push(r);
             if (asks) {
-              // ASKING ME: bold, beating on its own melody's notes (out a little and back within the step), a line to me
+              // ASKING ME: bold, beating on its own melody's notes (out a little and back within the step), a line to me.
+              // While the sound runs it SWELLS with each note as heard — a quarter of its width out and back, with the
+              // figure's bounce (the artist, 2026-11-27: "블롭 창도 같이 커졌다 작아졌다 해서 시그널 확실히")
+              const sung = voiceHop(w.id ?? "");
               const on = rhythmOf(w.id ?? "")[step];
-              const beat = on ? Math.max(0, 1 - inStep / 0.45) : 0;
-              const g = 3 * beat;
+              const beat = sung !== null ? sung : on ? Math.max(0, 1 - inStep / 0.45) : 0;
+              const g = (sung !== null ? Math.max(4, ASK_SWELL * (r.x1 - r.x0)) : 3) * beat;
               ctx.strokeStyle = col(1);
-              ctx.lineWidth = 2 + beat;
+              ctx.lineWidth = 2 + 1.5 * beat;
               ctx.strokeRect(r.x0 - g, r.y0 - g, r.x1 - r.x0 + 2 * g, r.y1 - r.y0 + 2 * g);
               ctx.lineWidth = 1;
               ctx.strokeStyle = col(0.6);
@@ -459,8 +467,10 @@ export function FramePeopleLayer({
               ctx.fillStyle = col(1);
               ctx.fillText(`${individualNo(w.id ?? "")}  ♪${tag}`, r.x0 - g, r.y0 - g - 4);
             } else if (told) {
-              // A VOICE OF THE STORY: a whole thin box, beating with the others on the bar
-              const bar = step % 2 === 0 ? Math.max(0, 1 - inStep / 0.45) : 0;
+              // A VOICE OF THE STORY: a whole thin box, beating with the others on the bar — on its own notes while it sings
+              // a part to me (the ensemble, sound-logic §13e)
+              const sung = voiceHop(w.id ?? "");
+              const bar = sung !== null && sung > 0 ? sung : step % 2 === 0 ? Math.max(0, 1 - inStep / 0.45) : 0;
               ctx.strokeStyle = col(0.85 + 0.15 * bar);
               ctx.lineWidth = 1 + bar;
               ctx.strokeRect(r.x0 - 2 * bar, r.y0 - 2 * bar, r.x1 - r.x0 + 4 * bar, r.y1 - r.y0 + 4 * bar);
