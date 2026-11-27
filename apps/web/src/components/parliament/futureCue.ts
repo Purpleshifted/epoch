@@ -10,7 +10,7 @@
  *            it was found
  *   leave    what was found is let go (the overlap over, its 남는 시간 spent) — off the way the wind blows it
  *
- * No React, no state but the edges; a cue nobody listens to is gone.
+ * No React, no state but the edges; a cue nobody listens to is gone. Tests: futureCue.test.ts.
  */
 
 export interface FutureCue {
