@@ -672,6 +672,8 @@ export function PointPeople({
   const people = useRef(new Map<string, Person>());
   const lastList = useRef<readonly Other[] | null>(null);
   const framesList = useRef<readonly Other[] | null>(null);
+  // (frames: where the pictograms held in talk are drawn — the bubble follows them)
+  const framePins = useRef(new Map<string, { x: number; z: number }>());
   // 흰 바탕: the 3D bodies (bodySheet.ts) — each person now and their traces, ray-marched, drawn as filters on the white
   // (bodySheet "paper"); the bodies now once more into the depth only (the scene's near-sharp/far-soft rule reads them)
   const poses = useMemo(() => new BodyPoses(MAX_BODIES), []);
@@ -1499,7 +1501,12 @@ export function PointPeople({
       if (look.bubble && look.cue) {
         for (const [id, until] of asking.current) {
           const p = P.get(id);
-          if (p && nowMs < until && p.alpha > 0.3) bl.push({ id, x: +p.x.toFixed(2), y: +(heightU * p.hs).toFixed(2), z: +p.z.toFixed(2) });
+          if (!p || nowMs >= until || p.alpha <= 0.3) continue;
+          if (look.mode === "frames") {
+            // (the pictogram: the melody right over its head — where it stands, at its own height, the asker's size)
+            const at = framePins.current.get(id) ?? (paper ? p.body : p);
+            bl.push({ id, x: +at.x.toFixed(2), y: +(1.72 * (look.frSize ?? 0.7) * (look.frAskScale ?? 1.15) * k).toFixed(2), z: +at.z.toFixed(2) });
+          } else bl.push({ id, x: +p.x.toFixed(2), y: +(heightU * p.hs).toFixed(2), z: +p.z.toFixed(2) });
         }
       }
       setBubbles((prev) => (prev.length === bl.length && prev.every((b, i) => b.id === bl[i].id && b.x === bl[i].x && b.z === bl[i].z) ? prev : bl));
@@ -1528,7 +1535,7 @@ export function PointPeople({
       {look.mode === "fibers" && <mesh geometry={fiberGeom} material={fiberMat} frustumCulled={false} renderOrder={10} />}
       {look.mode === "sprites" && <mesh geometry={spriteGeom} material={spriteMat} frustumCulled={false} renderOrder={10} />}
       {/* (frames: the pictograms where these bodies are, read each frame — 2026-11-24) */}
-      {look.mode === "frames" && <FramePeopleLayer getList={() => framesList.current} playerPosRef={playerPosRef} unit={k} asking={asking} hop={look.frHop ?? true} askSolid={look.frAskSolid ?? true} askScale={look.frAskScale ?? 1.15} size={look.frSize ?? 0.7} blur={look.frBlur ?? 0} track={look.frTrack ?? 2} trackRadius={look.frTrackRadius ?? 4} getPeople={() => people.current} paper={look.paper} />}
+      {look.mode === "frames" && <FramePeopleLayer getList={() => framesList.current} playerPosRef={playerPosRef} unit={k} asking={asking} hop={look.frHop ?? true} askSolid={look.frAskSolid ?? true} askScale={look.frAskScale ?? 1.15} size={look.frSize ?? 0.7} blur={look.frBlur ?? 0} track={look.frTrack ?? 2} trackRadius={look.frTrackRadius ?? 4} pins={framePins} getPeople={() => people.current} paper={look.paper} />}
       {/* 흰 바탕: the record device's labels — the being's number and a leader line, by the nearest few */}
       {look.paper &&
         labels.map((l) => (
@@ -1543,7 +1550,8 @@ export function PointPeople({
       {/* the asker's bubble (TD): a square frame with their melody glyph, beating with the bar, beside them while the question is open */}
       {bubbles.map((b) => (
         <Html key={`bubble-${b.id}`} position={[b.x, b.y, b.z]} style={{ pointerEvents: "none" }} zIndexRange={[6, 0]}>
-          <div className="hud-blink" style={{ transform: "translate(14px, -46px)", border: `1px solid ${look.paper ? "#111" : "#fff"}`, background: look.paper ? "rgba(244,242,236,0.85)" : "rgba(0,0,0,0.6)", padding: "5px 6px", filter: look.paper ? "invert(1)" : undefined }}>
+          {/* (pictograms: centred right over the head — the artist, 2026-11-27: "머리랑 바짝 붙어서 떠야") */}
+          <div className="hud-blink" style={{ transform: look.mode === "frames" ? "translate(-50%, calc(-100% - 5px))" : "translate(14px, -46px)", border: `1px solid ${look.paper ? "#111" : "#fff"}`, background: look.paper ? "rgba(244,242,236,0.85)" : "rgba(0,0,0,0.6)", padding: "5px 6px", filter: look.paper ? "invert(1)" : undefined }}>
             <Glyph dots={glyphOf(b.id)} cell={3} live />
           </div>
         </Html>

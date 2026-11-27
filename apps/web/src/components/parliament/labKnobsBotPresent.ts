@@ -283,13 +283,20 @@ export function useBotPresentKnobs(isV2: boolean) {
         frAskSolid: { value: DEFAULT_PEOPLE.frAskSolid, label: "프레임: 말 거는 이는 가까이서도 진하게", render: isFr },
         frAskScale: { value: DEFAULT_PEOPLE.frAskScale, min: 1, max: 1.6, step: 0.01, label: "프레임: 말 거는 이 크기 ×", render: isFr },
         // (the artist, 2026-11-25: "나랑 interact 중인애들한테 touchdesigner blob 처럼 사각형 실시간으로 트랙")
-        frTrack: { options: { "끔": 0, "말 거는 이만": 1, "말 거는 이 + 가까이 있는 이": 2 }, value: DEFAULT_PEOPLE.frTrack, label: "프레임: 추적 사각형", render: isFr },
+        // (2026-11-27: a shape a kind — near: corners; asking: a bold box on its melody, a line to me; building together:
+        // one dashed box round all of them on the shared bar, "함께 N")
+        frTrack: { options: { "끔": 0, "말 걸기 · 같이 짓기만": 1, "말 걸기 · 같이 짓기 + 가까이 있는 이": 2 }, value: DEFAULT_PEOPLE.frTrack, label: "프레임: 추적 사각형", render: isFr },
         frTrackRadius: { value: DEFAULT_PEOPLE.frTrackRadius, min: 0.5, max: 15, step: 0.5, label: "프레임: 가까이 = 이 안 (m)", render: (get) => isFr(get) && Number(get(`${LAB_GROUP["bot-present"]}.말 걸기.frTrack`)) === 2 },
         // (to see it in the lab: the nearest one asks me something — a test line on this screen, nothing written to the
         // world or the bot server)
         "말 걸기 시험 — 가장 가까운 이": button(() => {
           const id = (window as unknown as { __framesNearest?: string | null }).__framesNearest;
           if (id) emitLifeEvent({ kind: "word.asked", text: "(시험)", level: 1, who: id });
+        }),
+        // (a test on this screen only: the four nearest are drawn as building with me)
+        "같이 짓기 시험 — 가까운 넷 (켜고 끄기)": button(() => {
+          const g = window as unknown as { __framesBuildTest?: boolean };
+          g.__framesBuildTest = !g.__framesBuildTest;
         }),
       }),
       "옛 점 몸 · 옛 노브": folder({

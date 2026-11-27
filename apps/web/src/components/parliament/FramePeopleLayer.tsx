@@ -14,7 +14,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { individualNo, nearestImage, type Other } from "@/lib/parliament";
+import { DEFAULT_WITNESS, individualNo, nearestImage, rhythmOf, stepAt, type Other } from "@/lib/parliament";
+import { onLifeEvent } from "./lifeEvents";
 import { savedGroup } from "./levaSave";
 import { lidarActive } from "./LidarScan";
 import { LAB_GROUP } from "./mobileLab";
@@ -49,6 +50,9 @@ interface BotWalker extends Walker {
   seen: number;
   /** Asking me something now (the tracking box's bold one). */
   asks?: boolean;
+  /** Where it is held while its question is open, and when it was let go (it walks back over 0.8 s). */
+  pin?: { x: number; z: number };
+  relAt?: number;
 }
 
 /** A body in the street as PointPeople keeps it: its place, way and pace (world units), its fade; on the white ground the
@@ -86,6 +90,7 @@ export function FramePeopleLayer({
   blur = 0,
   track = 2,
   trackRadius = 4,
+  pins,
   getPeople,
   paper = false,
 }: {
@@ -102,10 +107,12 @@ export function FramePeopleLayer({
   /** The pictograms' own blur (0 = crisp; the bot lab's knob). */
   blur?: number;
   /** TRACKED (the artist, 2026-11-25: "나랑 interact 중인애들한테 touchdesigner blob 처럼 사각형 실시간으로 트랙되도록"): a
-   *  box drawn round each one with me on the screen, every frame — 0 none, 1 who asks me something, 2 that and whoever is
-   *  within `trackRadius` (m). */
+   *  shape drawn round each one with me on the screen, every frame — 0 none, 1 who asks me something and who builds with
+   *  me, 2 those and whoever is within `trackRadius` (m). */
   track?: number;
   trackRadius?: number;
+  /** Where those held while they talk with me are drawn (for the melody bubble over their heads). */
+  pins?: React.MutableRefObject<Map<string, { x: number; z: number }>>;
   /** THE PEOPLE WHERE THE STREET ALREADY HAS THEM (the artist, 2026-11-24: "픽토그램 이거 이 자리에서 그려내도록 하면 안
    *  되나? … 그냥 네모 상자일 때는 안 이랬잖아"): PointPeople's own moving bodies — a pictogram drawn right there, one a
    *  person, facing me, no arrivals, no lag. Given, it replaces the arrivals' frames. */
@@ -188,6 +195,17 @@ export function FramePeopleLayer({
       overlay.current = null;
     };
   }, [gl]);
+  // building together, as the record says it ("합주 중… 함께 집을 짓습니다" → until it ends): I stay, and someone near
+  // stays too (witness.ts)
+  const together = useRef(false);
+  useEffect(
+    () =>
+      onLifeEvent((e) => {
+        if (e.kind === "ensemble.start") together.current = true;
+        else if (e.kind === "ensemble.end" || e.kind === "life.begin" || e.kind === "ended") together.current = false;
+      }),
+    [],
+  );
   const bots = useRef(new Map<string, BotWalker>());
   const lastList = useRef<readonly Other[] | null>(null);
 
@@ -210,6 +228,7 @@ export function FramePeopleLayer({
     const list = getPeople ? null : getList();
     if (getPeople) {
       const P = getPeople();
+      const heldNowMs = performance.now();
       for (const [id, p] of P) {
         const src = paper ? p.body : p;
         let w = B.get(id);
@@ -218,15 +237,39 @@ export function FramePeopleLayer({
           w = { id, hash, x: src.x, z: src.z, h: src.heading, ph: hash, s: 0, dir: 1, gx: 0, gz: 0, hist: [], stamps: [], lastHist: -1, lastSample: now, home: 0, standing: true, speed: 0, gap: 0.08, cycle: 1.3, lastT: now, mps: 0, still: true, seen: now };
           B.set(id, w);
         }
-        w.x = src.x;
-        w.z = src.z;
-        w.mps = Math.hypot(src.vx, src.vz) / unit;
+        // HELD WHILE WE TALK (the artist, 2026-11-27: "대화 오가는 동안은 멜로디 쌓일 때까지 그 봇이 달아나거나 블롭이
+        // 사라지지 않도록"): whoever has a question open with me stays drawn where they stood when they asked — the bot
+        // itself goes on in the world (the server's) — and walks back to its own place once it closes
+        const held = (asking?.current.get(id) ?? 0) > heldNowMs;
+        if (held) {
+          w.pin ??= { x: w.x, z: w.z };
+          w.relAt = undefined;
+        } else if (w.pin && w.relAt === undefined) w.relAt = now;
+        let back = 1;
+        if (w.pin) {
+          back = held ? 0 : Math.min(1, (now - (w.relAt ?? now)) / 0.8);
+          w.x = w.pin.x + (src.x - w.pin.x) * back;
+          w.z = w.pin.z + (src.z - w.pin.z) * back;
+          if (back >= 1) w.pin = w.relAt = undefined;
+        } else {
+          w.x = src.x;
+          w.z = src.z;
+        }
+        w.mps = held ? 0 : Math.hypot(src.vx, src.vz) / unit;
         if (w.mps > STILL_MPS) w.h = Math.atan2(src.vx, src.vz);
         w.still = w.mps < STILL_MPS;
-        w.fade = p.alpha;
+        w.fade = held ? 1 : p.alpha;
         w.seen = now;
+        if (held) pins?.current.set(id, { x: w.x, z: w.z });
+        else pins?.current.delete(id);
       }
-      for (const id of [...B.keys()]) if (!P.has(id)) B.delete(id);
+      // (one gone from the street while its question is open stays, held, until it closes)
+      for (const id of [...B.keys()]) {
+        if (P.has(id)) continue;
+        if ((asking?.current.get(id) ?? 0) > heldNowMs) continue;
+        B.delete(id);
+        pins?.current.delete(id);
+      }
     }
     if (list && list !== lastList.current) {
       lastList.current = list;
@@ -285,14 +328,20 @@ export function FramePeopleLayer({
     }
     prepareWalkers(W, L, idx.current?.sheet.cols ?? 16, (w) => ({ speed: (w as BotWalker).mps, standing: (w as BotWalker).still }));
     const n = drawFrames(geom, mat, L, idx.current, W, camera.position, now, unit);
-    // THE BLOB TRACKING (TouchDesigner's look): a thin box round each one with me — the asker's bolder — and its number
-    // and distance above, following the pictogram on the screen every frame
+    // THE BLOB TRACKING (TouchDesigner's look), A SHAPE A KIND OF BEING-WITH (the artist, 2026-11-27: "같이 지을 때 blob,
+    // 말 걸 때 blob 등 다양하게 느껴지게"). No colour (human traces are achromatic): the line's shape, what is bound to
+    // what, and the beat say which —
+    //   near me            corner brackets only, thin, still; its number and distance
+    //   asking me          a bold box that beats on ITS melody's notes, a line from it to me; its number and ♪
+    //   building together  everyone in it inside ONE dashed box that beats on the shared bar, their feet chained, each in
+    //                      double brackets; "함께 N" on the box (N counts me)
     const cv = overlay.current;
     let tracked = 0;
     let nearest: string | null = null;
     let nearD = Infinity;
+    const distM = (w: BotWalker) => Math.hypot(w.x - camera.position.x, w.z - camera.position.z) / unit;
     for (const w of W) {
-      const d = Math.hypot(w.x - camera.position.x, w.z - camera.position.z) / unit;
+      const d = distM(w);
       if (d < nearD) {
         nearD = d;
         nearest = w.id ?? null;
@@ -311,34 +360,116 @@ export function FramePeopleLayer({
         ctx.clearRect(0, 0, cw, ch);
         if (track > 0 && L.pix) {
           const ink = L.pixWhite ? "255,255,255" : "12,12,12";
+          const col = (a: number) => `rgba(${ink},${a})`;
           const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).setY(0).normalize();
           const v = new THREE.Vector3();
           ctx.font = "10px ui-monospace, monospace";
-          for (const w of W) {
-            const d = Math.hypot(w.x - camera.position.x, w.z - camera.position.z) / unit;
-            const asks = !!(w as BotWalker).asks;
-            if (!(asks || (track === 2 && d < trackRadius))) continue;
-            // the pictogram's body: its height, and 10 of its card's 15 units across (the card half as wide as tall)
+          const ms = performance.now();
+          const step = stepAt(ms), inStep = (ms % 250) / 250;
+          type Rect = { x0: number; y0: number; x1: number; y1: number };
+          /** The pictogram's body on the screen (its height, 10 of its card's 15 units across), padded; null off it. */
+          const rectOf = (w: BotWalker): Rect | null => {
             const h = personHeight(L, w, undefined) * (w.boost ?? 1) * unit;
             const half = (h * 0.5 * (10 / 15)) / 2;
-            let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, behind = false;
+            let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
             for (const [sx, sy] of [[-1, 0], [1, 0], [-1, 1], [1, 1]] as const) {
               v.set(w.x + right.x * half * sx, h * sy, w.z + right.z * half * sx).project(camera);
-              if (v.z > 1) behind = true;
+              if (v.z > 1) return null;
               const px = (v.x * 0.5 + 0.5) * cw, py = (1 - (v.y * 0.5 + 0.5)) * ch;
               x0 = Math.min(x0, px);
               x1 = Math.max(x1, px);
               y0 = Math.min(y0, py);
               y1 = Math.max(y1, py);
             }
-            if (behind || x1 < 0 || x0 > cw || y1 < 0 || y0 > ch) continue;
-            const pad = 4;
-            ctx.strokeStyle = `rgba(${ink},${asks ? 1 : 0.75})`;
-            ctx.lineWidth = asks ? 2 : 1;
-            ctx.strokeRect(Math.round(x0 - pad) + 0.5, Math.round(y0 - pad) + 0.5, Math.round(x1 - x0 + 2 * pad), Math.round(y1 - y0 + 2 * pad));
-            ctx.fillStyle = `rgba(${ink},${asks ? 1 : 0.75})`;
-            ctx.fillText(`${individualNo(w.id ?? "")}  ${d.toFixed(1)}m${asks ? "  ♪" : ""}`, Math.round(x0 - pad), Math.round(y0 - pad) - 4);
+            if (x1 < 0 || x0 > cw || y1 < 0 || y0 > ch) return null;
+            return { x0: Math.round(x0 - 4) + 0.5, y0: Math.round(y0 - 4) + 0.5, x1: Math.round(x1 + 4) + 0.5, y1: Math.round(y1 + 4) + 0.5 };
+          };
+          const brackets = (r: Rect, grow: number) => {
+            const x0 = r.x0 - grow, y0 = r.y0 - grow, x1 = r.x1 + grow, y1 = r.y1 + grow;
+            const k = Math.max(3, Math.min(9, (x1 - x0) * 0.3, (y1 - y0) * 0.3));
+            ctx.beginPath();
+            for (const [cx, cy, dx, dy] of [[x0, y0, 1, 1], [x1, y0, -1, 1], [x0, y1, 1, -1], [x1, y1, -1, -1]] as const) {
+              ctx.moveTo(cx + dx * k, cy);
+              ctx.lineTo(cx, cy);
+              ctx.lineTo(cx, cy + dy * k);
+            }
+            ctx.stroke();
+          };
+          // who builds with me: the record's rule (I stay, and someone near stays too) — or the lab's test
+          const test = (window as unknown as { __framesBuildTest?: boolean }).__framesBuildTest === true;
+          const me2 = playerPosRef.current;
+          const nearU = DEFAULT_WITNESS.nearRadius;
+          let builders: BotWalker[] = [];
+          // (the test: the four nearest that are in my view — the nearest of all may stand behind me)
+          if (test) builders = [...W].filter((w) => rectOf(w)).sort((p, q) => distM(p) - distM(q)).slice(0, 4);
+          else if (together.current) builders = W.filter((w) => w.still && Math.hypot(w.x - me2.x, w.z - me2.z) <= nearU);
+          const inBuild = new Set(builders);
+          ctx.setLineDash([]);
+          for (const w of W) {
+            if (inBuild.has(w)) continue;
+            const d = distM(w);
+            const asks = !!w.asks;
+            if (!(asks || (track === 2 && d < trackRadius))) continue;
+            const r = rectOf(w);
+            if (!r) continue;
+            if (asks) {
+              // ASKING ME: bold, beating on its own melody's notes (out a little and back within the step), a line to me
+              const on = rhythmOf(w.id ?? "")[step];
+              const beat = on ? Math.max(0, 1 - inStep / 0.45) : 0;
+              const g = 3 * beat;
+              ctx.strokeStyle = col(1);
+              ctx.lineWidth = 2 + beat;
+              ctx.strokeRect(r.x0 - g, r.y0 - g, r.x1 - r.x0 + 2 * g, r.y1 - r.y0 + 2 * g);
+              ctx.lineWidth = 1;
+              ctx.strokeStyle = col(0.6);
+              ctx.beginPath();
+              ctx.moveTo((r.x0 + r.x1) / 2, r.y1 + g);
+              ctx.lineTo(cw / 2, ch);
+              ctx.stroke();
+              ctx.fillStyle = col(1);
+              ctx.fillText(`${individualNo(w.id ?? "")}  ♪`, r.x0 - g, r.y0 - g - 4);
+            } else {
+              // NEAR ME: the corners only
+              ctx.strokeStyle = col(0.7);
+              ctx.lineWidth = 1;
+              brackets(r, 0);
+              ctx.fillStyle = col(0.7);
+              ctx.fillText(`${individualNo(w.id ?? "")}  ${d.toFixed(1)}m`, r.x0, r.y0 - 4);
+            }
             tracked++;
+          }
+          // BUILDING TOGETHER: one box round all of them, beating on the shared bar; their feet chained; double brackets each
+          const shown: Rect[] = [];
+          for (const w of builders) {
+            const r = rectOf(w);
+            if (!r) continue;
+            shown.push(r);
+            ctx.strokeStyle = col(0.9);
+            ctx.lineWidth = 1;
+            brackets(r, 0);
+            brackets(r, 3);
+            tracked++;
+          }
+          if (shown.length) {
+            const bar = step % 4 === 0 ? Math.max(0, 1 - inStep / 0.45) : 0;
+            const g = 10 + 3 * bar;
+            const u: Rect = { x0: Math.min(...shown.map((r) => r.x0)) - g, y0: Math.min(...shown.map((r) => r.y0)) - g, x1: Math.max(...shown.map((r) => r.x1)) + g, y1: Math.max(...shown.map((r) => r.y1)) + g };
+            ctx.setLineDash([6, 4]);
+            ctx.strokeStyle = col(0.75 + 0.25 * bar);
+            ctx.lineWidth = 1.5 + bar;
+            ctx.strokeRect(u.x0, u.y0, u.x1 - u.x0, u.y1 - u.y0);
+            ctx.setLineDash([]);
+            // (their feet, left to right: bound to one another, not to me)
+            const feet = shown.map((r) => [(r.x0 + r.x1) / 2, r.y1] as const).sort((p, q) => p[0] - q[0]);
+            if (feet.length > 1) {
+              ctx.strokeStyle = col(0.5);
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              feet.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+              ctx.stroke();
+            }
+            ctx.fillStyle = col(1);
+            ctx.fillText(`함께 ${builders.length + 1}`, u.x0, u.y0 - 5);
           }
         }
       }
