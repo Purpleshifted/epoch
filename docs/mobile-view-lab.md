@@ -67,6 +67,41 @@ observers now run side by side (`FuturePresenceVisual.overlayOn` / `encounterOn`
 
 ### scan (future)
 
+**Study 2 (2026-11-27, the artist: "스캔뷰 어떻게 보여줄건지 스터디") — the future inside the LIDAR view.** Read as: the
+present is now scan (present)'s lidar point cloud on black (distance colours mint → green-yellow → peach → pink), so how
+does the future's place (remains, mounds, plants) show in that view. The white-paper line study below (11/23, A·B·C) no
+longer fits the black ground; its line idea lives on as direction C here.
+
+- State: wherever the lidar runs (scan (present), the action preview) the future is not drawn at all (107bc5c, her
+  "레이더 돌릴 때는 가려줘") — so the joined picture has no future now. The scan (future) page itself is still the old
+  white paper + grey 1 px lines. No capture today (load average 59–71).
+- References: the lidar ones (3Dpc, 5d1736, her pasted photo) — the place exists as far as the scanner reached, hidden =
+  empty, found objects get thin boxes and a label; `gaussian splatting/7cznystu6zhh1.png` — an old, drifted capture:
+  white walls smeared along the view ray, black, a faint grid (a record from another time); `interaction_blob.jpeg` —
+  white point masses tied by mint boxes on orbits; IMG_1601/1594/1567 — hairlines, no faces, seen through;
+  1589/1597/1599 + pointclouds #14 — leaving = dripping down (her pick). The present owns the colour ramp; the future
+  keeps the old rule (human remains achromatic, only life green), so colour alone tells the two times apart.
+- Directions put to her:
+  - **A · the scanner reads the future**: the same rays read the future's ground (remains, mounds, plants) — white/grey
+    points (steel and piles brighter and denser), plants green; while a button / F is held, or on a cycle, the scanner
+    switches time: the present's readings die out on their own decay while the future's come in (no pop; one thing at a
+    time, as her radar decision says). Dots round like the present's, or stretched along the ray like the splat capture.
+  - **B · the scan's residue becomes the future (recommended)**: the scanner keeps reading the present; a reading that
+    falls where something will REMAIN (inside a future part's volume; where plants will cover) does not fade — it stays
+    and pales to white (green for plants). Looking round leaves the ruin as an achromatic afterimage among the present's
+    passing colours: the visitor is the scanner (ACM 2021), looking deposits the future. Leaving, the residue drips down
+    over tens of seconds. Where future and present do not overlap (piles of a building already gone), a small share of
+    rays (10–20 % of the budget) reads the future alone.
+  - **C · found-object boxes**: each remain as the lidar viewer's detection box — 0.75 px white wireframe on black, no
+    faces, a small label (철골 · 말뚝 · how much is left); drawn when the scan's points touch it, dripping when gone.
+    Lightest and most legible, but scan (present) planned "coloured 3D boxes + label" for present objects next: one box
+    language to settle with that asset.
+  - Common: mounds as a dome of white points (they read on black as they are), dark earth as sparse grey points, own
+    traces as thin-line squares; the 2 s re-read lets points come in and go one by one.
+- Needed for any of them: the lidar + black ground on the scan (future) page too (`lidarActive()` is scan (present) and
+  the preview only); a small hook in `LidarScan.tsx` (scan (present)'s file — to be agreed with it) for a second world to
+  read or a "lasting" test per reading; a test future on the page (with `?botserver=0` alone it has no buildings).
+
 **Status (2026-11-23): PAUSED by the coordinator (machine overloaded) after the reference study; nothing built, no
 question put to the artist yet.** Code untouched (`FuturePresence.tsx`, `futurePresence.ts`, `labKnobsScanFuture.ts` =
 HEAD). Resume = put the three directions below to her and build her pick.
