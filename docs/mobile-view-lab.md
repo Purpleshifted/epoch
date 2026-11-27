@@ -211,7 +211,23 @@ colours, flowers (marked kind 1.25) through the five flower colours — and patc
 the leaves, so the contrast lives with them instead of only bursting at the blowing away. The layer of now and the
 earlier layers flow alike; stems and parts keep theirs. `식생 · 색의 흐름 (시간)`: 흐르는 정도 0.6, 팔레트 한 바퀴 14 s,
 색 물결의 크기 6, 대비 색이 번지는 정도 0.35. Relayed to the main chat: her "한 데까지 푸시하고 redesign 에 넣으라고" — take the
-branch's current head.
+branch's current head. (The main chat put 750462d on the redesign's production; acdcf74 and after wait for the next 올려.)
+
+**When the future shows; Leva tidied; still letting go (ec7077a):** relayed from the main chat, her words: "모바일 랩에서 scan
+future 할 때 관찰자랑 연결 안 돼있지? 돼있다면 일단 디폴트로는 미래가 항상 보이게, 다른 모드에서는 F 누를 때마다 관찰자랑 겹쳤다고
+가정하고 볼 수 있게, 또다른 모드에서는 실제 관찰자 지나갈 때만 동작하게 스위치 넣고 불필요한 레바 정리해줘"; here: "떠오르는 정도,
+흩날리는 거리, 소용돌이는 다 디폴트로 0으로 둬줘".
+- `잔류 — 공통 › 미래가 보일 때`: 늘 (default; no observer needed — what the scan reads is found and stays) / F 누를 때
+  (each F — a phone: the 미래와 겹치기 button, ParliamentScene — counts as an observer standing a few steps ahead: the
+  future is findable for `F 한 번에 미래가 머무는 시간` (6 s), then lets go as when an observer leaves) / 관찰자가 지나갈 때만
+  (as before: excavatorsAt with bot (future)'s knobs, or the page's `?futurepass=1` test observer, read only here).
+  The observers' hold (344d9f5) only stops them being drawn; the residue computes them itself, so this way works on the
+  preview/experiment too, unseen.
+- Listed only where read: the press time in F mode, the observer distance in observer mode. The old lidar-off overlay's
+  knobs (방식, 렌즈 반경, 남은 부재 · 식생 · 둔덕 · 내 흔적, 선 색, 식생 색) hidden, saved values kept; `미래를 다시 읽는 간격`
+  moved into 잔류 — 공통 (same key).
+- Every kind's 떠오르는 정도 / 흩날리는 거리 / 소용돌이 default 0 (letting go = fading where they stand, with the bloom colour),
+  plus a one-time SavedMigration (`scan-future-blow-still-2026-11-27`) over saves made before.
 
 **Status (2026-11-23): PAUSED by the coordinator (machine overloaded) after the reference study; nothing built, no
 question put to the artist yet.** Code untouched (`FuturePresence.tsx`, `futurePresence.ts`, `labKnobsScanFuture.ts` =
