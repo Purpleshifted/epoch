@@ -103,10 +103,25 @@ function knobsAll(): boolean {
   }
 }
 
+/**
+ * WHAT THE ACTION PREVIEW LISTS OF THE ASSETS (the artist, 2026-11-27: "액션 프리뷰에서 속도랑 눈높이 조절 후 저장 가능하게"):
+ * the walking speed and the eye height of scan (present) › 눈, and that group's save row — saved into the same shared
+ * values the asset page saves (one key, the server's), so the preview, the asset page and the personal view agree.
+ * Leva paths: group › folder › key; `__save` is the group's save / reload / presets row (levaSave.ts savable).
+ */
+const PREVIEW_KNOBS: readonly string[] = [
+  `${LAB_GROUP["scan-present"]}.눈.walkSpeed`,
+  `${LAB_GROUP["scan-present"]}.눈.eyeHeight`,
+  `${LAB_GROUP["scan-present"]}.__save`,
+];
+/** The asset groups the preview lists at all (cut to PREVIEW_KNOBS by the panel filter). */
+const PREVIEW_ASSETS: ReadonlySet<LabAsset | "base"> = new Set(["scan-present"]);
+
 /** Whether this page lists the asset group `asset` ("base" = the shared ground). */
 export function labLists(asset: LabAsset | "base"): boolean {
   if (knobsAll()) return true;
-  if (!labPage || labPage === "preview") return false;
+  if (!labPage) return false;
+  if (labPage === "preview") return PREVIEW_ASSETS.has(asset);
   return asset === "base" || asset === labPage;
 }
 
@@ -118,18 +133,24 @@ export function detailKnobsListed(): boolean {
 /**
  * AN ASSET PAGE LISTS ITS OWN KNOBS ONLY (the artist, 2026-11-23: each button opens the asset's colour, effects and
  * animation): the panel's paths are cut to the asset's group and the shared ground while a lab asset page is open —
- * every other group keeps its values and still applies. Installed once, on the first lab page (a filter over
- * levaStore.getVisiblePaths, as levaFocus.ts does on the wall).
+ * every other group keeps its values and still applies. The action preview lists none of the asset groups but the few
+ * knobs in PREVIEW_KNOBS (everything that is not an asset group — sound and the like — stays as it was). Installed
+ * once, on the first lab page (a filter over levaStore.getVisiblePaths, as levaFocus.ts does on the wall).
  */
 let filterOn = false;
 export function installLabPanelFilter(store: { getVisiblePaths: () => string[] }): void {
   if (filterOn) return;
   filterOn = true;
   const all = store.getVisiblePaths.bind(store);
+  const inGroup = (q: string, g: string) => q === g || q.startsWith(`${g}.`);
   store.getVisiblePaths = () => {
     const paths = all();
-    if (!labPage || labPage === "preview" || knobsAll()) return paths;
+    if (!labPage || knobsAll()) return paths;
+    if (labPage === "preview") {
+      const groups = Object.values(LAB_GROUP);
+      return paths.filter((q) => PREVIEW_KNOBS.includes(q) || !groups.some((g) => inGroup(q, g)));
+    }
     const mine = [LAB_GROUP.base, LAB_GROUP[labPage]];
-    return paths.filter((q) => mine.some((g) => q === g || q.startsWith(`${g}.`)));
+    return paths.filter((q) => mine.some((g) => inGroup(q, g)));
   };
 }
