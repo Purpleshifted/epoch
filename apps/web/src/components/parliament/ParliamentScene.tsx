@@ -42,7 +42,7 @@ import { usePersonalVisuals } from "./usePersonalVisuals";
 import { FuturePeekButton, useFuturePresenceControls } from "./FuturePresence";
 import { futureHold } from "./FutureEncounter";
 import { SessionHud } from "./SessionHud";
-import type { LabPage } from "./mobileLab";
+import { newLook, type LabPage } from "./mobileLab";
 import { useReloadOnContextLoss } from "./useReloadOnContextLoss";
 import {
   DEFAULT_LIFE,
@@ -504,12 +504,18 @@ export default function ParliamentScene({ lab }: { lab?: LabPage } = {}) {
   // observers (the artist, 2026-11-24: "레이더 돌릴 때는 가려줘", the future's lines). (usePersonalVisuals above has set
   // the lidar's look for this render, so this reads the switch as it is now.)
   const lidarOn = lidarActive();
+  // THE EXHIBITION'S PERSONAL VIEW STAYS AS IT WAS (the artist, 2026-11-27: "예전버전은 온전히 남아야 하는데 예전버전에서
+  // (갤러리/리허설 등) 미래 관찰자가 보여"): outside the lab's look (mobileLab.ts newLook — the lab's pages and the
+  // experiment address) no future is drawn, neither its observers nor its place — unless the address asks for it
+  // (?future=, the old trial switch).
+  const [futureAsked] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).has("future"));
+  const lookOn = newLook();
   const future = useMemo(() => {
-    if (lidarOn) return { ...futureKnobs, on: false, overlayOn: false, encounterOn: false };
+    if (lidarOn || (!lookOn && !futureAsked)) return { ...futureKnobs, on: false, overlayOn: false, encounterOn: false };
     if (!lab || lab === "preview") return futureKnobs;
     const overlayOn = lab === "scan-future", encounterOn = lab === "bot-future";
     return { ...futureKnobs, on: overlayOn || encounterOn, overlayOn, encounterOn };
-  }, [futureKnobs, lab, lidarOn]);
+  }, [futureKnobs, lab, lidarOn, lookOn, futureAsked]);
   // …and the people only where they are the asset (or everything is)
   const labPeople = !lab || lab === "preview" || lab === "bot-present";
   const getRhythm = useCallback(() => (witnessRef.current ? rhythmOf(witnessRef.current.me) : null), []);
