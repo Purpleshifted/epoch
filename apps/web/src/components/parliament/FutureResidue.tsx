@@ -46,6 +46,36 @@ export interface BlowKind {
   bloom: number;
 }
 
+/**
+ * EVERYTHING ONE KIND DOES, ITS OWN (the artist, 2026-11-27: "그 모든 효과를... 부재 / 줄기 / 식생 따로 정하게", "점 크기도
+ * 그렇고 걍 전부 다"): the building parts (with the mounds and the earth), the stems, the plants (leaves, grass, flowers).
+ */
+export interface KindLook {
+  /** Its dots: size on screen (CSS px), how much their sizes spread (0 = even), their edge (0 = crisp … 1 = a soft glow). */
+  dot: number;
+  sizeVar: number;
+  soft: number;
+  /** Found: how fast it develops from the touch outwards (world/s), seconds from the scan's colour to its own. */
+  spread: number;
+  develop: number;
+  /** THE LONG EXPOSURE OF ITS READINGS ("실제 읽어오는 점 위치가 바뀌었을 때 그걸 겹쳐보이게"): each new layer off by a scan's
+   *  error (world); the earlier layers' strength and how long they stay (s). */
+  jitter: number;
+  ghostAlpha: number;
+  ghostLife: number;
+  /** THE EARLIER LAYERS DAMAGED AS THEY AGE ("글리치나 번짐효과 … 점 크기나 밀도 포함"), each 0 … 1: dots larger and softer,
+   *  bands torn sideways, columns dripping down (IMG_1589/1597), blocks dropping out or their dots grown, thinning out. */
+  bleed: number;
+  tear: number;
+  drip: number;
+  block: number;
+  thin: number;
+  /** Its blowing away when the observer leaves, and a smear along the way it moves (s; 0 = none) and its strength. */
+  blow: BlowKind;
+  smear: number;
+  smearAlpha: number;
+}
+
 export interface ResidueLook {
   /** 개인뷰에 켜기: the residue where every asset runs (the preview, the experiment); the scan (future) page always. */
   on: boolean;
@@ -53,67 +83,27 @@ export interface ResidueLook {
   gateR: number;
   /** A reading within this (world) of a part finds it. */
   find: number;
-  /** How fast a found part develops from where it was touched (world/s). */
-  spread: number;
-  /** Seconds from the scan's colour to the residue's. */
-  develop: number;
   /** Seconds a found part stays while the observer is near (0 = until it leaves). */
   life: number;
-  /** A point's size on screen (CSS px). */
-  dot: number;
-  /** How far off the residue shows (world; it fades from about half of it, never past the lidar's reach): the far
-   *  plants had piled into a glowing band along the horizon. */
+  /** How far off the residue shows (world; it fades from about half of it, never past the lidar's reach). */
   reach: number;
-  /** What is left: its colour, and concrete's share of it (steel and piles full). */
+  /** A new layer of the reading every this many seconds; the gust's sweep through everything held when it blows (s). */
+  layerSec: number;
+  stagger: number;
+  /** What is left: its colour, and concrete's share of it (steel and piles full); the stems' colour. */
   colour: string;
   concrete: number;
-  /** Points of a plant cloud per square world unit of its ground. */
-  plantDensity: number;
-  /** THE DREAM'S COLOURS (the artist, 2026-11-27: "미래 색을 좀 더 꿈처럼 다채롭게" → A + C; "색 팔레트 내가 고를 수 있게"):
-   *  her six leaf colours and five flower colours — each plant cloud and tree takes one leaf colour (a little of
-   *  another in it), a meadow flowers in hers; `sat` their saturation, `flower` how many of a meadow's points flower. */
+  stemColour: string;
+  /** THE PLANTS' COLOURS (A, her own palette): six leaf and five flower colours, their saturation, how many of a meadow's
+   *  points flower; points of a plant cloud per square world unit; the trees' crowns filled out (×). */
   leaves: string[];
   flowers: string[];
   sat: number;
   flower: number;
-  /** The trees' crowns filled out: their points × this (leaf clumps), and the stems drawn whole ("나무는 더 풍성해보여야"). */
+  plantDensity: number;
   treeFull: number;
-  /** The points' grain, apart from the present's crisp even dots: their sizes spread (0 = even), their edge soft
-   *  (0 = crisp … 1 = a soft round glow). */
-  sizeVar: number;
-  soft: number;
-  /** How long the gust takes to sweep through everything held (s). */
-  stagger: number;
-  /** THE BLOWING AWAY, EACH KIND ITS OWN (the artist, 2026-11-27: "줄기 / 잎 / 건물부재가 fade out 되는 방식을 따로 정하고
-   *  싶음 뭐 떠오르는 정도나 등등"): what is left of the buildings (with the mounds and the earth), the leaves (with the
-   *  grass and flowers), the stems. */
-  blow: { part: BlowKind; leaf: BlowKind; stem: BlowKind };
-  /** THE FUTURE'S OWN LONG EXPOSURE, IN THE WORLD (the artist, 2026-11-27: "억지로 실 적용하는 건 별로고... 미래 스캔
-   *  레이어에만 선택적으로 장노출" → "내가 움직이는 거 따라서는 적용되지 말고 실제로 점이 변하거나 움직일 때만"): a point that
-   *  moves leaves its own smear — as wide as the dot, in its colour, along the way it really went over the last
-   *  `expose` seconds (0 = none), fading towards the oldest — so a point that stands leaves nothing and the visitor's
-   *  turning smears nothing. `streak`: how strong the smear is. The present's lidar never has one. */
-  expose: number;
-  streak: number;
-  /** THE FUTURE'S LONG EXPOSURE OF ITS READINGS (the artist, 2026-11-27: "이 노출은 흩날리는 거 강조용보다는 실제 읽어오는
-   *  점 위치가 바뀌었을 때 그걸 겹쳐보이게 하려는 목적이 더 큰데"): every `layerSec` the residue is laid down anew, each
-   *  point off by a scan's error of `jitter` (world), and the layers before stay where they were, fading over `ghostLife`
-   *  seconds at `ghostAlpha` — what stays the same piles into one trembling, denser figure; what the future moved, grew or
-   *  took away shows its old place and its new one at once. */
-  layerSec: number;
-  jitter: number;
-  ghostLife: number;
-  ghostAlpha: number;
-  /** THE EARLIER LAYERS DAMAGED AS THEY AGE (the artist, 2026-11-27: "글리치나 번짐효과 같은 것도 넣고 싶음"), each 0 … 1:
-   *  `bleed` their dots grow larger and softer, `tear` a few screen bands of each layer torn sideways, `drip` a few
-   *  columns of each layer sliding down (the drip she picked from IMG_1589/1597). The layer of now is never touched. */
-  bleed: number;
-  tear: number;
-  drip: number;
-  /** …and their size and density ("점 크기나 밀도 포함"): `block` the screen in blocks, a few of each layer's dropping out
-   *  and a few with their dots grown; `thin` an older layer thins out. */
-  block: number;
-  thin: number;
+  /** Each kind's own everything. */
+  kinds: { part: KindLook; leaf: KindLook; stem: KindLook };
 }
 
 /** The references' palettes (read off IMG_1586 — a pale night garden — and IMG_1587 — a darker one), loaded into her
@@ -123,46 +113,43 @@ export const RESIDUE_PRESETS = {
   night: { leaves: ["#3f6f4a", "#6f9a5e", "#a8c48a", "#7d8f6a", "#5a7f6f", "#c0b090"], flowers: ["#ff6a3d", "#6c63e0", "#ffb38a", "#ff4f6d", "#f5e06a"] },
 } as const;
 
+const KIND_BASE: Omit<KindLook, "blow"> = { dot: 2, sizeVar: 0.6, soft: 0.6, spread: 5, develop: 1.2, jitter: 0.04, ghostAlpha: 0.45, ghostLife: 3, bleed: 0.5, tear: 0.3, drip: 0.4, block: 0.35, thin: 0.4, smear: 0, smearAlpha: 0.45 };
+
 export const DEFAULT_RESIDUE: ResidueLook = {
   on: false,
   gateR: 12,
   find: 0.6,
-  spread: 5,
-  develop: 1.2,
   life: 0,
-  dot: 2,
   reach: 14,
+  layerSec: 0.5,
+  stagger: 1.2,
   colour: "#ffffff",
   concrete: 0.7,
-  plantDensity: 8,
+  // (a birch's stem, nearly white — IMG_1586/1587)
+  stemColour: "#e8e4dc",
   leaves: [...RESIDUE_PRESETS.garden.leaves],
   flowers: [...RESIDUE_PRESETS.garden.flowers],
   sat: 1,
   flower: 0.5,
+  plantDensity: 8,
   treeFull: 4,
-  sizeVar: 0.6,
-  soft: 0.6,
-  stagger: 1.2,
-  blow: {
-    part: { time: 2.2, dist: 4, rise: 0.4, turb: 0.8, bloom: 0.6 },
-    leaf: { time: 2.5, dist: 5, rise: 1.2, turb: 1, bloom: 0.8 },
-    stem: { time: 3, dist: 2.5, rise: 0.3, turb: 0.6, bloom: 0.4 },
+  kinds: {
+    part: { ...KIND_BASE, sizeVar: 0.5, soft: 0.4, jitter: 0.03, bleed: 0.4, blow: { time: 2.2, dist: 4, rise: 0.4, turb: 0.8, bloom: 0.6 } },
+    leaf: { ...KIND_BASE, sizeVar: 0.7, soft: 0.7, jitter: 0.05, bleed: 0.6, tear: 0.2, drip: 0.3, block: 0.3, blow: { time: 2.5, dist: 5, rise: 1.2, turb: 1, bloom: 0.8 } },
+    stem: { ...KIND_BASE, sizeVar: 0.4, soft: 0.5, jitter: 0.03, bleed: 0.4, tear: 0.2, drip: 0.5, block: 0.3, thin: 0.3, blow: { time: 3, dist: 2.5, rise: 0.3, turb: 0.6, bloom: 0.4 } },
   },
-  expose: 0,
-  streak: 0.45,
-  layerSec: 0.5,
-  jitter: 0.04,
-  ghostLife: 3,
-  ghostAlpha: 0.45,
-  bleed: 0.5,
-  tear: 0.3,
-  drip: 0.4,
-  block: 0.35,
-  thin: 0.4,
 };
 
-/** A birch's stem, nearly white (IMG_1586/1587), and its dark marks. */
-const STEM = "#e8e4dc";
+/** The three kinds in the order the programs read them (x, y, z of their vec3s; the pool's kind numbers 0, 1, 2). */
+const KIND_ORDER = ["part", "leaf", "stem"] as const;
+/** One field of the three kinds as a vector (x = parts, y = plants, z = stems). */
+function per(L: ResidueLook, f: (k: KindLook) => number, v: THREE.Vector3): THREE.Vector3 {
+  return v.set(f(L.kinds.part), f(L.kinds.leaf), f(L.kinds.stem));
+}
+/** A point's kind look by its kind number (0 parts, 1 plants, 2 stems). */
+function kindOf(L: ResidueLook, kind: number): KindLook {
+  return L.kinds[KIND_ORDER[Math.max(0, Math.min(2, Math.round(kind)))]];
+}
 
 /** Set by the scan (future) knobs (labKnobsScanFuture.ts), read per frame here. */
 export const residueLook: ResidueLook = { ...DEFAULT_RESIDUE };
@@ -227,7 +214,7 @@ interface PartState {
 
 /** The longest a kind's flight takes (s). */
 function longestFlight(L: ResidueLook): number {
-  return Math.max(L.blow.part.time, L.blow.leaf.time, L.blow.stem.time);
+  return Math.max(L.kinds.part.blow.time, L.kinds.leaf.blow.time, L.kinds.stem.blow.time);
 }
 
 /** When a point of a part let go starts to blow (s): the gust sweeps through from upwind (`stagger` for its whole
@@ -264,6 +251,9 @@ uniform vec3 uRise3;
 uniform vec3 uTurb3;
 uniform vec3 uScatter3;
 uniform vec3 uBloom3;
+uniform vec3 uSize3;
+uniform vec3 uSizeVar3;
+uniform vec3 uSoft3;
 float byKind(vec3 v) {
   return aKind < 0.5 ? v.x : aKind < 1.5 ? v.y : v.z;
 }
@@ -306,13 +296,11 @@ attribute float aDelay;
 attribute float aRel;
 attribute float aDie;
 uniform float uTime;
-uniform float uDevelop;
+uniform vec3 uDevelop3;
 uniform float uLife;
-uniform float uSize;
 uniform float uRange;
 uniform float uLod;
 uniform float uReach;
-uniform float uSizeVar;
 uniform vec3 uC0;
 uniform vec3 uC1;
 uniform vec3 uC2;
@@ -320,6 +308,7 @@ uniform vec3 uC3;
 varying vec3 vCol;
 varying float vA;
 varying float vPx;
+varying float vSoft;
 ${BLOW_GLSL}
 vec3 ramp(float t) {
   return t < 1.0 ? mix(uC0, uC1, t) : t < 2.0 ? mix(uC1, uC2, t - 1.0) : mix(uC2, uC3, t - 2.0);
@@ -329,8 +318,9 @@ void main() {
   float a = 0.0;
   // (sizes spread, unlike the present's even dots: most small, a few large)
   float sv = fract(aSeed * 53.1);
-  float px = uSize * mix(1.0, 0.55 + 1.5 * sv * sv, uSizeVar);
+  float px = byKind(uSize3) * mix(1.0, 0.55 + 1.5 * sv * sv, byKind(uSizeVar3));
   vec3 col = aCol;
+  vSoft = byKind(uSoft3);
   if (aFound > 0.0) {
     float age = uTime - (aFound + aDelay);
     a = age < 0.0 ? 0.0 : 1.0;
@@ -338,7 +328,8 @@ void main() {
     vec4 mv0 = modelViewMatrix * vec4(p, 1.0);
     float dEye = -mv0.z;
     vec3 seen = ramp(clamp(dEye / uRange, 0.0, 1.0) * 3.0);
-    col = mix(seen, aCol, uDevelop > 0.0 ? smoothstep(0.0, uDevelop, age) : 1.0);
+    float dev = byKind(uDevelop3);
+    col = mix(seen, aCol, dev > 0.0 ? smoothstep(0.0, dev, age) : 1.0);
     // far off, as sparse as the lidar's own far readings (kept with the chance (lod/d)²), and gone at the scanner's reach
     if (uLod > 0.0 && dEye > uLod && fract(aSeed * 91.7) > (uLod / dEye) * (uLod / dEye)) a = 0.0;
     a *= 1.0 - smoothstep(uReach * 0.55, uReach, dEye);
@@ -371,16 +362,16 @@ void main() {
 }`;
 
 const FRAG = /* glsl */ `
-uniform float uSoft;
 varying vec3 vCol;
 varying float vA;
 varying float vPx;
+varying float vSoft;
 void main() {
   // a round dot: the lidar's one-pixel edge (soft 0) … a soft round glow falling off from its middle (soft 1)
   float r = length(gl_PointCoord * 2.0 - 1.0);
   float crisp = clamp((1.0 - r) * vPx * 0.5 + 0.5, 0.0, 1.0);
   float glow = exp(-r * r * 3.0) * (1.0 - smoothstep(0.8, 1.0, r));
-  float a = vA * mix(crisp, glow, uSoft);
+  float a = vA * mix(crisp, glow, vSoft);
   if (a <= 0.003) discard;
   gl_FragColor = vec4(vCol, a);
 }`;
@@ -394,16 +385,15 @@ attribute vec3 aCol;
 attribute vec3 aBloom;
 attribute float aRel;
 uniform float uTime;
-uniform float uTail;
-uniform float uStreak;
+uniform vec3 uTail3;
+uniform vec3 uStreak3;
 uniform float uLod;
 uniform float uReach;
-uniform float uSize;
-uniform float uSizeVar;
 uniform vec2 uRes;
 varying vec3 vCol;
 varying float vA;
 varying float vSide;
+varying float vSoft;
 ${BLOW_GLSL}
 vec4 clipAt(float rt) {
   return projectionMatrix * modelViewMatrix * vec4(aOrigin + blowOffset(aOrigin, rt, flightOf(rt)), 1.0);
@@ -412,7 +402,7 @@ void main() {
   // (position: x = how far back along the smear, 0 at the point … 1 at the oldest; y = which side)
   float along = position.x, side = position.y;
   float rtH = uTime - aRel;
-  float rt = rtH - along * uTail;
+  float rt = rtH - along * byKind(uTail3);
   float rc = max(0.0, rt);
   vec4 c0 = clipAt(rc);
   // the way it goes on the screen there (a moment later), and across it
@@ -421,33 +411,34 @@ void main() {
   float len = length(d);
   vec2 perp = len > 1e-4 ? vec2(-d.y, d.x) / len : vec2(0.0, 1.0);
   float kh = flightOf(rtH), k = flightOf(rc);
-  float a = rtH > 0.0 && rt > 0.0 ? uStreak * (1.0 - along) * (1.0 - smoothstep(0.45, 1.0, kh)) : 0.0;
+  float a = rtH > 0.0 && rt > 0.0 ? byKind(uStreak3) * (1.0 - along) * (1.0 - smoothstep(0.45, 1.0, kh)) : 0.0;
   float dEye = c0.w;
   if (uLod > 0.0 && dEye > uLod && fract(aSeed * 91.7) > (uLod / dEye) * (uLod / dEye)) a = 0.0;
   a *= 1.0 - smoothstep(uReach * 0.55, uReach, dEye);
   // (a little wider than the dot was then — a blur, not a thread — narrowing towards the oldest)
   float sv = fract(aSeed * 53.1);
-  float px = 1.4 * uSize * mix(1.0, 0.55 + 1.5 * sv * sv, uSizeVar) * (1.0 - 0.55 * k) * (1.0 - 0.4 * along);
+  float px = 1.4 * byKind(uSize3) * mix(1.0, 0.55 + 1.5 * sv * sv, byKind(uSizeVar3)) * (1.0 - 0.55 * k) * (1.0 - 0.4 * along);
   vA = a;
   vSide = side;
+  vSoft = byKind(uSoft3);
   float bloom = byKind(uBloom3);
   vCol = mix(aCol, aBloom * (1.0 + 0.4 * bloom), bloom * smoothstep(0.0, 0.3, k));
   gl_Position = c0 + vec4(perp * side * px / uRes * c0.w, 0.0, 0.0);
 }`;
 const STREAK_FRAG = /* glsl */ `
-uniform float uSoft;
 varying vec3 vCol;
 varying float vA;
 varying float vSide;
+varying float vSoft;
 void main() {
   // soft across, as the dot is
   float s = abs(vSide);
-  float a = vA * mix(1.0 - smoothstep(0.6, 1.0, s), exp(-s * s * 3.0), uSoft);
+  float a = vA * mix(1.0 - smoothstep(0.6, 1.0, s), exp(-s * s * 3.0), vSoft);
   if (a <= 0.003) discard;
   gl_FragColor = vec4(vCol, a);
 }`;
 
-const BLOW_UNIFORMS = () => ({ uDist3: { value: new THREE.Vector3(4, 5, 2.5) }, uRise3: { value: new THREE.Vector3(0.4, 1.2, 0.3) }, uTurb3: { value: new THREE.Vector3(0.8, 1, 0.6) }, uScatter3: { value: new THREE.Vector3(2.2, 2.5, 3) }, uBloom3: { value: new THREE.Vector3(0.6, 0.8, 0.4) } });
+const BLOW_UNIFORMS = () => ({ uDist3: { value: new THREE.Vector3(4, 5, 2.5) }, uRise3: { value: new THREE.Vector3(0.4, 1.2, 0.3) }, uTurb3: { value: new THREE.Vector3(0.8, 1, 0.6) }, uScatter3: { value: new THREE.Vector3(2.2, 2.5, 3) }, uBloom3: { value: new THREE.Vector3(0.6, 0.8, 0.4) }, uSize3: { value: new THREE.Vector3(2, 2, 2) }, uSizeVar3: { value: new THREE.Vector3(0.6, 0.6, 0.6) }, uSoft3: { value: new THREE.Vector3(0.6, 0.6, 0.6) } });
 
 /** The pool's GPU side, made the first time the residue runs (the exhibition's view never makes it). */
 function makePoints(): THREE.Points {
@@ -459,14 +450,11 @@ function makePoints(): THREE.Points {
     uniforms: {
       ...BLOW_UNIFORMS(),
       uTime: { value: 0 },
-      uDevelop: { value: 1.2 },
+      uDevelop3: { value: new THREE.Vector3(1.2, 1.2, 1.2) },
       uLife: { value: 0 },
-      uSize: { value: 2 },
       uRange: { value: 22 },
       uLod: { value: 12 },
       uReach: { value: 14 },
-      uSizeVar: { value: 0.6 },
-      uSoft: { value: 0.6 },
       uC0: { value: new THREE.Color("#5ff0c8") },
       uC1: { value: new THREE.Color("#c6f06a") },
       uC2: { value: new THREE.Color("#ffb86b") },
@@ -497,7 +485,7 @@ function makeStreaks(): THREE.Mesh {
     g.setAttribute(name, new THREE.InstancedBufferAttribute(new Float32Array(STREAK_CAP * size), size).setUsage(THREE.DynamicDrawUsage));
   g.instanceCount = 0;
   const m = new THREE.ShaderMaterial({
-    uniforms: { ...BLOW_UNIFORMS(), uTime: { value: 0 }, uTail: { value: 0.8 }, uStreak: { value: 0.6 }, uLod: { value: 12 }, uReach: { value: 14 }, uSize: { value: 2 }, uSizeVar: { value: 0.6 }, uSoft: { value: 0.6 }, uRes: { value: new THREE.Vector2(1, 1) } },
+    uniforms: { ...BLOW_UNIFORMS(), uTime: { value: 0 }, uTail3: { value: new THREE.Vector3() }, uStreak3: { value: new THREE.Vector3() }, uLod: { value: 12 }, uReach: { value: 14 }, uRes: { value: new THREE.Vector2(1, 1) } },
     vertexShader: STREAK_VERT,
     fragmentShader: STREAK_FRAG,
     transparent: true,
@@ -515,53 +503,61 @@ function makeStreaks(): THREE.Mesh {
 const GHOST_VERT = /* glsl */ `
 attribute vec3 aCol;
 attribute float aSeed;
+attribute float aKind;
 uniform float uAge;
-uniform float uLife;
-uniform float uAlpha;
-uniform float uSize;
-uniform float uSizeVar;
+uniform float uKill;
+uniform float uLayer;
 uniform float uLod;
 uniform float uReach;
-uniform float uLayer;
-uniform float uBleed;
-uniform float uTear;
-uniform float uDrip;
-uniform float uBlock;
-uniform float uThin;
+uniform vec3 uLife3;
+uniform vec3 uAlpha3;
+uniform vec3 uSize3;
+uniform vec3 uSizeVar3;
+uniform vec3 uSoft3;
+uniform vec3 uBleed3;
+uniform vec3 uTear3;
+uniform vec3 uDrip3;
+uniform vec3 uBlock3;
+uniform vec3 uThin3;
 varying vec3 vCol;
 varying float vA;
 varying float vPx;
+varying float vSoft;
+float byKind(vec3 v) {
+  return aKind < 0.5 ? v.x : aKind < 1.5 ? v.y : v.z;
+}
 float h1(float x) { return fract(sin(x * 12.9898 + uLayer * 78.233) * 43758.5453); }
 void main() {
-  // (o: how old the layer is, 0 just laid … 1 gone)
-  float o = clamp(uAge / max(0.05, uLife), 0.0, 1.0);
+  // (o: how old the layer is for this kind, 0 just laid … 1 gone)
+  float o = clamp(uAge / max(0.05, byKind(uLife3)), 0.0, 1.0);
   float f = 1.0 - o;
-  float a = uAlpha * f * f;
+  float a = byKind(uAlpha3) * uKill * f * f;
+  float bleed = byKind(uBleed3), tear = byKind(uTear3), drip = byKind(uDrip3), block = byKind(uBlock3);
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   float dEye = -mv.z;
   if (uLod > 0.0 && dEye > uLod && fract(aSeed * 91.7) > (uLod / dEye) * (uLod / dEye)) a = 0.0;
   a *= 1.0 - smoothstep(uReach * 0.55, uReach, dEye);
   float sv = fract(aSeed * 53.1);
-  // BLEED: the older a layer, the larger and softer its dots (the softness itself: this layer's uSoft)
-  float px = uSize * mix(1.0, 0.55 + 1.5 * sv * sv, uSizeVar) * (1.0 + 2.5 * uBleed * o);
+  // BLEED: the older a layer, the larger and softer its dots
+  float px = byKind(uSize3) * mix(1.0, 0.55 + 1.5 * sv * sv, byKind(uSizeVar3)) * (1.0 + 2.5 * bleed * o);
+  vSoft = min(1.0, byKind(uSoft3) + bleed * o);
   vec4 clip = projectionMatrix * mv;
   vec2 ndc = clip.xy / clip.w;
   // DENSITY: an older layer thins out (each point its own threshold)
-  if (fract(aSeed * 37.1) < uThin * o) a = 0.0;
-  // BLOCKS: the screen in blocks; in each layer a few blocks drop out and a few have their dots grown — the size and
-  // the density broken block by block (IMG_1597), more as it ages
+  if (fract(aSeed * 37.1) < byKind(uThin3) * o) a = 0.0;
+  // BLOCKS: the screen in blocks; in each layer a few blocks drop out and a few have their dots grown (IMG_1597)
   vec2 cell = floor((ndc * 0.5 + 0.5) * vec2(10.0, 16.0));
-  float hk = h1(cell.x * 17.0 + cell.y * 131.0 + 7.0), bo = uBlock * (0.3 + 0.7 * o);
+  float hk = h1(cell.x * 17.0 + cell.y * 131.0 + 7.0), bo = block * (0.3 + 0.7 * o);
   if (hk < 0.25 * bo) a = 0.0;
-  else if (hk > 1.0 - 0.25 * bo) px *= 1.0 + 3.0 * uBlock;
+  else if (hk > 1.0 - 0.25 * bo) px *= 1.0 + 3.0 * block;
   // TEAR: the screen in bands, a few of each layer's own torn sideways — more as it ages
   float band = floor((ndc.y * 0.5 + 0.5) * 28.0);
   float hb = h1(band + 3.0);
-  ndc.x += step(1.0 - 0.4 * uTear, hb) * (h1(band + 41.0) - 0.5) * 0.3 * uTear * (0.25 + o);
+  ndc.x += step(1.0 - 0.4 * tear, hb) * (h1(band + 41.0) - 0.5) * 0.3 * tear * (0.25 + o);
   // DRIP: a few columns of each layer slide down as it ages (IMG_1589 / 1597)
   float colm = floor((ndc.x * 0.5 + 0.5) * 56.0);
   float hc = h1(colm * 1.7 + 101.0);
-  ndc.y -= step(1.0 - 0.5 * uDrip, hc) * o * o * uDrip * 0.45 * (0.4 + hc);
+  ndc.y -= step(1.0 - 0.5 * drip, hc) * o * o * drip * 0.45 * (0.4 + hc);
   clip.xy = ndc * clip.w;
   vA = a;
   vCol = aCol;
@@ -572,11 +568,14 @@ void main() {
 
 function makeGhost(): THREE.Points {
   const g = new THREE.BufferGeometry();
-  for (const [name, size] of [["position", 3], ["aCol", 3], ["aSeed", 1]] as const)
+  for (const [name, size] of [["position", 3], ["aCol", 3], ["aSeed", 1], ["aKind", 1]] as const)
     g.setAttribute(name, new THREE.BufferAttribute(new Float32Array(GHOST_CAP * size), size).setUsage(THREE.DynamicDrawUsage));
   g.setDrawRange(0, 0);
   const m = new THREE.ShaderMaterial({
-    uniforms: { uAge: { value: 1e6 }, uLife: { value: 3 }, uAlpha: { value: 0.45 }, uSize: { value: 2 }, uSizeVar: { value: 0.6 }, uSoft: { value: 0.6 }, uLod: { value: 12 }, uReach: { value: 14 }, uLayer: { value: 0 }, uBleed: { value: 0.5 }, uTear: { value: 0.3 }, uDrip: { value: 0.4 }, uBlock: { value: 0.35 }, uThin: { value: 0.4 } },
+    uniforms: Object.fromEntries([
+      ...["uAge", "uKill", "uLayer", "uLod", "uReach"].map((n) => [n, { value: n === "uAge" ? 1e6 : n === "uKill" ? 1 : 0 }]),
+      ...["uLife3", "uAlpha3", "uSize3", "uSizeVar3", "uSoft3", "uBleed3", "uTear3", "uDrip3", "uBlock3", "uThin3"].map((n) => [n, { value: new THREE.Vector3() }]),
+    ]),
     vertexShader: GHOST_VERT,
     fragmentShader: FRAG,
     transparent: true,
@@ -595,7 +594,7 @@ function buildPool(r: PresenceResult, unit: number, look: ResidueLook): Pool {
   const pos = new Float32Array(CAP * 3), col = new Float32Array(CAP * 3), bloom = new Float32Array(CAP * 3), seed = new Float32Array(CAP), kind = new Float32Array(CAP);
   const parts: Pool["parts"] = [];
   let n = 0;
-  const white = new THREE.Color(look.colour), stem = new THREE.Color(STEM);
+  const white = new THREE.Color(look.colour), stem = new THREE.Color(look.stemColour);
   // her leaf and flower colours (A), saturated by `sat` (round their own lightness)
   const satd = (hex: string) => {
     const c = new THREE.Color(hex);
@@ -811,8 +810,9 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
   useFrame((state, dt) => {
     const on = residueActive();
     if (pts.current) pts.current.visible = on;
-    if (streaks.current) streaks.current.visible = on && residueLook.expose > 0 && residueLook.streak > 0;
-    for (const gh of ghosts.current) gh.visible = on && residueLook.ghostAlpha > 0;
+    const K3 = residueLook.kinds, anySmear = [K3.part, K3.leaf, K3.stem].some((k) => k.smear > 0 && k.smearAlpha > 0), anyGhost = [K3.part, K3.leaf, K3.stem].some((k) => k.ghostAlpha > 0);
+    if (streaks.current) streaks.current.visible = on && anySmear;
+    for (const gh of ghosts.current) gh.visible = on && anyGhost;
     if (!on) return;
     if (!pts.current && group.current) {
       pts.current = makePoints();
@@ -901,7 +901,6 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       // (each point that had appeared also gets its smear: a ribbon instance with its origin, colours, gust and way)
       const SG = SM.geometry as THREE.InstancedBufferGeometry, I = (name: string) => SG.getAttribute(name) as THREE.InstancedBufferAttribute;
       const iOrig = I("aOrigin").array as Float32Array, iCol = I("aCol").array as Float32Array, iBloom = I("aBloom").array as Float32Array, iRel = I("aRel").array as Float32Array, iDir = I("aDir").array as Float32Array, iSeed = I("aSeed").array as Float32Array, iKind = I("aKind").array as Float32Array;
-      const smear = L.expose > 0 && L.streak > 0;
       let wrote = 0;
       pool.parts.forEach((p) => {
         const ps = s.states.get(p.key);
@@ -912,7 +911,8 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
           fRel[i] = blowAt(ps, fPos[i * 3], fPos[i * 3 + 2], pool.seed[i], L.stagger);
           fDir[i * 2] = dx;
           fDir[i * 2 + 1] = dz;
-          if (!smear || ps.found + fDelay[i] > now || wrote >= STREAK_CAP) continue;
+          const kl = kindOf(L, pool.kind[i]);
+          if (kl.smear <= 0 || kl.smearAlpha <= 0 || ps.found + fDelay[i] > now || wrote >= STREAK_CAP) continue;
           const j = s.streakHead;
           iOrig.set(pool.pos.subarray(i * 3, i * 3 + 3), j * 3);
           iCol.set(pool.col.subarray(i * 3, i * 3 + 3), j * 3);
@@ -933,7 +933,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
         for (const name of ["aOrigin", "aCol", "aBloom", "aRel", "aDir", "aSeed", "aKind"]) I(name).needsUpdate = true;
         SG.instanceCount = s.streakFilled;
         // (when every smear of this release has run out, the ribbons are not drawn at all)
-        s.streakUntil = now + L.stagger + longestFlight(L) * 1.25 + L.expose + 0.5;
+        s.streakUntil = now + L.stagger + longestFlight(L) * 1.25 + Math.max(L.kinds.part.smear, L.kinds.leaf.smear, L.kinds.stem.smear) + 0.5;
       }
     }
     // (nothing blowing: no ribbons to draw)
@@ -947,9 +947,9 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     // the ring, to stay there and fade over ghostLife
     const layGhost = () => {
       const pool0 = s.pool, gh = ghosts.current[s.ghostHead];
-      if (!pool0 || !gh || L.ghostAlpha <= 0 || !s.present) return;
+      if (!pool0 || !gh || ![L.kinds.part, L.kinds.leaf, L.kinds.stem].some((k) => k.ghostAlpha > 0) || !s.present) return;
       const GA = (name: string) => gh.geometry.getAttribute(name) as THREE.BufferAttribute;
-      const gPos = GA("position").array as Float32Array, gCol = GA("aCol").array as Float32Array, gSeed = GA("aSeed").array as Float32Array;
+      const gPos = GA("position").array as Float32Array, gCol = GA("aCol").array as Float32Array, gSeed = GA("aSeed").array as Float32Array, gKind = GA("aKind").array as Float32Array;
       const cPos = A("position").array as Float32Array, cCol = A("aCol").array as Float32Array, cSeed = A("aSeed").array as Float32Array;
       let m = 0;
       for (const p of pool0.parts) {
@@ -962,11 +962,12 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
             gCol[m * 3 + c] = cCol[i * 3 + c];
           }
           gSeed[m] = cSeed[i];
+          gKind[m] = pool0.kind[i];
           m++;
         }
       }
       gh.geometry.setDrawRange(0, m);
-      for (const name of ["position", "aCol", "aSeed"]) {
+      for (const name of ["position", "aCol", "aSeed", "aKind"]) {
         const a = GA(name);
         a.clearUpdateRanges();
         a.addUpdateRange(0, m * a.itemSize);
@@ -979,8 +980,11 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     };
     // A NEW LAYER: every point where the reading puts it, off by a scan's error drawn anew
     const layNew = (pool0: Pool) => {
-      const fp = A("position").array as Float32Array, J = Math.max(0, L.jitter);
-      for (let i = 0; i < pool0.n * 3; i++) fp[i] = pool0.pos[i] + (J > 0 ? (Math.random() * 2 - 1) * J : 0);
+      const fp = A("position").array as Float32Array, J = [L.kinds.part.jitter, L.kinds.leaf.jitter, L.kinds.stem.jitter];
+      for (let i = 0; i < pool0.n; i++) {
+        const j = Math.max(0, J[pool0.kind[i]] ?? 0);
+        for (let c = 0; c < 3; c++) fp[i * 3 + c] = pool0.pos[i * 3 + c] + (j > 0 ? (Math.random() * 2 - 1) * j : 0);
+      }
       const a = A("position");
       a.clearUpdateRanges();
       a.addUpdateRange(0, pool0.n * 3);
@@ -1071,7 +1075,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
             continue;
           }
           fFound[i] = ps.found;
-          fDelay[i] = Math.hypot(fPos[i * 3] - ps.hx, fPos[i * 3 + 1] - ps.hy, fPos[i * 3 + 2] - ps.hz) / Math.max(0.1, L.spread) + 0.08 * pool.seed[i];
+          fDelay[i] = Math.hypot(fPos[i * 3] - ps.hx, fPos[i * 3 + 1] - ps.hy, fPos[i * 3 + 2] - ps.hz) / Math.max(0.1, kindOf(L, pool.kind[i]).spread) + 0.08 * pool.seed[i];
           fRel[i] = ps.rel > 0 ? blowAt(ps, fPos[i * 3], fPos[i * 3 + 2], pool.seed[i], L.stagger) : 0;
           fDir[i * 2] = ps.dx;
           fDir[i * 2 + 1] = ps.dz;
@@ -1124,7 +1128,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
           Object.assign(ps, { found: now, rel: 0, hx: x, hy: y, hz: z, died: 0 });
           for (let i = p.i0; i < p.i1; i++) {
             fFound[i] = now;
-            fDelay[i] = Math.hypot(fPos[i * 3] - x, fPos[i * 3 + 1] - y, fPos[i * 3 + 2] - z) / Math.max(0.1, L.spread) + 0.08 * fSeed[i];
+            fDelay[i] = Math.hypot(fPos[i * 3] - x, fPos[i * 3 + 1] - y, fPos[i * 3 + 2] - z) / Math.max(0.1, kindOf(L, pool.kind[i]).spread) + 0.08 * fSeed[i];
             fRel[i] = 0;
           }
           dirty0 = Math.min(dirty0, p.i0);
@@ -1167,7 +1171,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     for (const w of [u, su]) {
       w.uTime.value = now;
       // (x = what is left, y = leaves, z = stems)
-      const { part: bp, leaf: bl, stem: bs } = L.blow;
+      const bp = L.kinds.part.blow, bl = L.kinds.leaf.blow, bs = L.kinds.stem.blow;
       (w.uScatter3.value as THREE.Vector3).set(bp.time, bl.time, bs.time);
       (w.uDist3.value as THREE.Vector3).set(bp.dist, bl.dist, bs.dist);
       (w.uRise3.value as THREE.Vector3).set(bp.rise, bl.rise, bs.rise);
@@ -1175,16 +1179,17 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       (w.uBloom3.value as THREE.Vector3).set(bp.bloom, bl.bloom, bs.bloom);
       w.uLod.value = lidarLook.lod;
       w.uReach.value = Math.min(L.reach, lidarLook.range);
-      w.uSizeVar.value = L.sizeVar;
-      w.uSoft.value = L.soft;
-      w.uSize.value = L.dot * state.viewport.dpr * (1 + 0.6 * L.soft);
+      per(L, (k) => k.sizeVar, w.uSizeVar3.value as THREE.Vector3);
+      per(L, (k) => k.soft, w.uSoft3.value as THREE.Vector3);
+      // (a soft dot is larger, so a little bigger on screen to keep its weight)
+      per(L, (k) => k.dot * state.viewport.dpr * (1 + 0.6 * k.soft), w.uSize3.value as THREE.Vector3);
     }
-    su.uTail.value = L.expose;
-    su.uStreak.value = L.streak;
+    per(L, (k) => k.smear, su.uTail3.value as THREE.Vector3);
+    per(L, (k) => k.smearAlpha, su.uStreak3.value as THREE.Vector3);
     state.gl.getDrawingBufferSize(DB);
     (su.uRes.value as THREE.Vector2).copy(DB);
     u.uRange.value = lidarLook.range;
-    u.uDevelop.value = L.develop;
+    per(L, (k) => k.develop, u.uDevelop3.value as THREE.Vector3);
     u.uLife.value = L.life;
     (u.uC0.value as THREE.Color).set(lidarLook.c0);
     (u.uC1.value as THREE.Color).set(lidarLook.c1);
@@ -1194,21 +1199,20 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     const kill = s.ghostKill > 0 ? 1 - Math.min(1, (now - s.ghostKill) / 0.6) : 1;
     ghosts.current.forEach((gh, i) => {
       const gu = (gh.material as THREE.ShaderMaterial).uniforms;
-      const age = now - s.ghostBorn[i];
-      gu.uAge.value = age;
-      gu.uLife.value = L.ghostLife;
-      gu.uAlpha.value = L.ghostAlpha * kill;
-      gu.uSize.value = u.uSize.value;
-      gu.uSizeVar.value = L.sizeVar;
-      // (bleeding: softer the older)
-      gu.uSoft.value = Math.min(1, L.soft + L.bleed * Math.min(1, age / Math.max(0.05, L.ghostLife)));
-      gu.uBleed.value = L.bleed;
-      gu.uTear.value = L.tear;
-      gu.uDrip.value = L.drip;
-      gu.uBlock.value = L.block;
-      gu.uThin.value = L.thin;
+      gu.uAge.value = now - s.ghostBorn[i];
+      gu.uKill.value = kill;
       gu.uLod.value = lidarLook.lod;
       gu.uReach.value = Math.min(L.reach, lidarLook.range);
+      per(L, (k) => k.ghostLife, gu.uLife3.value as THREE.Vector3);
+      per(L, (k) => k.ghostAlpha, gu.uAlpha3.value as THREE.Vector3);
+      (gu.uSize3.value as THREE.Vector3).copy(u.uSize3.value as THREE.Vector3);
+      per(L, (k) => k.sizeVar, gu.uSizeVar3.value as THREE.Vector3);
+      per(L, (k) => k.soft, gu.uSoft3.value as THREE.Vector3);
+      per(L, (k) => k.bleed, gu.uBleed3.value as THREE.Vector3);
+      per(L, (k) => k.tear, gu.uTear3.value as THREE.Vector3);
+      per(L, (k) => k.drip, gu.uDrip3.value as THREE.Vector3);
+      per(L, (k) => k.block, gu.uBlock3.value as THREE.Vector3);
+      per(L, (k) => k.thin, gu.uThin3.value as THREE.Vector3);
     });
     markSpan("residue", performance.now() - t0);
   });

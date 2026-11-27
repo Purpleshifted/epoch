@@ -14,8 +14,8 @@ import { DEFAULT_PRESENCE } from "@/lib/parliament/futurePresence";
 import type { PresenceMode } from "./FuturePresence";
 import { DEFAULT_RESIDUE, RESIDUE_PRESETS, setResidueLook } from "./FutureResidue";
 
-/** The three kinds' blowing away as they start (FutureResidue.tsx DEFAULT_RESIDUE). */
-const B = DEFAULT_RESIDUE.blow;
+/** The three kinds' everything as it starts (FutureResidue.tsx DEFAULT_RESIDUE): parts, plants, stems. */
+const K = DEFAULT_RESIDUE.kinds;
 
 const PLACE_GROUP = LAB_GROUP["scan-future"];
 
@@ -49,21 +49,116 @@ export function useScanFutureKnobs(isV2: boolean) {
     savable(PLACE_GROUP, {
       overlayOn: { value: false, label: "개인뷰에 켜기 (랩의 이 페이지에서는 늘 보임)" },
       // THE SCAN'S RESIDUE (the artist, 2026-11-27: B, "있을 때만"): while the lidar reads the place, what it reads near the
-      // future's remains develops them — only while a future observer is near; they blow away the way it walks when it
-      // leaves (FutureResidue.tsx)
-      "잔류 — 라이다 위의 미래": folder(
+      // future's remains develops them — only while a future observer is near; they blow away when it leaves
+      // (FutureResidue.tsx). Everything a kind does is set apart for each ("그 모든 효과를... 부재 / 줄기 / 식생 따로",
+      // "점 크기도 그렇고 걍 전부 다").
+      "잔류 — 공통": folder(
         {
           resGateR: { value: 12, min: 3, max: 40, step: 0.5, label: "관찰자가 있다고 보는 거리 (월드)" },
           resFind: { value: 0.6, min: 0.1, max: 3, step: 0.05, label: "스캔이 부재를 찾는 거리 (월드)" },
-          resSpread: { value: 5, min: 0.5, max: 30, step: 0.5, label: "찾은 부재에 번지는 속도 (월드/s)" },
-          resDevelop: { value: 1.2, min: 0, max: 5, step: 0.1, label: "하얗게 바래는 시간 (s)" },
           resLife: { value: 0, min: 0, max: 120, step: 1, label: "남는 시간 (s, 0 = 관찰자가 떠날 때까지)" },
-          resDot: { value: 2, min: 0.5, max: 6, step: 0.1, label: "점 크기 (px)" },
           resReach: { value: 14, min: 4, max: 40, step: 0.5, label: "보이는 거리 (월드)" },
-          resColour: { value: "#ffffff", label: "남은 부재의 색" },
+          resLayerSec: { value: 0.5, min: 0.1, max: 4, step: 0.05, label: "다시 읽어 겹치는 간격 (s)" },
+          resStagger: { value: 1.2, min: 0, max: 4, step: 0.1, label: "흩날릴 때 바람이 훑고 지나가는 시간 (s)" },
+        },
+        { collapsed: false },
+      ),
+      "건물 부재 (둔덕 · 흙 포함)": folder(
+        {
+          resColour: { value: "#ffffff", label: "부재 색" },
           resConcrete: { value: 0.7, min: 0, max: 1, step: 0.05, label: "콘크리트 밝기 (철골·말뚝 = 1)" },
-          resPlantDensity: { value: 8, min: 0, max: 60, step: 1, label: "식생 점 밀도" },
-          // (A + C, the artist 2026-11-27: "미래 색을 좀 더 꿈처럼 다채롭게")
+          "건물 부재 (둔덕 · 흙 포함) · 점": folder(
+            {
+              kpDot: { value: K.part.dot, min: 0.5, max: 8, step: 0.1, label: "점 크기 (px)" },
+              kpSizeVar: { value: K.part.sizeVar, min: 0, max: 1, step: 0.05, label: "점 크기 편차 (0 = 고르게)" },
+              kpSoft: { value: K.part.soft, min: 0, max: 1, step: 0.05, label: "점 부드러움 (0 = 또렷)" },
+            },
+            { collapsed: true },
+          ),
+          "건물 부재 (둔덕 · 흙 포함) · 나타남": folder(
+            {
+              kpSpread: { value: K.part.spread, min: 0.5, max: 30, step: 0.5, label: "찾은 자리에서 번지는 속도 (월드/s)" },
+              kpDevelop: { value: K.part.develop, min: 0, max: 5, step: 0.1, label: "스캔 색에서 제 색으로 바래는 시간 (s)" },
+            },
+            { collapsed: true },
+          ),
+          "건물 부재 (둔덕 · 흙 포함) · 장노출 · 글리치 (이전 읽기)": folder(
+            {
+              kpJitter: { value: K.part.jitter, min: 0, max: 0.3, step: 0.005, label: "읽을 때마다 어긋남 (월드)" },
+              kpGhostAlpha: { value: K.part.ghostAlpha, min: 0, max: 1, step: 0.05, label: "이전 읽기의 진하기 (0 = 없음)" },
+              kpGhostLife: { value: K.part.ghostLife, min: 0.2, max: 12, step: 0.1, label: "이전 읽기가 남는 시간 (s)" },
+              kpBleed: { value: K.part.bleed, min: 0, max: 1, step: 0.05, label: "번짐" },
+              kpTear: { value: K.part.tear, min: 0, max: 1, step: 0.05, label: "글리치: 가로 찢김" },
+              kpDrip: { value: K.part.drip, min: 0, max: 1, step: 0.05, label: "글리치: 세로 흘러내림" },
+              kpBlock: { value: K.part.block, min: 0, max: 1, step: 0.05, label: "글리치: 블록 (빠짐 · 점 커짐)" },
+              kpThin: { value: K.part.thin, min: 0, max: 1, step: 0.05, label: "오래될수록 성겨짐" },
+            },
+            { collapsed: true },
+          ),
+          "건물 부재 (둔덕 · 흙 포함) · 흩날림": folder(
+            {
+              kpBlowTime: { value: K.part.blow.time, min: 0.3, max: 8, step: 0.1, label: "흩날리는 시간 (s)" },
+              kpBlowDist: { value: K.part.blow.dist, min: 0, max: 20, step: 0.5, label: "흩날리는 거리 (월드)" },
+              kpBlowRise: { value: K.part.blow.rise, min: -3, max: 6, step: 0.1, label: "떠오르는 정도 (월드, − = 떨어짐)" },
+              kpBlowTurb: { value: K.part.blow.turb, min: 0, max: 3, step: 0.05, label: "소용돌이 (0 = 곧게)" },
+              kpBlowBloom: { value: K.part.blow.bloom, min: 0, max: 1, step: 0.05, label: "흩날릴 때 피는 색" },
+              kpSmear: { value: K.part.smear, min: 0, max: 3, step: 0.05, label: "흩날릴 때 번짐 (s, 0 = 없음)" },
+              kpSmearAlpha: { value: K.part.smearAlpha, min: 0, max: 1, step: 0.05, label: "흩날릴 때 번짐 진하기" },
+            },
+            { collapsed: true },
+          ),
+        },
+        { collapsed: false },
+      ),
+      "줄기": folder(
+        {
+          resStemColour: { value: DEFAULT_RESIDUE.stemColour, label: "줄기 색" },
+          "줄기 · 점": folder(
+            {
+              ksDot: { value: K.stem.dot, min: 0.5, max: 8, step: 0.1, label: "점 크기 (px)" },
+              ksSizeVar: { value: K.stem.sizeVar, min: 0, max: 1, step: 0.05, label: "점 크기 편차 (0 = 고르게)" },
+              ksSoft: { value: K.stem.soft, min: 0, max: 1, step: 0.05, label: "점 부드러움 (0 = 또렷)" },
+            },
+            { collapsed: true },
+          ),
+          "줄기 · 나타남": folder(
+            {
+              ksSpread: { value: K.stem.spread, min: 0.5, max: 30, step: 0.5, label: "찾은 자리에서 번지는 속도 (월드/s)" },
+              ksDevelop: { value: K.stem.develop, min: 0, max: 5, step: 0.1, label: "스캔 색에서 제 색으로 바래는 시간 (s)" },
+            },
+            { collapsed: true },
+          ),
+          "줄기 · 장노출 · 글리치 (이전 읽기)": folder(
+            {
+              ksJitter: { value: K.stem.jitter, min: 0, max: 0.3, step: 0.005, label: "읽을 때마다 어긋남 (월드)" },
+              ksGhostAlpha: { value: K.stem.ghostAlpha, min: 0, max: 1, step: 0.05, label: "이전 읽기의 진하기 (0 = 없음)" },
+              ksGhostLife: { value: K.stem.ghostLife, min: 0.2, max: 12, step: 0.1, label: "이전 읽기가 남는 시간 (s)" },
+              ksBleed: { value: K.stem.bleed, min: 0, max: 1, step: 0.05, label: "번짐" },
+              ksTear: { value: K.stem.tear, min: 0, max: 1, step: 0.05, label: "글리치: 가로 찢김" },
+              ksDrip: { value: K.stem.drip, min: 0, max: 1, step: 0.05, label: "글리치: 세로 흘러내림" },
+              ksBlock: { value: K.stem.block, min: 0, max: 1, step: 0.05, label: "글리치: 블록 (빠짐 · 점 커짐)" },
+              ksThin: { value: K.stem.thin, min: 0, max: 1, step: 0.05, label: "오래될수록 성겨짐" },
+            },
+            { collapsed: true },
+          ),
+          "줄기 · 흩날림": folder(
+            {
+              ksBlowTime: { value: K.stem.blow.time, min: 0.3, max: 8, step: 0.1, label: "흩날리는 시간 (s)" },
+              ksBlowDist: { value: K.stem.blow.dist, min: 0, max: 20, step: 0.5, label: "흩날리는 거리 (월드)" },
+              ksBlowRise: { value: K.stem.blow.rise, min: -3, max: 6, step: 0.1, label: "떠오르는 정도 (월드, − = 떨어짐)" },
+              ksBlowTurb: { value: K.stem.blow.turb, min: 0, max: 3, step: 0.05, label: "소용돌이 (0 = 곧게)" },
+              ksBlowBloom: { value: K.stem.blow.bloom, min: 0, max: 1, step: 0.05, label: "흩날릴 때 피는 색" },
+              ksSmear: { value: K.stem.smear, min: 0, max: 3, step: 0.05, label: "흩날릴 때 번짐 (s, 0 = 없음)" },
+              ksSmearAlpha: { value: K.stem.smearAlpha, min: 0, max: 1, step: 0.05, label: "흩날릴 때 번짐 진하기" },
+            },
+            { collapsed: true },
+          ),
+        },
+        { collapsed: true },
+      ),
+      "식생 (잎 · 풀 · 꽃)": folder(
+        {
+          // (A + C, the artist 2026-11-27: "미래 색을 좀 더 꿈처럼 다채롭게", "색 팔레트 내가 고를 수 있게")
           "식생 팔레트 — 직접 고르기": folder(
             {
               "정원 IMG_1586 색 불러오기": button(() => loadPalette(RESIDUE_PRESETS.garden.leaves, RESIDUE_PRESETS.garden.flowers)),
@@ -84,62 +179,54 @@ export function useScanFutureKnobs(isV2: boolean) {
               resFlower4: { value: RESIDUE_PRESETS.garden.flowers[3], label: "꽃 4" },
               resFlower5: { value: RESIDUE_PRESETS.garden.flowers[4], label: "꽃 5" },
             },
-            { collapsed: false },
+            { collapsed: true },
           ),
           resSat: { value: 1, min: 0, max: 1.8, step: 0.05, label: "식생 채도" },
           resFlower: { value: 0.5, min: 0, max: 1, step: 0.05, label: "꽃 비율" },
+          resPlantDensity: { value: 8, min: 0, max: 60, step: 1, label: "식생 점 밀도" },
           resTreeFull: { value: 4, min: 1, max: 10, step: 0.5, label: "나무 풍성함 (×)" },
-          resSizeVar: { value: 0.6, min: 0, max: 1, step: 0.05, label: "점 크기 편차" },
-          resSoft: { value: 0.6, min: 0, max: 1, step: 0.05, label: "점 부드러움 (0 = 현재처럼 또렷)" },
-          // (the artist, 2026-11-27: "이 노출은 흩날리는 거 강조용보다는 실제 읽어오는 점 위치가 바뀌었을 때 그걸
-          // 겹쳐보이게" — the readings' layers overlap; the blowing smear only an option, off)
-          resLayerSec: { value: 0.5, min: 0.1, max: 4, step: 0.05, label: "미래 장노출 — 다시 읽어 겹치는 간격 (s)" },
-          resJitter: { value: 0.04, min: 0, max: 0.3, step: 0.005, label: "미래 장노출 — 읽을 때마다 어긋남 (월드)" },
-          resGhostLife: { value: 3, min: 0.2, max: 12, step: 0.1, label: "미래 장노출 — 이전 읽기가 남는 시간 (s)" },
-          resGhostAlpha: { value: 0.45, min: 0, max: 1, step: 0.05, label: "미래 장노출 — 이전 읽기의 진하기 (0 = 없음)" },
-          // (the artist, 2026-11-27: "글리치나 번짐효과 같은 것도 넣고 싶음" — on the earlier layers, more as they age)
-          resBleed: { value: 0.5, min: 0, max: 1, step: 0.05, label: "이전 읽기 — 번짐" },
-          resTear: { value: 0.3, min: 0, max: 1, step: 0.05, label: "이전 읽기 — 글리치: 가로 찢김" },
-          resDrip: { value: 0.4, min: 0, max: 1, step: 0.05, label: "이전 읽기 — 글리치: 세로 흘러내림" },
-          // ("점 크기나 밀도 포함")
-          resBlock: { value: 0.35, min: 0, max: 1, step: 0.05, label: "이전 읽기 — 글리치: 블록 (빠짐 · 점 커짐)" },
-          resThin: { value: 0.4, min: 0, max: 1, step: 0.05, label: "이전 읽기 — 오래될수록 성겨짐" },
-          resExpose: { value: 0, min: 0, max: 3, step: 0.05, label: "흩날릴 때 번짐 (s, 0 = 없음)" },
-          resStreak: { value: 0.45, min: 0, max: 1, step: 0.05, label: "흩날릴 때 번짐 진하기" },
-          resStagger: { value: 1.2, min: 0, max: 4, step: 0.1, label: "바람이 훑고 지나가는 시간 (s)" },
-          // (the artist, 2026-11-27: "줄기 / 잎/ 건물부재가 fade out 되는 방식을 따로 정하고 싶음 뭐 떠오르는 정도나 등등")
-          "흩날림 — 건물 부재 (둔덕 · 흙 포함)": folder(
+          "식생 (잎 · 풀 · 꽃) · 점": folder(
             {
-              resBlowPartTime: { value: B.part.time, min: 0.3, max: 8, step: 0.1, label: "흩날리는 시간 (s)" },
-              resBlowPartDist: { value: B.part.dist, min: 0, max: 20, step: 0.5, label: "흩날리는 거리 (월드)" },
-              resBlowPartRise: { value: B.part.rise, min: -3, max: 6, step: 0.1, label: "떠오르는 정도 (월드, − = 떨어짐)" },
-              resBlowPartTurb: { value: B.part.turb, min: 0, max: 3, step: 0.05, label: "소용돌이 (0 = 곧게)" },
-              resBlowPartBloom: { value: B.part.bloom, min: 0, max: 1, step: 0.05, label: "흩날릴 때 피는 색" },
+              klDot: { value: K.leaf.dot, min: 0.5, max: 8, step: 0.1, label: "점 크기 (px)" },
+              klSizeVar: { value: K.leaf.sizeVar, min: 0, max: 1, step: 0.05, label: "점 크기 편차 (0 = 고르게)" },
+              klSoft: { value: K.leaf.soft, min: 0, max: 1, step: 0.05, label: "점 부드러움 (0 = 또렷)" },
             },
             { collapsed: true },
           ),
-          "흩날림 — 잎 (풀 · 꽃 포함)": folder(
+          "식생 (잎 · 풀 · 꽃) · 나타남": folder(
             {
-              resBlowLeafTime: { value: B.leaf.time, min: 0.3, max: 8, step: 0.1, label: "흩날리는 시간 (s)" },
-              resBlowLeafDist: { value: B.leaf.dist, min: 0, max: 20, step: 0.5, label: "흩날리는 거리 (월드)" },
-              resBlowLeafRise: { value: B.leaf.rise, min: -3, max: 6, step: 0.1, label: "떠오르는 정도 (월드, − = 떨어짐)" },
-              resBlowLeafTurb: { value: B.leaf.turb, min: 0, max: 3, step: 0.05, label: "소용돌이 (0 = 곧게)" },
-              resBlowLeafBloom: { value: B.leaf.bloom, min: 0, max: 1, step: 0.05, label: "흩날릴 때 피는 색" },
+              klSpread: { value: K.leaf.spread, min: 0.5, max: 30, step: 0.5, label: "찾은 자리에서 번지는 속도 (월드/s)" },
+              klDevelop: { value: K.leaf.develop, min: 0, max: 5, step: 0.1, label: "스캔 색에서 제 색으로 바래는 시간 (s)" },
             },
             { collapsed: true },
           ),
-          "흩날림 — 줄기": folder(
+          "식생 (잎 · 풀 · 꽃) · 장노출 · 글리치 (이전 읽기)": folder(
             {
-              resBlowStemTime: { value: B.stem.time, min: 0.3, max: 8, step: 0.1, label: "흩날리는 시간 (s)" },
-              resBlowStemDist: { value: B.stem.dist, min: 0, max: 20, step: 0.5, label: "흩날리는 거리 (월드)" },
-              resBlowStemRise: { value: B.stem.rise, min: -3, max: 6, step: 0.1, label: "떠오르는 정도 (월드, − = 떨어짐)" },
-              resBlowStemTurb: { value: B.stem.turb, min: 0, max: 3, step: 0.05, label: "소용돌이 (0 = 곧게)" },
-              resBlowStemBloom: { value: B.stem.bloom, min: 0, max: 1, step: 0.05, label: "흩날릴 때 피는 색" },
+              klJitter: { value: K.leaf.jitter, min: 0, max: 0.3, step: 0.005, label: "읽을 때마다 어긋남 (월드)" },
+              klGhostAlpha: { value: K.leaf.ghostAlpha, min: 0, max: 1, step: 0.05, label: "이전 읽기의 진하기 (0 = 없음)" },
+              klGhostLife: { value: K.leaf.ghostLife, min: 0.2, max: 12, step: 0.1, label: "이전 읽기가 남는 시간 (s)" },
+              klBleed: { value: K.leaf.bleed, min: 0, max: 1, step: 0.05, label: "번짐" },
+              klTear: { value: K.leaf.tear, min: 0, max: 1, step: 0.05, label: "글리치: 가로 찢김" },
+              klDrip: { value: K.leaf.drip, min: 0, max: 1, step: 0.05, label: "글리치: 세로 흘러내림" },
+              klBlock: { value: K.leaf.block, min: 0, max: 1, step: 0.05, label: "글리치: 블록 (빠짐 · 점 커짐)" },
+              klThin: { value: K.leaf.thin, min: 0, max: 1, step: 0.05, label: "오래될수록 성겨짐" },
+            },
+            { collapsed: true },
+          ),
+          "식생 (잎 · 풀 · 꽃) · 흩날림": folder(
+            {
+              klBlowTime: { value: K.leaf.blow.time, min: 0.3, max: 8, step: 0.1, label: "흩날리는 시간 (s)" },
+              klBlowDist: { value: K.leaf.blow.dist, min: 0, max: 20, step: 0.5, label: "흩날리는 거리 (월드)" },
+              klBlowRise: { value: K.leaf.blow.rise, min: -3, max: 6, step: 0.1, label: "떠오르는 정도 (월드, − = 떨어짐)" },
+              klBlowTurb: { value: K.leaf.blow.turb, min: 0, max: 3, step: 0.05, label: "소용돌이 (0 = 곧게)" },
+              klBlowBloom: { value: K.leaf.blow.bloom, min: 0, max: 1, step: 0.05, label: "흩날릴 때 피는 색" },
+              klSmear: { value: K.leaf.smear, min: 0, max: 3, step: 0.05, label: "흩날릴 때 번짐 (s, 0 = 없음)" },
+              klSmearAlpha: { value: K.leaf.smearAlpha, min: 0, max: 1, step: 0.05, label: "흩날릴 때 번짐 진하기" },
             },
             { collapsed: true },
           ),
         },
-        { collapsed: false },
+        { collapsed: true },
       ),
       overlayMode: { options: PLACE_MODES, value: "overlay" as PresenceMode, label: "방식 (라이다가 꺼져 있을 때)" },
       "보이는 것": folder(
@@ -178,38 +265,25 @@ export function useScanFutureKnobs(isV2: boolean) {
     on: v.overlayOn,
     gateR: v.resGateR,
     find: v.resFind,
-    spread: v.resSpread,
-    develop: v.resDevelop,
     life: v.resLife,
-    dot: v.resDot,
+    reach: v.resReach,
+    layerSec: v.resLayerSec,
+    stagger: v.resStagger,
     colour: v.resColour,
     concrete: v.resConcrete,
-    plantDensity: v.resPlantDensity,
+    stemColour: v.resStemColour,
     leaves: LEAF_KEYS.map((k) => v[k]),
     flowers: FLOWER_KEYS.map((k) => v[k]),
-    reach: v.resReach,
-    expose: v.resExpose,
-    streak: v.resStreak,
-    layerSec: v.resLayerSec,
-    jitter: v.resJitter,
-    ghostLife: v.resGhostLife,
-    ghostAlpha: v.resGhostAlpha,
-    bleed: v.resBleed,
-    tear: v.resTear,
-    drip: v.resDrip,
-    block: v.resBlock,
-    thin: v.resThin,
-    treeFull: v.resTreeFull,
     sat: v.resSat,
     flower: v.resFlower,
-    sizeVar: v.resSizeVar,
-    soft: v.resSoft,
-    stagger: v.resStagger,
-    blow: {
-      part: { time: v.resBlowPartTime, dist: v.resBlowPartDist, rise: v.resBlowPartRise, turb: v.resBlowPartTurb, bloom: v.resBlowPartBloom },
-      leaf: { time: v.resBlowLeafTime, dist: v.resBlowLeafDist, rise: v.resBlowLeafRise, turb: v.resBlowLeafTurb, bloom: v.resBlowLeafBloom },
-      stem: { time: v.resBlowStemTime, dist: v.resBlowStemDist, rise: v.resBlowStemRise, turb: v.resBlowStemTurb, bloom: v.resBlowStemBloom },
+    plantDensity: v.resPlantDensity,
+    treeFull: v.resTreeFull,
+    kinds: {
+      part: { dot: v.kpDot, sizeVar: v.kpSizeVar, soft: v.kpSoft, spread: v.kpSpread, develop: v.kpDevelop, jitter: v.kpJitter, ghostAlpha: v.kpGhostAlpha, ghostLife: v.kpGhostLife, bleed: v.kpBleed, tear: v.kpTear, drip: v.kpDrip, block: v.kpBlock, thin: v.kpThin, blow: { time: v.kpBlowTime, dist: v.kpBlowDist, rise: v.kpBlowRise, turb: v.kpBlowTurb, bloom: v.kpBlowBloom }, smear: v.kpSmear, smearAlpha: v.kpSmearAlpha },
+      leaf: { dot: v.klDot, sizeVar: v.klSizeVar, soft: v.klSoft, spread: v.klSpread, develop: v.klDevelop, jitter: v.klJitter, ghostAlpha: v.klGhostAlpha, ghostLife: v.klGhostLife, bleed: v.klBleed, tear: v.klTear, drip: v.klDrip, block: v.klBlock, thin: v.klThin, blow: { time: v.klBlowTime, dist: v.klBlowDist, rise: v.klBlowRise, turb: v.klBlowTurb, bloom: v.klBlowBloom }, smear: v.klSmear, smearAlpha: v.klSmearAlpha },
+      stem: { dot: v.ksDot, sizeVar: v.ksSizeVar, soft: v.ksSoft, spread: v.ksSpread, develop: v.ksDevelop, jitter: v.ksJitter, ghostAlpha: v.ksGhostAlpha, ghostLife: v.ksGhostLife, bleed: v.ksBleed, tear: v.ksTear, drip: v.ksDrip, block: v.ksBlock, thin: v.ksThin, blow: { time: v.ksBlowTime, dist: v.ksBlowDist, rise: v.ksBlowRise, turb: v.ksBlowTurb, bloom: v.ksBlowBloom }, smear: v.ksSmear, smearAlpha: v.ksSmearAlpha },
     },
   });
+
   return v;
 }
