@@ -154,8 +154,17 @@ export interface SoundParams {
    * meshed into the others, landing together on an arrival's tonic; the rest keep quiet.
    */
   ensembleCounterpoint: boolean;
-  /** How much of the hall and the pad stays while the ensemble plays (1 = as before): the parts must be heard (§13e). */
-  ensembleRoom: number;
+  /**
+   * How much the hall and the pad GROW while the ensemble plays (×, 1 = as when merely staying with someone): building
+   * together fills the room (the artist, 2026-11-27: "같이 지으면 오히려 홀이랑 패드는 강해져야"; §13e).
+   */
+  ensembleSwell: number;
+  /**
+   * How much the lines of a dialogue or an ensemble keep out of each other's way (0 … 1): 1 = an octave apart and every
+   * shared step dodged; 0 = the same register, the same beats, whatever falls (the artist, 2026-11-27: "같은 음역대에 좀
+   * 겹치면 어때 꼭 대위적으로 서로 피해갈 이유는 없음"; §13d–e).
+   */
+  apartness: number;
   /** How much of my motif goes into the long open space (0..1): the signal sent out, its tail. */
   motifVerb: number;
   /** How much of the building's dullness the patch gets (0 = none, 1 = as everything else). */
@@ -237,7 +246,8 @@ export const DEFAULT_SOUND: SoundParams = {
   foundLevel: 1,
   askCounterpoint: true,
   ensembleCounterpoint: true,
-  ensembleRoom: 0.4,
+  ensembleSwell: 1.5,
+  apartness: 0.3,
   ncDull: 0.7,
   ncMap: true,
   ncMapDepth: 0.8,
@@ -579,8 +589,10 @@ export class SoundEngine {
       const viaMe = !their;
       const mineLine = endClosed(realize(this.me.motif, key, chord, 1, this.planned), key);
       const raw = realize(theirs, key, chord, 1, this.planned);
-      const shift = apartShift(mineLine, raw, viaMe ? 0 : T);
-      const theirLine = interlock(mineLine, shiftNotes(raw, shift));
+      // (how far apart they keep: the artist's 서로 피하는 정도 — an octave only when nearly on top of each other at 0.3)
+      const ap = this.params.apartness;
+      const shift = apartShift(mineLine, raw, viaMe ? 0 : T, 12 * ap);
+      const theirLine = interlock(mineLine, shiftNotes(raw, shift), 8, ap, this.planned);
       const theirDest = their?.filt ?? this.me.filt;
       for (const n of mineLine) this.note(this.me.filt, n.freq, at0 + n.at * cycleSec, n.len * cycleSec, ANSWER_VEL, this.me.motif.timbre, 0, true);
       for (const n of theirLine) {
@@ -1025,20 +1037,24 @@ export class SoundEngine {
    * (its first two notes on the 1 and the half bar), the third an inner line — each its own register (by octaves),
    * the melodic parts meshed into my line (their notes step aside from mine); on an arrival's tonic every line's first
    * note lands on the downbeat together. Through their own voices, unblurred; their heads hop on these notes.
+   * UNDER A DIALOGUE (`solo`: a question open, an answer sounding — the artist, 2026-11-27: "대화랑 합주 구분이 잘 안 됨"):
+   * the band plays on, softer, without the asker / whom I answer and without my line — their duet is the solo on top.
    */
-  private playEnsemble(plan: BarPlan, at: number, barSec: number, bar: number, mineToo: boolean): void {
+  private playEnsemble(plan: BarPlan, at: number, barSec: number, bar: number, mineToo: boolean, solo: { without: (string | undefined)[] } | null): void {
     const key = this.zoneKey ?? this.key;
     const ens = this.ens;
     if (!this.me || !key || !ens) return;
     const tonic = plan.arrival === "tonic";
     const lock = tonic ? 1 : Math.max(0.85, plan.lock);
+    const ap = this.params.apartness;
+    const vel = solo ? 0.5 : 0.9;
     const mine = realize(this.me.motif, key, plan.chord, lock, bar);
-    if (mineToo) for (const n of mine) this.note(this.me.filt, n.freq, at + n.at * barSec, n.len * barSec, 1, this.me.motif.timbre, 0, true);
+    if (mineToo && !solo) for (const n of mine) this.note(this.me.filt, n.freq, at + n.at * barSec, n.len * barSec, 1, this.me.motif.timbre, 0, true);
     // (placed by the pitches heard: my register knob moves mine)
     const heardMine = shiftNotes(mine, this.params.motifTranspose);
     const lines: MotifNote[][] = [heardMine];
     const live = this.ensembleIds
-      .filter((id) => (ens.entries.get(id) ?? Infinity) <= bar && this.voices.has(id))
+      .filter((id) => (ens.entries.get(id) ?? Infinity) <= bar && this.voices.has(id) && !solo?.without.includes(id))
       .sort((a, b) => ens.entries.get(a)! - ens.entries.get(b)! || (a < b ? -1 : 1));
     live.forEach((id, i) => {
       const v = this.voices.get(id)!;
@@ -1047,17 +1063,19 @@ export class SoundEngine {
       let line: MotifNote[];
       if (i === 1) line = bassUnder(lines, raw);
       else {
+        // (each its own register only as far as the artist's 서로 피하는 정도 asks — they may share one)
         const l = i === 0 && !tonic ? rotate(raw) : raw;
-        const moved = shiftNotes(l, placeApart(lines, l));
-        line = tonic ? landWith(heardMine, moved) : interlock(heardMine, moved);
+        const moved = shiftNotes(l, placeApart(lines, l, 9 * ap));
+        line = tonic ? landWith(heardMine, moved, 8, ap, bar * 7 + i) : interlock(heardMine, moved, 8, ap, bar * 7 + i);
       }
       for (const n of line) {
-        this.note(v.filt, n.freq, at + n.at * barSec, n.len * barSec, 0.9, m.timbre, 0);
+        this.note(v.filt, n.freq, at + n.at * barSec, n.len * barSec, vel, m.timbre, 0);
         this.feature(id, at + n.at * barSec);
       }
       lines.push(line);
     });
-    this.dialogueLine = `합주 ${live.length + 1}성부 @${bar}${tonic ? " · 같이 착지" : ""}`;
+    const what = `합주 ${live.length + (solo ? 0 : 1)}성부${tonic ? " · 같이 착지" : ""}`;
+    this.dialogueLine = solo ? `${this.dialogueLine} · 밑에 ${what}` : `${what} @${bar}`;
   }
 
   /**
@@ -1074,7 +1092,7 @@ export class SoundEngine {
     }
     const m = word ?? v.motif;
     const call = endOpen(realize(m, key, plan.chord, 1, bar), key);
-    const shift = apartShift(realize(this.me.motif, key, plan.chord, 1, bar), call, this.params.motifTranspose);
+    const shift = apartShift(realize(this.me.motif, key, plan.chord, 1, bar), call, this.params.motifTranspose, 12 * this.params.apartness);
     for (const n of shiftNotes(call, shift)) {
       this.note(v.filt, n.freq, at + n.at * barSec, n.len * barSec, 1, m.timbre, 0);
       this.feature(id, at + n.at * barSec);
@@ -1193,7 +1211,8 @@ export class SoundEngine {
     // the arrival opens the hall at once and lets it close over ~6 s
     const glow = this.arrivalGlow * Math.exp(-(t - this.arrivalAt) / 6);
     // THE ENSEMBLE (§13e): while the record says 합주, the nearest of those around me (who really build with me first)
-    // each take a part; the hall and the pad step back so the parts are heard (the arrival's opening stays whole)
+    // each take a part; the hall and the pad GROW — building together fills the room (the artist, 2026-11-27: "같이 지으면
+    // 오히려 홀이랑 패드는 강해져야"), at least as open as with two people beside me, times ensembleSwell
     if (params.ensembleCounterpoint && sig.ensemble) {
       const near = sig.neighbours.filter((n) => n.dist <= params.hearRadius * ENSEMBLE_NEAR);
       const co = sig.coBuilders ?? [];
@@ -1204,11 +1223,12 @@ export class SoundEngine {
         .slice(0, ENSEMBLE_PARTS)
         .map((n) => n.o);
     } else this.ensembleIds = [];
-    const room = this.ensembleIds.length ? params.ensembleRoom : 1;
-    const hall = Math.max(params.reverbMax * sig.stay * company * room, params.reverbMax * params.arrivalHall * glow);
+    const staying = params.reverbMax * sig.stay * company;
+    const hall = Math.max(this.ensembleIds.length ? Math.max(staying, params.reverbMax * 0.7) * params.ensembleSwell : staying, params.reverbMax * params.arrivalHall * glow);
     this.rooms.hall.gain.setTargetAtTime(hall, t, glow > 0.3 ? 0.15 : 0.8);
-    this.rooms.concrete.gain.setTargetAtTime(0.35 * sig.sealed * (1 - hall), t, 0.4);
-    this.rooms.open.gain.setTargetAtTime(0.12 * (1 - sig.sealed) * (1 - hall), t, 0.4);
+    const dryRooms = 1 - Math.min(1, hall);
+    this.rooms.concrete.gain.setTargetAtTime(0.35 * sig.sealed * dryRooms, t, 0.4);
+    this.rooms.open.gain.setTargetAtTime(0.12 * (1 - sig.sealed) * dryRooms, t, 0.4);
 
     // who is within earshot: a voice each, the nearest MAX_VOICES only, with a level of detail in the panning
     // (v4 A1): the nearest one is placed by HRTF (a convolution per panner), the others by equal-power panning;
@@ -1741,9 +1761,10 @@ export class SoundEngine {
       foundBar = true;
     }
 
-    // THE ENSEMBLE (§13e): while the record says 합주 and nothing is being asked or answered — the parts enter one bar
-    // after another (in the order they joined), and the ordinary melodies keep quiet under them
-    const ensembleOn = !hush && this.ensembleIds.length > 0;
+    // THE ENSEMBLE (§13e): while the record says 합주 (really building together) — the parts enter one bar after another
+    // (in the order they joined), and the ordinary melodies keep quiet under them. A question or an answer in the middle
+    // of it is a SOLO over the band: the band plays on, softer, without the two who talk and without my line
+    const ensembleOn = this.ensembleIds.length > 0;
     if (ensembleOn) {
       if (!this.ens) this.ens = { from: next, entries: new Map() };
       for (const id of this.ensembleIds) {
@@ -1752,8 +1773,9 @@ export class SoundEngine {
         for (const b of this.ens.entries.values()) last = Math.max(last, b);
         this.ens.entries.set(id, Math.max(next, last + 1));
       }
-      this.playEnsemble(plan, nextStart, barSec, next, !foundBar);
-    } else if (!hush) this.ens = null;
+      const partnerNow = this.partner && now < this.partner.until ? this.partner.id : undefined;
+      this.playEnsemble(plan, nextStart, barSec, next, !foundBar, hush ? { without: [q?.id, partnerNow] } : null);
+    } else this.ens = null;
 
     if (!foundBar && !hush && !ensembleOn) for (const n of plan.me) this.note(this.me.filt, n.freq, nextStart + n.at * barSec + human(), n.len * barSec, 1, this.me.motif.timbre, 0, true);
     if (!hush && !ensembleOn) for (const vb of plan.others) {
@@ -1782,6 +1804,10 @@ export class SoundEngine {
     // breath it read as the sound being eaten at the wave's peak)
     if (!alone) for (const b of plan.bass) this.bassNote(b.pitch, nextStart + b.at * barSec, b.level, plan.arrival === "tonic" && b.at < 0.05 ? 0 : 1);
     // (the ensemble's parts must be heard: the pad steps back while it plays — §13e; the tonic's arrival stays whole)
-    this.setPad(plan.pad.pitches, alone ? 0 : plan.pad.level * (ensembleOn && plan.arrival !== "tonic" ? p.ensembleRoom : 1), nextStart, plan.arrival === "tonic");
+    // (building together fills the room: while the ensemble plays the pad is there — the place's chord, at least as full as
+    // with two people beside me — and grows by ensembleSwell; §13e)
+    const padPitches = ensembleOn && !plan.pad.pitches.length ? [36 + plan.chord.rootClass, ...plan.chord.classes.map((c) => 48 + c)] : plan.pad.pitches;
+    const padLevel = ensembleOn ? Math.max(plan.pad.level, 0.7) * p.ensembleSwell : plan.pad.level;
+    this.setPad(padPitches, alone ? 0 : padLevel, nextStart, plan.arrival === "tonic");
   }
 }

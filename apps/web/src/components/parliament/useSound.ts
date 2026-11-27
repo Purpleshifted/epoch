@@ -95,8 +95,11 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       // /rehearsal/experiment): the exhibition's view keeps its sound whatever is saved here
       askCounterpoint: { value: DEFAULT_SOUND.askCounterpoint, label: "묻고 답하기를 대위로 (개편 개인뷰만) — 묻는 이는 한 마디 부르고 한 마디 비움 · 대답은 두 선이 벌어져 맞물렸다가 새 어휘로 하나 · 그 뒤 내 멜로디 = 새 어휘 (끄면 전처럼)", render: () => isV2 && newLook() },
       // building together as an ensemble (sound-logic §13e) — the same pages only
-      ensembleCounterpoint: { value: DEFAULT_SOUND.ensembleCounterpoint, label: "함께 짓기를 합주로 (개편 개인뷰만) — 기록이 '합주 중'일 때 곁의 셋까지 한 마디씩 차례로 들어옴: 반 마디 늦은 카논 · 모두 밑의 베이스 · 안쪽 선, 각자 제 음역에서 맞물림 · 도착의 으뜸에 같이 착지 (끄면 전처럼)", render: () => isV2 && newLook() },
-      ensembleRoom: { value: DEFAULT_SOUND.ensembleRoom, min: 0, max: 1, step: 0.05, label: "합주 중 홀·패드 남기는 정도 (1 = 전처럼, 낮을수록 성부가 또렷)", render: (get: (path: string) => unknown) => isV2 && newLook() && !!get(`${ROOT}.ensembleCounterpoint`) },
+      ensembleCounterpoint: { value: DEFAULT_SOUND.ensembleCounterpoint, label: "함께 짓기를 합주로 (개편 개인뷰만) — 실제로 같이 지을 때(기록 '합주 중') 곁의 셋까지 한 마디씩 차례로 들어옴: 반 마디 늦은 카논 · 모두 밑의 베이스 · 안쪽 선 · 홀·패드가 커짐 · 도착의 으뜸에 같이 착지 · 그 사이 말을 걸면 합주 위의 솔로 (끄면 전처럼)", render: () => isV2 && newLook() },
+      // (the artist, 2026-11-27: "같이 지으면 오히려 홀이랑 패드는 강해져야" — the hall and the pad grow while building)
+      ensembleSwell: { value: DEFAULT_SOUND.ensembleSwell, min: 1, max: 2.5, step: 0.05, label: "합주 중 홀·패드 키우기 (×, 1 = 곁에 머물 때만큼)", render: (get: (path: string) => unknown) => isV2 && newLook() && !!get(`${ROOT}.ensembleCounterpoint`) },
+      // (the artist, 2026-11-27: "같은 음역대에 좀 겹치면 어때 꼭 대위적으로 서로 피해갈 이유는 없음")
+      apartness: { value: DEFAULT_SOUND.apartness, min: 0, max: 1, step: 0.05, label: "대화·합주의 선들이 서로 피하는 정도 (0 = 같은 음역·같은 박에 겹쳐도 됨, 1 = 옥타브 벌리고 박 비킴)", render: () => isV2 && newLook() },
       // the life's recording (useLifeRecording.ts, docs/recording.md): the headset's mix from the name's melody to the
       // end of the reverb, kept here and sent up; the specimen card's QR opens it
       record: { value: true, label: "녹음 — 이름의 멜로디부터 죽음의 잔향 끝까지, 헤드셋 믹스만 (표본 카드의 QR)", render: v2 },
@@ -236,7 +239,7 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
     master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, sealRadius, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, bassSpread, bassDub, bassDuck, bassDrop,
     motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb,
     motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb,
-    bassFrom, pathRadius, afterlifeTail, afterglow, foundLevel, askCounterpoint, ensembleCounterpoint, ensembleRoom,
+    bassFrom, pathRadius, afterlifeTail, afterglow, foundLevel, askCounterpoint, ensembleCounterpoint, ensembleSwell, apartness,
   } = c;
   const params = useMemo<SoundParams>(
     () => ({
@@ -247,9 +250,10 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       // (the URL decides newLook — the experiment address — so it is read once per change of the switch)
       askCounterpoint: askCounterpoint && newLook(),
       ensembleCounterpoint: ensembleCounterpoint && newLook(),
-      ensembleRoom,
+      ensembleSwell,
+      apartness,
     }),
-    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, bassSpread, bassDub, bassDuck, bassDrop, motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb, motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb, bassFrom, afterlifeTail, afterglow, foundLevel, askCounterpoint, ensembleCounterpoint, ensembleRoom],
+    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, bassSpread, bassDub, bassDuck, bassDrop, motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb, motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb, bassFrom, afterlifeTail, afterglow, foundLevel, askCounterpoint, ensembleCounterpoint, ensembleSwell, apartness],
   );
   const sigCfg = useMemo<SignalConfig>(() => ({ ...DEFAULT_SIGNALS, hearRadius, sealRadius, pathRadius }), [hearRadius, sealRadius, pathRadius]);
   const { record: recordOn, recordKbps } = c;

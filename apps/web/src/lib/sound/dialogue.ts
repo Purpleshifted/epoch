@@ -12,7 +12,7 @@
  */
 
 import type { WorldKey } from "./harmony";
-import type { MotifNote } from "./motif";
+import { hashString, rng, type MotifNote } from "./motif";
 
 /** The range a moved line must stay in (MIDI): G2 … E6. */
 export const DIALOGUE_LO = 43;
@@ -31,13 +31,15 @@ export function shiftNotes(ns: readonly MotifNote[], semis: number): MotifNote[]
 /**
  * How far (semitones, a multiple of 12, or 0) `theirs` moves so the two lines' centres are at least an octave apart,
  * staying inside lo … hi: away from mine first (up when theirs is the higher one), else the other way, else two octaves.
- * `mineOffset` = my register knob (motifTranspose), applied to my notes later in the instrument.
+ * `mineOffset` = my register knob (motifTranspose), applied to my notes later in the instrument. `gap`: how close the
+ * centres may be before theirs moves (12 = an octave apart always; smaller lets them share the register — the artist,
+ * 2026-11-27: "같은 음역대에 좀 겹치면 어때"; 0 = never moved).
  */
-export function apartShift(mine: readonly MotifNote[], theirs: readonly MotifNote[], mineOffset = 0, lo = DIALOGUE_LO, hi = DIALOGUE_HI): number {
-  if (!mine.length || !theirs.length) return 0;
+export function apartShift(mine: readonly MotifNote[], theirs: readonly MotifNote[], mineOffset = 0, gap = 12, lo = DIALOGUE_LO, hi = DIALOGUE_HI): number {
+  if (!mine.length || !theirs.length || gap <= 0) return 0;
   const a = mean(mine) + mineOffset;
   const b = mean(theirs);
-  if (Math.abs(b - a) >= 12) return 0;
+  if (Math.abs(b - a) >= gap) return 0;
   let tlo = Infinity;
   let thi = -Infinity;
   for (const n of theirs) {
@@ -85,15 +87,18 @@ export function endClosed(ns: readonly MotifNote[], key: WorldKey): MotifNote[] 
 /**
  * `theirs` meshed with `mine` on a bar of `steps`: a note of theirs on a step mine already sounds moves to the next free
  * step (in order, never before its own previous note); a note with no free step left is dropped. Each kept note is held
- * to its own line's next onset (85 %, as realize() does).
+ * to its own line's next onset (85 %, as realize() does). `avoid` (0 … 1): the chance each such note steps aside — 1 =
+ * always (gears), smaller lets them sound together on one step (the artist, 2026-11-27: "꼭 대위적으로 서로 피해갈 이유는
+ * 없음"); drawn from `seed`, so the same bar meshes the same way every time it is planned.
  */
-export function interlock(mine: readonly MotifNote[], theirs: readonly MotifNote[], steps = 8): MotifNote[] {
+export function interlock(mine: readonly MotifNote[], theirs: readonly MotifNote[], steps = 8, avoid = 1, seed = 0): MotifNote[] {
   const taken = new Set(mine.map((n) => Math.round(n.at * steps)));
+  const r = rng(hashString(`interlock#${seed}`));
   const placed: { n: MotifNote; s: number }[] = [];
   let last = -1;
   for (const n of [...theirs].sort((x, y) => x.at - y.at)) {
     let s = Math.max(Math.round(n.at * steps), last + 1);
-    while (s < steps && taken.has(s)) s++;
+    if (r() < avoid) while (s < steps && taken.has(s)) s++;
     if (s >= steps) break;
     placed.push({ n, s });
     taken.add(s);
@@ -173,8 +178,8 @@ export function bassUnder(lines: readonly (readonly MotifNote[])[], l: readonly 
 }
 
 /** The ARRIVAL: a line's first note on the downbeat with everyone's, the rest meshed into what is already there. */
-export function landWith(placed: readonly MotifNote[], l: readonly MotifNote[], steps = 8): MotifNote[] {
+export function landWith(placed: readonly MotifNote[], l: readonly MotifNote[], steps = 8, avoid = 1, seed = 0): MotifNote[] {
   if (!l.length) return [];
-  const rest = interlock(placed, l.slice(1), steps);
+  const rest = interlock(placed, l.slice(1), steps, avoid, seed);
   return [{ ...l[0], at: 0, len: ((rest[0]?.at ?? 1) - 0) * 0.85 }, ...rest];
 }

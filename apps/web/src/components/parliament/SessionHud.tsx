@@ -122,12 +122,14 @@ const LEVEL_CLASS = ["text-[#8c8c8c]", "text-white", "bg-white text-black"];
 /** A line of the record: the `{}`s in its words are where the melody is drawn. */
 function RecordWords({ text, dots, className = "" }: { text: string; dots?: readonly GlyphDot[]; className?: string }) {
   const parts = text.split("{}");
+  // (a long line WRAPS to two, the glyph inline in it, and is cut only past the second — the artist, 2026-11-27: "문장
+  // 길면 자동으로 두 줄로"; it was one unbreakable row, cut off at the record's edge)
   return (
-    <span className={`flex min-w-0 items-center gap-[2px] ${className}`}>
+    <span className={`line-clamp-2 min-w-0 whitespace-pre-wrap break-keep ${className}`}>
       {parts.map((part, i) => (
-        <span key={i} className="contents">
-          {part && <span className="whitespace-pre">{part}</span>}
-          {i < parts.length - 1 && dots && <Glyph dots={dots} cell={3} />}
+        <span key={i}>
+          {part}
+          {i < parts.length - 1 && dots && <Glyph dots={dots} cell={3} className="mx-[2px]" />}
         </span>
       ))}
     </span>
@@ -197,6 +199,7 @@ export function SessionHud({
   coarse = false,
   footprint = true,
   logPlace = "bottom",
+  logWidth = 0,
   card = { theme: "paper", orient: "portrait" },
   venue = null,
   recordingUrl,
@@ -221,6 +224,8 @@ export function SessionHud({
    *  record stands — "bottom" as it was; "left", a column at the left edge, the newest line lowest and the old ones fading
    *  upwards, the middle of the view left empty; "top", a short strip under the top edge with the newest line first. */
   logPlace?: "bottom" | "left" | "top";
+  /** The record's width (rem; 0 = as it was): the left column's width, the strip's / the block's widest (Leva 역할 › 기록창 폭). */
+  logWidth?: number;
   /** After a suicide, one line of where to get help (the artist's call). */
   helpLine?: boolean;
   /** How long X is held to stop living (what the banner says). */
@@ -256,7 +261,8 @@ export function SessionHud({
   const say = lang === "ko" || phase === "ended" ? "hud-ko" : "";
   // (the story's and the bond's lines only with the lab's new look: the exhibition's personal view keeps its record —
   // the rule of 2026-11-27, mobileLab.newLook)
-  const [log] = useState(() => new WitnessLog(newLook() ? { ...DEFAULT_WITNESS, tales: true } : undefined));
+  // (the new look: the story's and the bond's lines, and 합주 only while really building together — sound-logic §13e)
+  const [log] = useState(() => new WitnessLog(newLook() ? { ...DEFAULT_WITNESS, tales: true, builtOnly: true } : undefined));
   const [watch] = useState(() => new LedgerWatch());
   const lastObs = useRef<Observation | null>(null);
   /** Wall ms the pointer was locked (0 = not locked): the hands reach the keys only then. */
@@ -610,8 +616,13 @@ export function SessionHud({
                 ? "absolute inset-x-0 top-14 flex justify-center px-3 [&>div>div:nth-child(2)]:flex [&>div>div:nth-child(2)]:max-h-[4.6rem] [&>div>div:nth-child(2)]:min-h-0 [&>div>div:nth-child(2)]:flex-col-reverse [&>div>div:nth-child(2)]:justify-end [&>div>div:nth-child(2)]:overflow-hidden"
                 : "absolute inset-x-0 bottom-0 flex justify-center px-4 pb-4"
           }
+          // (the width the knob gives: the left column's own width, else the block's widest — never past the screen)
+          style={logWidth > 0 && logPlace === "left" ? { width: `min(92vw, ${logWidth}rem)` } : undefined}
         >
-          <div className="w-full max-w-[36rem] border border-white bg-black text-[15px] leading-[1.25] tracking-[0.04em]">
+          <div
+            className="w-full max-w-[36rem] border border-white bg-black text-[15px] leading-[1.25] tracking-[0.04em]"
+            style={logWidth > 0 && logPlace !== "left" ? { maxWidth: `min(100%, ${logWidth}rem)` } : undefined}
+          >
             {rec.me && (
               <div className="flex items-center gap-3 border-b border-white px-3 py-2 text-white">
                 <div className={`${say} shrink-0`}>{S.live.mine}</div>
@@ -625,7 +636,7 @@ export function SessionHud({
               {rec.entries.map((e, i) => {
                 const { prefix, text } = formatEntry(e, lang);
                 return (
-                  <div key={`${i}:${e.t}:${e.key}`} className={`flex items-center gap-2 ${LEVEL_CLASS[e.level]}`}>
+                  <div key={`${i}:${e.t}:${e.key}`} className={`flex items-start gap-2 ${LEVEL_CLASS[e.level]}`}>
                     <span className="shrink-0 whitespace-pre">{prefix}</span>
                     <RecordWords text={text} dots={e.args.dots} className={say} />
                   </div>

@@ -119,3 +119,24 @@ describe("the ensemble: several lines, each its own place (sound-logic §13e)", 
     expect(l.map((n) => Math.round(n.at * 8))).toEqual([0, 3, 5]);
   });
 });
+
+describe("overlap allowed (the artist, 2026-11-27: \"같은 음역대에 좀 겹치면 어때\")", () => {
+  it("apartShift's gap: a smaller gap leaves nearby lines in one register; 0 never moves", () => {
+    const mine = [note(0, 60), note(3, 64)];
+    const close = [note(0, 66), note(2, 68)]; // centre 5 semitones above mine
+    expect(apartShift(mine, close)).toBe(12);
+    expect(apartShift(mine, close, 0, 4)).toBe(0);
+    expect(apartShift(mine, [note(0, 62)], 0, 4)).toBe(12);
+    expect(apartShift(mine, [note(0, 62)], 0, 0)).toBe(0);
+  });
+
+  it("interlock's avoid: 0 keeps every step (sounding together), 1 steps aside always, in between per note and repeatable", () => {
+    const mine = [note(0, 60), note(2, 62), note(5, 64)];
+    const theirs = [note(0, 72), note(2, 74), note(3, 76), note(6, 79)];
+    expect(interlock(mine, theirs, 8, 0).map((n) => Math.round(n.at * 8))).toEqual([0, 2, 3, 6]);
+    expect(interlock(mine, theirs, 8, 1).map((n) => Math.round(n.at * 8))).toEqual([1, 3, 4, 6]);
+    const half = interlock(mine, theirs, 8, 0.5, 7).map((n) => Math.round(n.at * 8));
+    expect(interlock(mine, theirs, 8, 0.5, 7).map((n) => Math.round(n.at * 8))).toEqual(half);
+    for (let i = 1; i < half.length; i++) expect(half[i]).toBeGreaterThan(half[i - 1]);
+  });
+});

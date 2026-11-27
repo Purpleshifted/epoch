@@ -282,6 +282,8 @@ export function RoleField({
   const answerDue = useRef<{ other: string; seed: number } | null>(null);
   // the record's 합주 (witness ensemble.start … end): the sound plays it as an ensemble (sound-logic §13e)
   const ensembleNow = useRef(false);
+  // whom I am really building with (the last fold's coBuilders): the record's 합주 needs it on the new look (witness builtOnly)
+  const coBuilding = useRef<string[]>([]);
   useEffect(
     () =>
       onLifeEvent((e) => {
@@ -559,6 +561,7 @@ export function RoleField({
           t: lifeRef?.current.t ?? 0,
           words: wordsRef.current,
           alive,
+          building: coBuilding.current,
           cfg: { ...DEFAULT_WITNESS, nearRadius: cfg.radius, farRadius: VIEW_RADIUS },
         });
         // (the future passed where the visitor stands: FutureEncounter.tsx — the record writes it once)
@@ -621,6 +624,7 @@ export function RoleField({
           cfg: sound.sigCfg,
           alive,
         });
+        coBuilding.current = sig.coBuilders ?? [];
         // V2 session: the visitor's motif is only given once their role is fixed (LIVE); before that the engine hears
         // nobody (no id → no motif of mine, no voices of others) and is silent (muffleSound)
         const present = !lifeRef || lifeRef.current.phase === "live";

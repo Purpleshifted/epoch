@@ -119,6 +119,18 @@ describe("the witness: a record of who is near", () => {
     for (const t of [1, 3, 5, 7, 9]) expect(alone.push(obsAt(t, [walker])).some((e) => e.key === "ensemble.start")).toBe(false);
   });
 
+  it("builtOnly (the new look): staying together is 합주 only once my weight counts on a building others built", () => {
+    const log = new WitnessLog({ ...DEFAULT_WITNESS, ensembleSec: 3, settleSec: 1, wordAfterSec: 1000, builtOnly: true });
+    log.push(obsAt(0, []));
+    // standing with someone who stands, nothing built with them: no 합주 however long
+    for (const t of [1, 3, 5, 7, 9]) expect(log.push(obsAt(t, [bot(2)])).some((e) => e.key === "ensemble.start")).toBe(false);
+    // my weight counts on their building: 합주 once it has lasted ensembleSec
+    const built = (t: number) => ({ ...obsAt(t, [bot(2)]), building: ["bot_2"] });
+    log.push(built(10));
+    const began = log.push(built(13.5));
+    expect(began.map((e) => e.key)).toContain("ensemble.start");
+  });
+
   it("someone asks now and then; an open question can be answered once, and that is what leaves a new word", () => {
     const log = new WitnessLog({ ...DEFAULT_WITNESS, wordAfterSec: 6, askEverySec: 16, askOpenSec: 7 });
     log.push(obsAt(0, []));
