@@ -189,6 +189,21 @@ when the observer leaves. The blowing smear became an option, off (`흩날릴 �
 - Checked: type check only. The headless look did not start (load 110–140, swap 7.4/8 GB); the :3029 server had grown
   to 2.5 GB again an hour after its restart — restart it when the page drags.
 
+**Everything per kind (08cb230):** "그 모든 효과를... 부재 / 줄기 / 식생 따로 정하게 해달라니깐 애초에 레바를...", "점 크기도
+그렇고 걍 전부 다". Leva = `잔류 — 공통` (observer distance, finding distance, how long it stays, reach, layer interval,
+gust sweep) + three folders `건물 부재 (둔덕 · 흙 포함)` (colour, concrete) / `줄기` (colour) / `식생 (잎 · 풀 · 꽃)` (palette,
+saturation, flowers, density, tree fullness), each with `· 점` (size, size spread, softness), `· 나타남` (spread,
+develop), `· 장노출 · 글리치 (이전 읽기)` (scan error, earlier layers' strength and time, bleed, tear, drip, blocks,
+thinning), `· 흩날림` (time, distance, rise, swirl, bloom colour, smear, smear strength). Keys kp* / ks* / kl*; the
+programs read each per kind (vec3: parts, plants, stems); earlier layers carry the kind. Shared effect keys removed;
+the palette and the shared knobs kept their keys.
+
+**Her colour profiles (f3388dd):** `visual_reference_images/color_profiles/` (IMG_0637, 1970–1976): electric nature —
+cobalt/violet against vermilion/red/hot pink, acid chartreuse and mint accents, olive and brown beneath, lavender
+white. Seven buttons in the plants' palette (`프로파일 · …`), each read off its picture by k-means and lifted to shine
+on black; each sets the six leaves, five flowers, the parts' and the stems' colours (`FutureResidue.tsx
+COLOUR_PROFILES`). Not yet seen on screen. The :3029 server was restarted at 3 GB (standing rule); cold compile 56 s.
+
 **Status (2026-11-23): PAUSED by the coordinator (machine overloaded) after the reference study; nothing built, no
 question put to the artist yet.** Code untouched (`FuturePresence.tsx`, `futurePresence.ts`, `labKnobsScanFuture.ts` =
 HEAD). Resume = put the three directions below to her and build her pick.
