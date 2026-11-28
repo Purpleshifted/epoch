@@ -216,16 +216,16 @@ export interface SoundParams {
   askDuck: number;
   /**
    * THE FUTURE PASSING AS A DAYDREAM (§13k — the artist, 2026-11-28: "'미래' 찾아왔을 때 … 소리 효과가 없음. 음색이나 화성을
-   * 퓨처리스틱 + 원래 하던 꽃 효과 + 뭔가 전파스러운 … 백일몽이 나를 스쳐가는 느낌"; the redesigned view only): on, its level
-   * and length (s), and each part's share — the radio (a band of static tuning in, a whistle), the chord (a quintal
-   * stack shimmering), my own melody as if broadcast from the future, the old meadow's glitter (futureSound.ts), the
-   * patch's bloom.
+   * 퓨처리스틱 + 원래 하던 꽃 효과 + 뭔가 전파스러운 … 백일몽이 나를 스쳐가는 느낌", then "훨씬 엠비언트 하게 … 삐악 하는
+   * 코드 소리? 는 빼는"; the redesigned view only): on, its level and length (s), and each part's share — the haze (the
+   * place's lydian, low and slow), the radio far off (a dark band of static), my own melody as if from the future, the
+   * old meadow's glitter (futureSound.ts), the patch's bloom.
    */
   futureSound: boolean;
   futureLevel: number;
   futureDur: number;
+  futureHaze: number;
   futureRadio: number;
-  futureChord: number;
   futureEcho: number;
   futureGlitter: number;
   futureBloom: number;
@@ -333,11 +333,11 @@ export const DEFAULT_SOUND: SoundParams = {
   askDuck: 0.6,
   futureSound: true,
   futureLevel: 0.8,
-  futureDur: 7,
+  futureDur: 10,
+  futureHaze: 1,
   futureRadio: 1,
-  futureChord: 1,
   futureEcho: 1,
-  futureGlitter: 1,
+  futureGlitter: 0.5,
   futureBloom: 1,
   reactTension: 1,
   reactChange: 1,
@@ -1305,129 +1305,133 @@ export class SoundEngine {
   }
 
   /**
-   * THE FUTURE PASSING AS A DAYDREAM (§13k): `arrive` — a band of static tuning in with a whistle that locks, a quintal
-   * chord on the place's root shimmering high (its #11 the lydian's air), and my own melody in the place's lydian, an
-   * octave up, on a thin radio voice that passes (its pitch falls a little as it goes by) — panned from `panFrom` to
-   * `panTo` over futureDur s, into the hall; the patch blooms. `leave` — the static sweeping down and the chord sinking
-   * a semitone as it fades, off the way the wind blows. False when nothing was played (sound off, dead, the switch off).
+   * THE FUTURE PASSING AS A DAYDREAM (§13k), AMBIENT (the artist, 2026-11-28: "미래 소리 효과 훨씬 엠비언트 하게 넣고 삐악
+   * 하는 코드 소리? 는 빼는 게 나을 듯"): `arrive` — a HAZE rising low (the place's lydian: root, fifth, ninth, #11 as
+   * detuned triangle pairs under a filter that opens slowly and closes again; no tremolo), a DARK BAND OF STATIC drifting
+   * as if tuned from far off, and MY MELODY once, slowed to half its pace, on a soft radio voice deep in the hall, passing
+   * (its pitch falls a little as it goes by) — panned from `panFrom` to `panTo` over futureDur s, more wet than dry; the
+   * patch blooms. `leave` — the static sinking and the haze falling a semitone as it fades, off the way the wind blows.
+   * (The high quintal chord that shimmered at 4.5–9 Hz — the chirp — and the radio's gliding whistle are gone.)
+   * False when nothing was played (sound off, dead, the switch off).
    */
   daydream(kind: "arrive" | "leave", panFrom: number, panTo: number): boolean {
     const ctx = this.ctx;
     const p = this.params;
     if (!ctx || !this.running || ctx.state !== "running" || p.dead || this.afterlife || !p.futureSound || p.futureLevel <= 0) return false;
     const t0 = ctx.currentTime + 0.05;
-    const D = kind === "arrive" ? Math.max(2, p.futureDur) : Math.max(1.5, p.futureDur * 0.5);
-    const stop = t0 + D + 1.5;
+    const D = kind === "arrive" ? Math.max(3, p.futureDur) : Math.max(2, p.futureDur * 0.5);
+    // every part fades out over a long tail after D (and the hall's own tail follows)
+    const TAIL = 3;
+    const end = t0 + D + TAIL;
+    const stop = end + 0.5;
     const c1 = (v: number) => Math.max(-1, Math.min(1, v));
-    const env = (g: AudioParam, at: number, attack: number, end: number, level: number) => {
+    /** Slowly in over `attack`, held, then out over the last 45 % of the span until `until`. */
+    const env = (g: AudioParam, at: number, attack: number, until: number, level: number) => {
       g.setValueAtTime(0, at);
       g.linearRampToValueAtTime(level, at + attack);
-      g.setValueAtTime(level, Math.max(at + attack, end - Math.min(2, (end - at) * 0.4)));
-      g.linearRampToValueAtTime(0, end);
+      g.setValueAtTime(level, Math.max(at + attack, until - (until - at) * 0.45));
+      g.linearRampToValueAtTime(0, until);
     };
     const out = ctx.createGain();
     out.gain.value = p.futureLevel;
     const pan = ctx.createStereoPanner();
     pan.pan.setValueAtTime(c1(panFrom), t0);
     pan.pan.linearRampToValueAtTime(c1(panTo), t0 + D);
+    const dry = ctx.createGain();
+    dry.gain.value = 0.55;
     const send = ctx.createGain();
-    send.gain.value = 0.55;
+    send.gain.value = 0.9;
     out.connect(pan);
-    pan.connect(this.dull);
+    pan.connect(dry).connect(this.dull);
     pan.connect(send).connect(this.rooms.hall);
-    const tidy: AudioNode[] = [out, pan, send];
+    const tidy: AudioNode[] = [out, pan, dry, send];
     const root = this.placeNow?.rootClass ?? this.key?.root ?? 0;
-    // THE RADIO: static in a narrow band that tunes across, and a thin whistle gliding until it locks
+    // THE HAZE: the place's lydian low (C3 …), each tone a detuned pair, under a lowpass that opens and closes slowly;
+    // leaving, it falls a semitone as it fades
+    if (p.futureHaze > 0) {
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.Q.value = 0.7;
+      if (kind === "arrive") {
+        lp.frequency.setValueAtTime(240, t0);
+        lp.frequency.exponentialRampToValueAtTime(1300, t0 + D * 0.55);
+        lp.frequency.exponentialRampToValueAtTime(420, end);
+      } else {
+        lp.frequency.setValueAtTime(900, t0);
+        lp.frequency.exponentialRampToValueAtTime(200, end);
+      }
+      const hg = ctx.createGain();
+      env(hg.gain, t0, kind === "arrive" ? D * 0.4 : 0.8, end, 0.03 * p.futureHaze);
+      lp.connect(hg).connect(out);
+      tidy.push(lp, hg);
+      for (const st of [0, 7, 14, 18])
+        for (const dc of [-8, 8]) {
+          const o = ctx.createOscillator();
+          o.type = "triangle";
+          o.frequency.value = midiToHz(48 + root + st);
+          o.detune.setValueAtTime(dc, t0);
+          o.detune.linearRampToValueAtTime(dc + (kind === "leave" ? -100 : 0), end);
+          o.connect(lp);
+          o.start(t0);
+          o.stop(stop);
+        }
+    }
+    // THE RADIO, FAR OFF: static in a wide, dark band drifting as if tuned from a distance (no whistle)
     if (p.futureRadio > 0) {
       const src = ctx.createBufferSource();
       src.buffer = this.noise;
       src.loop = true;
       const bp = ctx.createBiquadFilter();
       bp.type = "bandpass";
-      bp.Q.value = 9;
+      bp.Q.value = 3.5;
       if (kind === "arrive") {
-        bp.frequency.setValueAtTime(420, t0);
-        bp.frequency.exponentialRampToValueAtTime(2600, t0 + D * 0.35);
-        bp.frequency.exponentialRampToValueAtTime(900, t0 + D);
+        bp.frequency.setValueAtTime(300, t0);
+        bp.frequency.exponentialRampToValueAtTime(1500, t0 + D * 0.45);
+        bp.frequency.exponentialRampToValueAtTime(650, end);
       } else {
-        bp.frequency.setValueAtTime(1800, t0);
-        bp.frequency.exponentialRampToValueAtTime(240, t0 + D);
+        bp.frequency.setValueAtTime(1100, t0);
+        bp.frequency.exponentialRampToValueAtTime(180, end);
       }
       const g = ctx.createGain();
-      env(g.gain, t0, kind === "arrive" ? 0.6 : 0.1, t0 + D, 0.4 * p.futureRadio);
+      env(g.gain, t0, kind === "arrive" ? D * 0.3 : 0.4, t0 + D + TAIL * 0.5, 0.16 * p.futureRadio);
       src.connect(bp).connect(g).connect(out);
       src.start(t0);
       src.stop(stop);
-      const wh = ctx.createOscillator();
-      wh.type = "sine";
-      wh.frequency.setValueAtTime(kind === "arrive" ? 3100 : 1500, t0);
-      wh.frequency.exponentialRampToValueAtTime(kind === "arrive" ? 1180 : 420, t0 + D * 0.6);
-      const wg = ctx.createGain();
-      env(wg.gain, t0, 0.3, t0 + D * 0.75, 0.025 * p.futureRadio);
-      wh.connect(wg).connect(out);
-      wh.start(t0);
-      wh.stop(stop);
-      tidy.push(bp, g, wg);
+      tidy.push(bp, g);
     }
-    // THE CHORD FROM ELSEWHERE: a quintal stack on the place's root, high, each voice shimmering (a tremolo of its own)
-    // and drifting; leaving, it sinks a semitone as it fades
-    if (p.futureChord > 0) {
-      [0, 7, 14, 21, 18].forEach((st, i) => {
-        const o = ctx.createOscillator();
-        o.type = "sine";
-        o.frequency.value = midiToHz(72 + root + st);
-        o.detune.setValueAtTime(kind === "arrive" ? -14 : 0, t0);
-        o.detune.linearRampToValueAtTime(kind === "arrive" ? 10 : -100, t0 + D);
-        const am = ctx.createGain();
-        am.gain.value = 0.6;
-        const lfo = ctx.createOscillator();
-        lfo.frequency.value = 4.5 + i * 1.1;
-        const lg = ctx.createGain();
-        lg.gain.value = 0.4;
-        lfo.connect(lg).connect(am.gain);
-        const g = ctx.createGain();
-        env(g.gain, t0 + i * 0.15, kind === "arrive" ? 1.6 : 0.2, t0 + D, (i === 4 ? 0.02 : 0.04) * p.futureChord);
-        o.connect(am).connect(g).connect(out);
-        o.start(t0);
-        lfo.start(t0);
-        o.stop(stop);
-        lfo.stop(stop);
-        tidy.push(am, lg, g);
-      });
-    }
-    // MY MELODY, BROADCAST FROM THE FUTURE: my motif in the place's lydian, an octave up, square through a radio's band,
-    // twice, passing (a doppler's fall)
+    // MY MELODY, FROM THE FUTURE: my motif in the place's lydian, an octave up, ONCE at half its pace, a soft triangle
+    // (slow onsets, long tails) through a wide radio band, passing (a doppler's fall)
     if (kind === "arrive" && p.futureEcho > 0 && this.me && this.key) {
       const lydian: WorldKey = { root, mode: MODES[6], degrees: this.key.degrees };
       const notes = realize(this.me.motif, lydian, null, 1, 0);
-      const cyc = this.musicBarSec();
-      const start = t0 + D * 0.22;
+      const cyc = this.musicBarSec() * 2;
+      const start = t0 + D * 0.25;
       const bpf = ctx.createBiquadFilter();
       bpf.type = "bandpass";
-      bpf.frequency.value = 1700;
-      bpf.Q.value = 2.5;
+      bpf.frequency.value = 900;
+      bpf.Q.value = 0.7;
       const vg = ctx.createGain();
-      vg.gain.value = 0.1 * p.futureEcho;
+      vg.gain.value = 0.08 * p.futureEcho;
       bpf.connect(vg).connect(out);
       tidy.push(bpf, vg);
-      for (let rep = 0; rep < 2; rep++)
-        for (const n of notes) {
-          const at = start + (rep + n.at) * cyc;
-          const len = Math.max(0.06, n.len * cyc);
-          if (at + len > t0 + D) continue;
-          const o = ctx.createOscillator();
-          o.type = "square";
-          o.frequency.value = n.freq * 2;
-          o.detune.setValueAtTime(25, at);
-          o.detune.linearRampToValueAtTime(25 - 60 * ((at + len - start) / Math.max(0.1, t0 + D - start)), at + len);
-          const g = ctx.createGain();
-          g.gain.setValueAtTime(0, at);
-          g.gain.linearRampToValueAtTime(1, at + 0.01);
-          g.gain.exponentialRampToValueAtTime(0.001, at + len + 0.05);
-          o.connect(g).connect(bpf);
-          o.start(at);
-          o.stop(at + len + 0.1);
-        }
+      for (const n of notes) {
+        const at = start + n.at * cyc;
+        const len = Math.max(0.25, n.len * cyc);
+        if (at > t0 + D - 0.3) continue;
+        const o = ctx.createOscillator();
+        o.type = "triangle";
+        o.frequency.value = n.freq * 2;
+        o.detune.setValueAtTime(20, at);
+        o.detune.linearRampToValueAtTime(20 - 50 * ((at + len - start) / Math.max(0.1, t0 + D - start)), at + len);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, at);
+        g.gain.linearRampToValueAtTime(1, at + 0.08);
+        g.gain.setValueAtTime(1, at + Math.max(0.08, len * 0.5));
+        g.gain.exponentialRampToValueAtTime(0.001, at + len + 0.9);
+        o.connect(g).connect(bpf);
+        o.start(at);
+        o.stop(at + len + 1);
+      }
     }
     // the patch blooms (§8e's bloom, cued — futureBloom its width)
     this.cueBloomAt = t0;
