@@ -55,6 +55,8 @@ const BLOCK_TILE = 14;
 const STANDS = 1e9;
 /** SEEDED: a building's mass is not made again sooner than this after it was made (ms). */
 const UNIT_REST_MS = 12000;
+/** WHOLE STAGES: a building waiting this long to be made goes before the smaller ones (fuseBuildings: the smallest first). */
+const UNIT_OVERDUE_MS = 90000;
 /** THE MASS MADE IN A WORKER OF ITS OWN: a call here spends no longer than this telling it what the buildings are made
  *  of (the rest are told at the next call). */
 const UNIT_SEND_MS = 80;
@@ -869,6 +871,8 @@ export class SpaceModel {
    *  (the morph clock's seconds), then let go. */
   private unitLeaving: { mesh: FuseMesh; until: number; key: number }[] = [];
   private leaveKey = 0;
+  /** WHOLE STAGES: since when each building has been waiting to be made (performance.now ms). */
+  private unitWaitSince = new Map<string, number>();
   // ── WHOLE STAGES: THE BUILDINGS' MASSES SENT ONE BY ONE (the artist, 2026-11-28: "시간 지날수록 무거워지면서 딜레이
   // 커짐") — a building made again sent every building's mass, merged anew into one mesh and put on the screen whole:
   // the more there was, the more each change cost. Now each building is a chunk of its own on the screen (the view's
@@ -1513,6 +1517,7 @@ export class SpaceModel {
     this.unitLeaving = [];
     this.unitFused.clear();
     this.unitJob = null;
+    this.unitWaitSince.clear();
     this.unitsEmitted = -1;
     this.dropChunks();
     if (this.remoteOn) {
@@ -1978,14 +1983,34 @@ export class SpaceModel {
         waiting = 0;
         const th = seeded ? 1e-6 : byStep ? 0.5 : Math.max(0.02, fuse.unitChange ?? 0.15);
         const nowMs = performance.now();
+        // BY THE STAGE: THE SMALLEST FIRST, THE LONGEST WAITING BEFORE IT (the artist, 2026-11-28: "비주얼 랩에서 화석이 안
+        // 보임" — a world taken whole has every building waiting at once, and the largest went first: in the lab the first
+        // building was 36 pieces, three minutes with nothing on the screen). A building waiting longer than
+        // UNIT_OVERDUE_MS goes first, the one waiting longest; otherwise the one with the fewest parts.
+        let overdueAt = Infinity;
         for (const [id, list] of lists) {
           const ch = changeOf(id, list);
-          if (ch < th) continue;
+          if (ch < th) {
+            this.unitWaitSince.delete(id);
+            continue;
+          }
           if (seeded && nowMs - (this.units.get(id)?.madeMs ?? -Infinity) < UNIT_REST_MS) continue;
           waiting++;
+          if (byStep) {
+            let since = this.unitWaitSince.get(id);
+            if (since === undefined) this.unitWaitSince.set(id, (since = nowMs));
+            const overdue = nowMs - since > UNIT_OVERDUE_MS;
+            if (overdue ? since < overdueAt : overdueAt === Infinity && (!pick || list.length < lists.get(pick)!.length)) {
+              [pick, most] = [id, ch];
+              if (overdue) overdueAt = since;
+            }
+            continue;
+          }
           if (ch > most || (ch === most && pick && list.length > lists.get(pick)!.length)) [pick, most] = [id, ch];
         }
         if (!pick) break;
+        this.unitWaitSince.delete(pick);
+        if (this.unitWaitSince.size > lists.size * 2) for (const id of [...this.unitWaitSince.keys()]) if (!lists.has(id)) this.unitWaitSince.delete(id);
         this.unitJob = begin(pick, lists.get(pick)!);
       }
       const job = this.unitJob;

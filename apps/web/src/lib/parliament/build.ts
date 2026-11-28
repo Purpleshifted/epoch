@@ -5,4 +5,4 @@
  * Every answer of a worker now carries this stamp, and the wall's readout says so when a worker's is not the page's
  * own. BUMPED BY HAND whenever code that a worker runs is changed (lib/parliament/*, the worker files).
  */
-export const WALL_BUILD = "11-28 18:40";
+export const WALL_BUILD = "11-28 19:10";
