@@ -81,7 +81,7 @@ import { useFoldState, useStressState, useWorld } from "./useWorld";
 import { muffleSound, type LifeSignal } from "./useLifeSession";
 import { markSpan } from "./usePerfMeter";
 import type { GrassVisual, MarksVisual } from "./usePersonalVisuals";
-import { FutureResidue } from "./FutureResidue";
+import { FutureResidue, residueActive, residueMeet } from "./FutureResidue";
 
 /** The answer starts on the next bar's edge, or the one after when that is nearer than this (ms). */
 const ANSWER_REST_MS = 600;
@@ -573,8 +573,11 @@ export function RoleField({
           building: coBuilding.current,
           cfg: { ...DEFAULT_WITNESS, nearRadius: cfg.radius, farRadius: VIEW_RADIUS },
         });
-        // (the future passed where the visitor stands: FutureEncounter.tsx — the record writes it once)
-        if (future?.on && future.encounterOn) witnessRef.current.future = futureMeet.last;
+        // (the future passed where the visitor stands — the record writes each once): THE ONE CROSSING, the scan
+        // residue's wherever it runs (FutureResidue.tsx residueMeet — the artist, 2026-11-28: "잔류를 왜 따로 계산하고
+        // 있지?"); else the observer's own encounter (FutureEncounter.tsx)
+        if (residueActive()) witnessRef.current.future = residueMeet.last;
+        else if (future?.on && future.encounterOn) witnessRef.current.future = futureMeet.last;
         // the ledger of this life: only while LIVE (after the end it keeps the life's last reading); it reads the
         // WHOLE world (its totals, my slabs wherever they are), so less often than the drawing
         ledgerTimer.current += sinceFold;
@@ -687,11 +690,11 @@ export function RoleField({
       {future && (
         <FutureResidue log={log} meRef={me} getS={() => sNow.current} getWorldSec={() => (worldNow() - epochMs.current) / 1000} getEpochMs={() => epochMs.current} getLive={() => !lifeRef || lifeRef.current.phase === "live"} playerPosRef={playerPosRef} cfg={future} />
       )}
+      {/* where the invisible observers are — on bot (future)'s own lab page alone (ObserverMarkers.tsx) */}
+      {future && mobileLab() === "bot-future" && <ObserverMarkers getWorldSec={() => (worldNow() - epochMs.current) / 1000} getEpochMs={() => epochMs.current} playerPosRef={playerPosRef} cfg={future} />}
       <group ref={present}>
       {grass?.style === "dither" || grass?.style === "field" ? (
         <DitherGround
-      {/* where the invisible observers are — on bot (future)'s own lab page alone (ObserverMarkers.tsx) */}
-      {future && mobileLab() === "bot-future" && <ObserverMarkers getWorldSec={() => (worldNow() - epochMs.current) / 1000} getEpochMs={() => epochMs.current} playerPosRef={playerPosRef} cfg={future} />}
           playerPosRef={playerPosRef}
           getStress={() => stress.current}
           getSnapshot={() => snap.current}

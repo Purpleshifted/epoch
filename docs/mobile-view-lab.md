@@ -299,6 +299,21 @@ in (copies; parts whose state changed meanwhile are staged again). The read radi
 330–1076 → 12–58 ms; a reading's worst frame 3.4 ms when quiet, 10–36 ms under load (the swap). `__residue.phases`.
 futurePresence itself still runs in one frame (~1–8 ms here; the exhibition's world not measured).
 
+**The one crossing (2026-11-28):** "몸 모양 창은 이제 안 쓸 거잖아, 잔류를 왜 따로 계산하고 있지? 어떻게 연결하면 돼
+그럼?" The guide's lines "미래가 당신을 응시합니다…" / "미래가 당신의 삶을 발견했습니다" had hung only on
+FutureEncounter's crossing, which no longer runs on any page. Now the residue's arrival is the crossing.
+- **When it counts:** the future arrives when nothing is held and an observer comes within `관찰자가 있다고 보는 거리`
+  (or F). An overlap again before its 남는 시간 is spent only keeps it, as before.
+- **What it writes:** `FutureResidue.residueMeet` = { id, found }. found = the visitor's own cells within 5 of where they
+  stand (FutureEncounter's rule); else it is the gaze line. RoleField hands it to the witness wherever the residue runs
+  (witness.ts future.found / future.gaze, one line an id); `window.__residueMeet` keeps the last one.
+- **The gap:** `다시 찾아오기까지 최소` (observer mode; 60 s) means no new arrival for that long after one. Readout:
+  `지금 — 다음 도착 (관찰자 모드)`.
+- **The sound follows:** the daydream's arrive and leave (futureCue.futureFrame) are told the future is held (with me,
+  or kept until let go). So the sound arrives once with each arrival, at the same gap as the line.
+- **bot (future):** the lidar and the residue run on that page too (LidarScan.lidarActive, residueActive), so she can
+  watch the observers (bot (future)'s ObserverMarkers) cross and what they bring.
+
 **Status (2026-11-23): PAUSED by the coordinator (machine overloaded) after the reference study; nothing built, no
 question put to the artist yet.** Code untouched (`FuturePresence.tsx`, `futurePresence.ts`, `labKnobsScanFuture.ts` =
 HEAD). Resume = put the three directions below to her and build her pick.

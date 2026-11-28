@@ -86,6 +86,10 @@ export function useScanFutureKnobs(isV2: boolean) {
           // ("남는 시간 늘려도 금방금방 사라지지..." — it had only capped the time while the overlap lasted; now: how long it
           // stays after the overlap ends; same key, so her saved value now means that)
           resLife: { value: DEFAULT_RESIDUE.life, min: 0, max: 120, step: 0.5, label: "남는 시간 — 겹침이 끝난 뒤 (s, 0 = 바로 흩날림)", render: (get) => get(`${PLACE_GROUP}.잔류 — 공통.resShowWhen`) !== "always" },
+          // (the artist, 2026-11-28, via the coordinator: about every 30 s was too often — one arrival, then none for
+          // this long; the guide's line and the daydream's sound come with each arrival, so they keep it too)
+          resGap: { value: DEFAULT_RESIDUE.gap, min: 0, max: 300, step: 5, label: "다시 찾아오기까지 최소 (s) — 도착 뒤 이 시간 동안 새 도착 없음 (안내 문구 · 소리 같이)", render: (get) => get(`${PLACE_GROUP}.잔류 — 공통.resShowWhen`) === "observer" },
+          "지금 — 다음 도착 (관찰자 모드)": monitor(() => (residueTiming.wait > 0 ? `${Math.ceil(residueTiming.wait)} s 뒤 다시 올 수 있음` : "지금 올 수 있음"), { graph: false, interval: 500 }),
           resReach: { value: 14, min: 4, max: 40, step: 0.5, label: "보이는 거리 (월드)" },
           // (the artist, 2026-11-27: "미래 다시 읽는 간격이랑 다시 읽어 겹치는 간격 성능 따라 유동적으로 범위 안에서": each
           // interval a range — its saved number is now the shortest — moved by FutureResidue's frame within it)
@@ -353,6 +357,7 @@ export function useScanFutureKnobs(isV2: boolean) {
     gateR: v.resGateR,
     find: v.resFind,
     life: v.resLife,
+    gap: v.resGap,
     reach: v.resReach,
     layerSec: v.resLayerSec,
     adapt: v.resAdapt,

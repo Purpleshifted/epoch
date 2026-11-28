@@ -106,6 +106,11 @@ export interface ResidueLook {
   /** Seconds what was found stays AFTER the overlap ends (F, or an observer leaving) before it blows away (0 = at
    *  once); with "always" nothing ends, so it is not read. */
   life: number;
+  /** THE LEAST TIME BETWEEN TWO ARRIVALS (s; observer only — the artist, 2026-11-28, via the coordinator: it came about
+   *  every 30 s, too often): after the future has come to the visitor, no observer brings it again for this long. An
+   *  overlap again while it is still held (before its 남는 시간 is spent) only keeps it, as before. The guide's line and
+   *  the daydream's sound come with each arrival, so they keep the same gap. */
+  gap: number;
   /** How far off the residue shows (world; it fades from about half of it, never past the lidar's reach). */
   reach: number;
   /** A new layer of the reading every this many seconds; the gust's sweep through everything held when it blows (s). */
@@ -189,6 +194,7 @@ export const DEFAULT_RESIDUE: ResidueLook = {
   gateR: 12,
   find: 0.6,
   life: 3,
+  gap: 60,
   reach: 14,
   layerSec: 0.5,
   adapt: true,
@@ -246,7 +252,16 @@ export function setResidueLook(v: Partial<ResidueLook>): void {
 /** THE TWO INTERVALS AS THEY RUN NOW (ResidueLook.adapt): the reading's and the layers' (s), how slow the frames are
  *  (0 = as fast as this screen lately did … 1 = twice as slow), what one reading and one layer cost (ms) — the knobs'
  *  readout. */
-export const residueTiming = { every: 2, layer: 0.5, load: 0, readMs: 0, layerMs: 0, present: 1, shown: 0 };
+export const residueTiming = { every: 2, layer: 0.5, load: 0, readMs: 0, layerMs: 0, present: 1, shown: 0, wait: 0 };
+
+/** THE ONE CROSSING (the artist, 2026-11-28: "몸 모양 창은 이제 안 쓸 거잖아, 잔류를 왜 따로 계산하고 있지?"): each time
+ *  the future comes to the visitor here (an observer in reach, or F), the meeting for the record — its own id (the
+ *  witness writes one line each) and whether it found the visitor's life (their own cells within FOUND_NEAR of where
+ *  they stand, as FutureEncounter's rule) or only looked. RoleField reads it wherever the residue runs (the guide's
+ *  "미래가 당신을 응시합니다 …" / "… 당신의 삶을 발견했습니다", witness.ts future.gaze / future.found). */
+export const residueMeet: { last: { id: string; found: boolean } | null } = { last: null };
+/** How near (world) one's own cells must be for the future to have found one's life (FutureEncounter's FOUND_NEAR). */
+const FOUND_NEAR = 5;
 
 /** F (a phone: FutureResiduePressButton) pressed: each press counts once, read by the residue's frame. */
 export const residuePress = { count: 0 };
@@ -278,7 +293,10 @@ export function FutureResiduePressButton({ coarse }: { coarse: boolean }) {
  *  the place is switched on for the personal view. */
 export function residueActive(): boolean {
   if (!lidarActive()) return false;
-  return mobileLab() === "scan-future" || (runsEveryAsset() && residueLook.on);
+  // (…and on bot (future)'s page, so she watches the observers cross and what their crossing brings — the one crossing,
+  // the artist, 2026-11-28; the lidar runs there for it, LidarScan.lidarActive)
+  const page = mobileLab();
+  return page === "scan-future" || page === "bot-future" || (runsEveryAsset() && residueLook.on);
 }
 
 /** THE WALL'S DENSITY RULE AS THE ARTIST HAD IT ON 2026-11-20 — until the server's hello says its own (as FuturePresence). */
@@ -1179,7 +1197,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
   const streaks = useRef<THREE.Mesh | null>(null);
   const ghosts = useRef<THREE.Points[]>([]);
   const field = useRef<{ f: DensityField; dens: DensityConfig | null; version: unknown; fed: number; drops: number } | null>(null);
-  const st = useRef({ timer: 10, pool: null as Pool | null, states: new Map<string, PartState>(), tapFrame: -1, present: false, obs: null as Excavator | null, pass: null as null | { x: number; z: number; fx: number; fz: number; t0: number }, streakHead: 0, streakFilled: 0, streakUntil: 0, layerT: 0, ghostHead: 0, ghostBorn: new Array<number>(GHOSTS).fill(-1e9), ghostKill: 0, pressSeen: residuePress.count, pressUntil: 0, releaseAt: 0, dtAvg: 0, dtBest: 0, readMs: 0, layerMs: 0, every: NaN, layer: NaN, thin: 1, job: null as ReadingJob | null });
+  const st = useRef({ timer: 10, pool: null as Pool | null, states: new Map<string, PartState>(), tapFrame: -1, present: false, obs: null as Excavator | null, pass: null as null | { x: number; z: number; fx: number; fz: number; t0: number }, streakHead: 0, streakFilled: 0, streakUntil: 0, layerT: 0, ghostHead: 0, ghostBorn: new Array<number>(GHOSTS).fill(-1e9), ghostKill: 0, pressSeen: residuePress.count, pressUntil: 0, releaseAt: 0, lastArrive: -1e9, dtAvg: 0, dtBest: 0, readMs: 0, layerMs: 0, every: NaN, layer: NaN, thin: 1, job: null as ReadingJob | null });
   // (the pool's two sets of arrays, and the staged GPU arrays: made the first time a reading runs)
   const bufs = useRef<[PoolBuf, PoolBuf] | null>(null);
   const stage = useRef<Staged | null>(null);
@@ -1196,6 +1214,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       // (the present makes all its readings again; no future frame)
       lidarThin.scale = 1;
       futureInk.active = false;
+      residueMeet.last = null;
       for (const o of [pts.current, streaks.current, ...ghosts.current]) {
         if (!o) continue;
         o.geometry.dispose();
@@ -1310,8 +1329,37 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     }
     // (an observer in reach, with a little give so it does not flicker at the edge)
     const wasPresent = s.present;
-    s.present = L.showWhen === "always" ? live : L.showWhen === "press" ? pressing : near !== null && nearD <= (wasPresent ? L.gateR * 1.1 : L.gateR);
+    // (held: with the visitor now, or still kept after the overlap — not yet let go)
+    const held = wasPresent || s.releaseAt > 0;
+    let want = L.showWhen === "always" ? live : L.showWhen === "press" ? pressing : near !== null && nearD <= (wasPresent ? L.gateR * 1.1 : L.gateR);
+    // A MINIMUM GAP (observer only; gap): no new arrival within `gap` s of the last — an overlap while it is still held
+    // only keeps it
+    const wait = L.showWhen === "observer" && !held ? Math.max(0, (Number.isFinite(L.gap) ? L.gap : 60) - (now - s.lastArrive)) : 0;
+    if (want && wait > 0) want = false;
+    residueTiming.wait = wait;
+    s.present = want;
     if (near) s.obs = near;
+    if (!live) {
+      // (between lives: the record and the gap start again with the next)
+      residueMeet.last = null;
+      s.lastArrive = -1e9;
+    }
+    // THE FUTURE ARRIVES (nothing held, now with me): the one crossing — the guide's line (residueMeet, read by
+    // RoleField for the witness) and the daydream's sound (futureFrame below, told it is held) come with it
+    if (s.present && !held) {
+      s.lastArrive = now;
+      if (L.showWhen !== "always") {
+        let found = false;
+        for (const c of h.f.cellsOf(meRef.current.id)) {
+          if (Math.hypot(wrapDelta((c.cx + 0.5) * CELL_SIZE - me.x), wrapDelta((c.cz + 0.5) * CELL_SIZE - me.z)) <= FOUND_NEAR) {
+            found = true;
+            break;
+          }
+        }
+        residueMeet.last = { id: `res:${s.obs?.i ?? 0}:${Math.round(getWorldSec() * 10)}`, found };
+        (window as unknown as { __residueMeet?: unknown }).__residueMeet = { ...residueMeet.last, at: Math.round(now * 10) / 10 };
+      }
+    }
     // LET GO — `life` seconds AFTER the overlap ends (the artist, 2026-11-27: "남는 시간 늘려도 금방금방 사라지지... 진짜
     // 겹칠 때에만 잠깐 생기는 거 같고"; 0 = at once): then everything held blows away the observer's way, the gust
     // sweeping through from upwind, and the earlier layers fade out. A new overlap before then keeps it all.
@@ -1330,7 +1378,9 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     }
     // (the sound's daydream — the future coming to me, and let go: futureCue.ts, sound-logic §13k)
     state.camera.getWorldDirection(CUE_FWD);
-    futureFrame({ now, showWhen: L.showWhen, present: s.present, letGo, me: { x: me.x, z: me.z }, fwd: { x: CUE_FWD.x, z: CUE_FWD.z }, obs: s.obs ? { x: s.obs.x, z: s.obs.z } : null, blow: s.obs ? { x: s.obs.dx, z: s.obs.dz } : null });
+    // (told it is HELD — with me, or kept until let go — so its arrive is the arrival above, one each, at the same gap
+    // as the guide's line; an overlap again while held is no new arrival)
+    futureFrame({ now, showWhen: L.showWhen, present: s.present || s.releaseAt > 0, letGo, me: { x: me.x, z: me.z }, fwd: { x: CUE_FWD.x, z: CUE_FWD.z }, obs: s.obs ? { x: s.obs.x, z: s.obs.z } : null, blow: s.obs ? { x: s.obs.dx, z: s.obs.dz } : null });
     if (letGo && s.pool) {
       const o = s.obs, pool = s.pool;
       let dx = o ? o.dx : 1, dz = o ? o.dz : 0;
