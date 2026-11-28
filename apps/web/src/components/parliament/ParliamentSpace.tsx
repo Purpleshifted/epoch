@@ -1748,7 +1748,7 @@ function SpaceWorld({
     // (what was set again before its turn holds nothing any more: out of the queue, while it waits for frames)
     if (q.length > 256) chunkOps.current = q.filter((op) => op.kind !== "set" || op.mesh);
     chunkClockAt.current = m.clock0;
-    fuseStats.current = { ...fuseStats.current, fuseSide: m.stats };
+    if (m.stats) fuseStats.current = { ...fuseStats.current, fuseSide: m.stats };
     if (last.current) live.current.onStats({ ...last.current, ...focus.current, ...fuseStats.current, stages: stageMax.current, build: workerBuild.current });
     if (!(uploadBudget.current > 0)) drainChunks(Infinity);
   };
@@ -1951,6 +1951,8 @@ function SpaceWorld({
       botGround.shown = r.parts.cells;
       botGround.shownAt = performance.now();
     }
+    // (WHOLE STAGES: the buildings' masses, one chunk each — only those that changed: spaceModel takeChunks)
+    if (r.fuseChunks) applyChunksNow.current(r.fuseChunks);
     if (r.fuse) {
       // (the model's worker sends its one mesh EMPTY when the worker beside takes the mass over: nothing to fade
       // from, and the growing stays as that worker's chunks have set it)

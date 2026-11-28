@@ -20,7 +20,7 @@ import { erodeThreshold, erosion, erosionAt, fossilWaitSec, pipeErosion, placeNo
 import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, meltMorph, mergeMeshes, partReach, type FuseConfig, type FuseMesh, type FuseTube } from "./fuse";
 import { WALL_BUILD } from "./build";
 import { inferFuture, type FutureConfig, type FutureResult } from "./futureVillage";
-import { fuseTilesOf, growData, unitExtent, unitLook, type UnitFused, type UnitJob, type UnitRequest } from "./fuseUnits";
+import { fuseTilesOf, growData, unitExtent, unitLook, type UnitChunks, type UnitFused, type UnitJob, type UnitRequest } from "./fuseUnits";
 import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import { hash2, type NatureConfig } from "./nature";
 import { ARRIVED, Arrivals } from "./arrive";
@@ -867,7 +867,18 @@ export class SpaceModel {
   private unitOrphans: { mesh: FuseMesh; heir: string; heirAt: number }[] = [];
   /** WHOLE STAGES (fuse.ts wholeStages): a building's mass as it was, melting onto the new one — shown until `until`
    *  (the morph clock's seconds), then let go. */
-  private unitLeaving: { mesh: FuseMesh; until: number }[] = [];
+  private unitLeaving: { mesh: FuseMesh; until: number; key: number }[] = [];
+  private leaveKey = 0;
+  // ── WHOLE STAGES: THE BUILDINGS' MASSES SENT ONE BY ONE (the artist, 2026-11-28: "시간 지날수록 무거워지면서 딜레이
+  // 커짐") — a building made again sent every building's mass, merged anew into one mesh and put on the screen whole:
+  // the more there was, the more each change cost. Now each building is a chunk of its own on the screen (the view's
+  // chunks, as the worker beside sends them: UnitChunks), and only what changed goes. ──
+  /** What the view holds, chunk by chunk: the meshes each was made of (compared by identity). */
+  private chunkSig = new Map<string, FuseMesh[]>();
+  /** What is to go to the view with the next result (takeChunks). */
+  private chunkOut: { set: Map<string, FuseMesh>; drop: Set<string> } | null = null;
+  /** Whether the masses are on the screen as chunks (the model's one mesh then holds nothing). */
+  private chunked = false;
   /** The morph clock (FuseMesh.morph / morphT0): seconds since this model began. */
   private readonly morphT0 = Date.now();
   private morphNow(): number {
@@ -1503,6 +1514,7 @@ export class SpaceModel {
     this.unitFused.clear();
     this.unitJob = null;
     this.unitsEmitted = -1;
+    this.dropChunks();
     if (this.remoteOn) {
       this.remoteOn = false;
       this.fusePort?.postMessage({ type: "reset" } satisfies UnitRequest);
@@ -1822,7 +1834,7 @@ export class SpaceModel {
         // (its parts are gone: so is its mass — WHOLE STAGES: it goes back into where they were)
         if (melt && ent.mesh.index.length) {
           meltMorph(ent.mesh, null, this.morphNow(), true);
-          this.unitLeaving.push({ mesh: ent.mesh, until: this.morphNow() + meltSec + 0.5 });
+          this.unitLeaving.push({ mesh: ent.mesh, until: this.morphNow() + meltSec + 0.5, key: ++this.leaveKey });
         }
         continue;
       }
@@ -2030,14 +2042,14 @@ export class SpaceModel {
         meltMorph(mesh, old, now, false);
         if (old) {
           meltMorph(old, mesh, now, true);
-          this.unitLeaving.push({ mesh: old, until: now + meltSec + 0.5 });
+          this.unitLeaving.push({ mesh: old, until: now + meltSec + 0.5, key: ++this.leaveKey });
         }
         // (the masses of buildings that joined this one melt onto it too, rather than being let go at once)
         if (!joined && this.unitOrphans.some((o) => o.heir === job.id)) {
           this.unitOrphans = this.unitOrphans.filter((o) => {
             if (o.heir !== job.id) return true;
             meltMorph(o.mesh, mesh, now, true);
-            this.unitLeaving.push({ mesh: o.mesh, until: now + meltSec + 0.5 });
+            this.unitLeaving.push({ mesh: o.mesh, until: now + meltSec + 0.5, key: ++this.leaveKey });
             return false;
           });
         }
@@ -2052,6 +2064,43 @@ export class SpaceModel {
     this.stages["fuse buildings waiting (n)"] = waiting;
     if (this.unitsVersion === this.unitsEmitted) return null;
     this.unitsEmitted = this.unitsVersion;
+    // WHOLE STAGES: building by building to the view — what changed only (the one mesh it held is emptied, once)
+    if (fuse.wholeStages && !seeded) {
+      const first = !this.chunked;
+      this.chunked = true;
+      const want = new Map<string, FuseMesh[]>();
+      for (const [id, ent] of this.units) if (ent.mesh.index.length) want.set(`b:${id}`, [ent.mesh]);
+      for (const o of this.unitOrphans) {
+        if (!o.mesh.index.length) continue;
+        const l = want.get(`b:${o.heir}`);
+        if (l) l.push(o.mesh);
+        else want.set(`b:${o.heir}`, [o.mesh]);
+      }
+      for (const l of this.unitLeaving) if (l.mesh.index.length) want.set(`l:${l.key}`, [l.mesh]);
+      const co = (this.chunkOut ??= { set: new Map(), drop: new Set() });
+      for (const id of this.chunkSig.keys()) {
+        if (want.has(id)) continue;
+        co.set.delete(id);
+        co.drop.add(id);
+        this.chunkSig.delete(id);
+      }
+      let sent = 0;
+      for (const [id, list] of want) {
+        const was = this.chunkSig.get(id);
+        if (was && was.length === list.length && was.every((m, i) => m === list[i])) continue;
+        const mesh = mergeMeshes(list); // (a copy: the buffers go to the view; the model keeps its own for the next melt)
+        if (melt) mesh.morphT0 = this.morphT0;
+        co.drop.delete(id);
+        co.set.set(id, mesh);
+        this.chunkSig.set(id, list);
+        sent++;
+      }
+      this.stages["fuse buildings sent (n, this time)"] = sent;
+      this.stages["fuse buildings on the screen (n)"] = this.chunkSig.size;
+      return first ? mergeMeshes([]) : null;
+    }
+    // (back from whole stages: its chunks are let go, and the one mesh shows it all again)
+    this.dropChunks();
     const out: FuseMesh[] = [];
     for (const ent of this.units.values()) if (ent.mesh.index.length) out.push(ent.mesh);
     for (const o of this.unitOrphans) out.push(o.mesh);
@@ -2059,6 +2108,31 @@ export class SpaceModel {
     const merged = mergeMeshes(out);
     if (melt) merged.morphT0 = this.morphT0;
     return merged;
+  }
+
+  /** WHOLE STAGES: every building's chunk on the screen is let go (with the next result). */
+  private dropChunks(): void {
+    this.chunked = false;
+    if (!this.chunkSig.size && !this.chunkOut?.set.size) return;
+    const co = (this.chunkOut ??= { set: new Map(), drop: new Set() });
+    for (const id of this.chunkSig.keys()) co.drop.add(id);
+    for (const id of co.set.keys()) co.drop.add(id);
+    co.set.clear();
+    this.chunkSig.clear();
+  }
+
+  /** WHOLE STAGES: what goes to the view's chunks with this result (and the buffers to transfer); null = nothing. */
+  takeChunks(): { out: UnitChunks; transfer: ArrayBuffer[] } | null {
+    const co = this.chunkOut;
+    this.chunkOut = null;
+    if (!co || (!co.set.size && !co.drop.size)) return null;
+    const transfer: ArrayBuffer[] = [];
+    const set: UnitChunks["set"] = [];
+    for (const [id, mesh] of co.set) {
+      set.push({ id, mesh });
+      for (const a of [mesh.position, mesh.normal, mesh.color, mesh.extra, mesh.index, mesh.morph]) if (a) transfer.push(a.buffer as ArrayBuffer);
+    }
+    return { out: { type: "fuse-chunks", set, drop: [...co.drop], clock0: this.morphT0, sentAt: performance.timeOrigin + performance.now() }, transfer };
   }
 
 
@@ -4222,6 +4296,8 @@ export interface SpaceResponse {
   nature?: PointsResult | null;
   reclaim?: PointsResult | null;
   fuse?: FuseMesh | null;
+  /** WHOLE STAGES: the buildings' masses that changed, for the view's chunks (spaceModel takeChunks). */
+  fuseChunks?: UnitChunks;
   /** The inferred village above the column (futureVillage.ts); null = as it was. */
   future?: FutureResult | null;
   /** The paths as lines (density.ts pathLines): [x, y, z, x, y, z] per segment. */
@@ -4282,6 +4358,14 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
   if (m.fuse) {
     out.fuse = timed("fuse", () => model.computeFuse(m.fuse!));
     if (out.fuse) for (const a of [out.fuse.position, out.fuse.normal, out.fuse.color, out.fuse.extra, out.fuse.index, out.fuse.anchor, out.fuse.growA, out.fuse.growB, out.fuse.late, out.fuse.morph]) if (a) transfer.add(a.buffer as ArrayBuffer);
+  }
+  // (WHOLE STAGES: the buildings' masses that changed, each a chunk of the view's — spaceModel takeChunks)
+  {
+    const ch = model.takeChunks();
+    if (ch) {
+      out.fuseChunks = ch.out;
+      for (const a of ch.transfer) transfer.add(a);
+    }
   }
   if (m.future) {
     // (a fault in the inferred village must not take the wall with it: an exception here ended the worker, the view

@@ -620,7 +620,8 @@ export interface UnitChunks {
   clear?: boolean;
   set: { id: string; mesh: FuseMesh }[];
   drop: string[];
-  stats: UnitStats;
+  /** (the worker beside's numbers — none from the model's worker: spaceModel takeChunks) */
+  stats?: UnitStats;
   /** Date.now() at which this side's clock began: a piece's stamp (fuseGrowB.x) is seconds since. */
   clock0: number;
   /** When it was sent (ms since the epoch): the view measures the transfer. */
@@ -1536,7 +1537,7 @@ export class FuseUnits {
       }
     }
     const [fresh, again] = this.pending();
-    const out: UnitChunks = {
+    const out: UnitChunks & { stats: UnitStats } = {
       type: "fuse-chunks",
       set: [],
       drop: [],
