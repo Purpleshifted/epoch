@@ -2323,7 +2323,9 @@ function SpaceWorld({
         <bufferGeometry />
       </mesh>
       <lineSegments geometry={pathGeom} material={pathMat} frustumCulled={false} visible={!!pathLook} renderOrder={3} />
-      <points geometry={gatherGeom} material={gatherMat} frustumCulled={false} visible={!!nature && nature.reclaim} />
+      {/* (the vegetation on the buildings is none of PointLod's either — the artist, 2026-11-28: "건물 식생에도 적용 안 되게
+          해줘") */}
+      <points geometry={gatherGeom} material={gatherMat} frustumCulled={false} visible={!!nature && nature.reclaim} userData={{ noPointLod: true }} />
       </group>
     </>
   );

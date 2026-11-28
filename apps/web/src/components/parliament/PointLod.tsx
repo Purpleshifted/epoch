@@ -18,11 +18,11 @@
  *
  * Applied to the PRESENT's point clouds that have a size in the world: a PointsMaterial with size attenuation, or a
  * point shader of its own (a ShaderMaterial on a Points that writes gl_PointSize). That is, as of 2026-11-28:
- *   - the present's plants: Vegetation's clouds (ParliamentSpace VEG shader), the gathered plants (cloudPointsMaterial)
- *     and the other fading points (fadingPointsMaterial);
+ *   - the present's plants on the ground: Vegetation's clouds (ParliamentSpace VEG shader);
  *   - Dandelions (seed heads, ghosts, dust), which stand in the present.
- * Left as they are: THE FUTURE LAYER, all of it (the artist, 2026-11-28: "이거 미래 층에는 적용되면 안 됨" — FutureVillage and
- * FutureUnder stand in groups marked userData.noPointLod: nothing under such a mark is touched); points with a size on
+ * Left as they are, marked userData.noPointLod (nothing under such a mark is touched): THE FUTURE LAYER, all of it (the
+ * artist, 2026-11-28: "이거 미래 층에는 적용되면 안 됨" — FutureVillage and FutureUnder stand in marked groups); THE
+ * VEGETATION ON THE BUILDINGS ("건물 식생에도 적용 안 되게 해줘" — the gathered plants' points). And points with a size on
  * the screen (no size attenuation — the walkways' end dots).
  *
  * How: a few lines at the end of each one's shaders (its own onBeforeCompile kept, run first), found by walking the scene
