@@ -581,6 +581,12 @@ export default function ParliamentScene({ lab }: { lab?: LabPage } = {}) {
   const fogN = viewOn ? street.view.radius * 0.45 : paperFog ? 12 : fogNear;
   const fogF = viewOn ? street.view.radius : paperFog ? 44 : fogFar;
   const logPlace: LogPlace = !isV2 || street.logPlace === "bottom" ? "bottom" : street.logPlace === "auto" ? (street.eye.on ? (coarse ? "top" : "left") : "bottom") : street.logPlace;
+  // THE RECORD AS A LONG PANEL ON THE LEFT (the artist, 2026-11-28: "언어정보 주는 콘솔창이 왼쪽에 아예 긴 패널로 존재하도록 해야
+  // 사람들이 그나마 읽을 것 같음"): with the lab's look, while a life is lived, the left place is a solid column the
+  // screen's full height and the view begins beside it (its width in --log-panel, read by SessionHud and StreetHud) —
+  // ~370 px on the show's portrait 1080 pt; the 기록창 폭 knob, when set, gives it
+  const logPanel = lookOn && logPlace === "left" && session.phase === "live";
+  const logPanelW = logWidth > 0 ? `min(92vw, ${logWidth}rem)` : "clamp(min(20rem, 60vw), 34vw, 38rem)";
   const getFar = useCallback(() => witnessRef.current?.far, []);
   // the drawing's density: the paper look at the device's own (at least 1.5, at most 2) — and under the lab's look, no
   // more than the frame ceiling's (바탕 › 성능 · 상한); the old view's as it was
@@ -591,7 +597,7 @@ export default function ParliamentScene({ lab }: { lab?: LabPage } = {}) {
   return (
     <div
       className="h-full w-full"
-      style={{ touchAction: "none", userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none", WebkitTapHighlightColor: "transparent" }}
+      style={{ touchAction: "none", userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none", WebkitTapHighlightColor: "transparent", ["--log-panel" as string]: logPanel ? logPanelW : "0px" }}
       onContextMenu={(e) => e.preventDefault()}
     >
       <Leva hidden={hideChrome} theme={LEVA_THEME} />
@@ -602,7 +608,7 @@ export default function ParliamentScene({ lab }: { lab?: LabPage } = {}) {
         frameloop={fpsCap ? "demand" : "always"}
         gl={{ antialias: true, alpha: false, preserveDrawingBuffer: true }}
         // the pixel feel lives in the text (2026-10-28): the 3D is smooth unless the resolution knob is turned down
-        style={{ background: ground, imageRendering: pixelDpr < 1 ? "pixelated" : "auto" }}
+        style={{ background: ground, imageRendering: pixelDpr < 1 ? "pixelated" : "auto", ...(logPanel ? { marginLeft: "var(--log-panel)", width: "calc(100% - var(--log-panel))" } : null) }}
       >
         <color attach="background" args={[ground]} />
         {fpsCap > 0 && <FrameCap fps={fpsCap} />}

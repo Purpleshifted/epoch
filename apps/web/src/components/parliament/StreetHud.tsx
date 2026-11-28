@@ -94,9 +94,10 @@ export function StreetHud({
   if (!line) return null;
   const say = lang === "ko" ? "hud-ko" : "";
   // by the log: the left column's head (a laptop), under the top strip (a phone), or above the bottom box
-  const pos = place === "left" ? "left-4 top-6 max-w-[min(24vw,22rem)]" : place === "top" ? "inset-x-0 top-[10.5rem] flex justify-center px-3" : "left-4 bottom-[11.5rem] max-w-[36rem]";
+  // (the left: just beside the record's long panel when there is one — --log-panel, ParliamentScene — else at the edge)
+  const pos = place === "left" ? "top-6 max-w-[min(48vw,36rem)]" : place === "top" ? "inset-x-0 top-[10.5rem] flex justify-center px-3" : "left-4 bottom-[11.5rem] max-w-[36rem]";
   return (
-    <div className={`pointer-events-none absolute select-none ${pos}`}>
+    <div className={`pointer-events-none absolute select-none ${pos}`} style={place === "left" ? { left: "calc(var(--log-panel, 0px) + 1rem)" } : undefined}>
       <div className={`${say} border border-white bg-black px-3 py-1.5 text-white ${coarse ? "text-[14px]" : "text-[15px]"} leading-[1.25] tracking-[0.04em]`}>{line.text}</div>
     </div>
   );

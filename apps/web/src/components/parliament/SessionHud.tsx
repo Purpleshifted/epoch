@@ -260,10 +260,14 @@ export function SessionHud({
   const lang = phase === "ended" && endLang ? endLang : langProp;
   const S = SCRIPT[lang];
   const say = lang === "ko" || phase === "ended" ? "hud-ko" : "";
+  /** The record as the long left panel (the lab's look only; ParliamentScene gives its width in --log-panel). */
+  const panel = logPlace === "left" && newLook();
   // (the story's and the bond's lines only with the lab's new look: the exhibition's personal view keeps its record —
   // the rule of 2026-11-27, mobileLab.newLook)
   // (the new look: the story's and the bond's lines, and 합주 only while really building together — sound-logic §13e)
-  const [log] = useState(() => new WitnessLog(newLook() ? { ...DEFAULT_WITNESS, tales: true, builtOnly: true } : undefined));
+  // (with the lab's look the record keeps 40 lines: the left panel shows them all, newest at the bottom — the other places
+  // still show the last 5)
+  const [log] = useState(() => new WitnessLog(newLook() ? { ...DEFAULT_WITNESS, tales: true, builtOnly: true, keep: 40 } : undefined));
   const [watch] = useState(() => new LedgerWatch());
   const lastObs = useRef<Observation | null>(null);
   /** Wall ms the pointer was locked (0 = not locked): the hands reach the keys only then. */
@@ -631,18 +635,20 @@ export function SessionHud({
       {phase === "live" && (
         <div
           className={
-            logPlace === "left"
+            panel
+              ? "absolute inset-y-0 left-0 flex"
+              : logPlace === "left"
               ? "absolute bottom-24 left-4 top-20 flex w-[min(24vw,22rem)] flex-col justify-end [mask-image:linear-gradient(to_bottom,transparent,black_30%)]"
               : logPlace === "top"
                 ? "absolute inset-x-0 top-14 flex justify-center px-3 [&>div>div:nth-child(2)]:flex [&>div>div:nth-child(2)]:max-h-[4.6rem] [&>div>div:nth-child(2)]:min-h-0 [&>div>div:nth-child(2)]:flex-col-reverse [&>div>div:nth-child(2)]:justify-end [&>div>div:nth-child(2)]:overflow-hidden"
                 : "absolute inset-x-0 bottom-0 flex justify-center px-4 pb-4"
           }
           // (the width the knob gives: the left column's own width, else the block's widest — never past the screen)
-          style={logWidth > 0 && logPlace === "left" ? { width: `min(92vw, ${logWidth}rem)` } : undefined}
+          style={panel ? { width: "var(--log-panel, clamp(20rem, 34vw, 38rem))" } : logWidth > 0 && logPlace === "left" ? { width: `min(92vw, ${logWidth}rem)` } : undefined}
         >
           <div
-            className="w-full max-w-[36rem] border border-white bg-black text-[15px] leading-[1.25] tracking-[0.04em]"
-            style={logWidth > 0 && logPlace !== "left" ? { maxWidth: `min(100%, ${logWidth}rem)` } : undefined}
+            className={panel ? "flex h-full w-full flex-col border-r border-white bg-black text-[16px] leading-[1.4] tracking-[0.04em]" : "w-full max-w-[36rem] border border-white bg-black text-[15px] leading-[1.25] tracking-[0.04em]"}
+            style={!panel && logWidth > 0 && logPlace !== "left" ? { maxWidth: `min(100%, ${logWidth}rem)` } : undefined}
           >
             {rec.me && (
               <div className="flex items-center gap-3 border-b border-white px-3 py-2 text-white">
@@ -653,8 +659,8 @@ export function SessionHud({
                 {rec.status && <div className={`${say} ml-auto truncate text-[#8c8c8c]`}>{formatStatus(rec.status, lang)}</div>}
               </div>
             )}
-            <div className="min-h-[6.5rem] px-3 py-2">
-              {rec.entries.map((e, i) => {
+            <div className={panel ? "flex min-h-0 flex-1 flex-col justify-end gap-1 overflow-hidden px-4 py-3" : "min-h-[6.5rem] px-3 py-2"}>
+              {(panel ? rec.entries : rec.entries.slice(-5)).map((e, i) => {
                 const { prefix, text } = formatEntry(e, lang);
                 return (
                   <div key={`${i}:${e.t}:${e.key}`} className={`flex items-start gap-2 ${LEVEL_CLASS[e.level]}`}>
