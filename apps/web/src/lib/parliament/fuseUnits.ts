@@ -667,6 +667,24 @@ export interface PieceTask {
   grows: boolean;
 }
 
+/** WHOLE STAGES (spaceModel fuseBuildings): a building's new pieces, handed from the model's worker to the worker
+ *  beside, made there (by the pool's helpers when there are any) and sent back one by one. A new serial replaces what
+ *  was handed before (none: `ctx` null, no tasks — let it go). */
+export interface WholePieces {
+  type: "whole-pieces";
+  serial: number;
+  ctx: PieceCtx | null;
+  tasks: (PieceTask & { key: string })[];
+}
+/** A piece of the building being made, back to the model's worker. */
+export interface WholePieceBack {
+  type: "whole-piece";
+  serial: number;
+  key: string;
+  mesh: FuseMesh;
+  ms: number;
+}
+
 /** A piece made, back to the side that keeps the pieces. */
 export interface PieceDone {
   type: "piece-done";

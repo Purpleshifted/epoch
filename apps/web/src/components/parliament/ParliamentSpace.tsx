@@ -1801,6 +1801,9 @@ function SpaceWorld({
     }
     q.splice(0, i);
     chunkClock0.current = map.size ? chunkClockAt.current : null;
+    // (readable from DevTools / a headless check, as `__fuseGrow`: which chunks of the mass are on the screen — "b:" a
+    // building of whole stages, "l:" one melting away)
+    if (typeof window !== "undefined") (window as unknown as { __fuseChunkIds?: string[] }).__fuseChunkIds = [...map.keys()];
     if (i > 0) tallyScene();
   };
   /**
@@ -1964,6 +1967,8 @@ function SpaceWorld({
     if (r.fuse) fuseStats.current = { ...fuseStats.current, fuseTris: r.fuse.index.length / 3, fuseResin: (r.fuse.index.length - r.fuse.resinStart) / 3 };
     // where the worker's time went: the slowest request of the last few is kept, so a heavy one can be read
     if (r.stages && (r.ms >= stageMax.current.ms || performance.now() - stageMax.current.at > 8000)) stageMax.current = { ms: r.ms, at: performance.now(), stages: r.stages };
+    // (the latest result's numbers, whatever its time — readable from DevTools / a headless check)
+    if (r.stages && typeof window !== "undefined") (window as unknown as { __stagesLast?: Record<string, number> }).__stagesLast = r.stages;
     workerBuild.current = r.build ?? "?";
     if (last.current) report({ ...last.current, ...focus.current, ...fuseStats.current, workerMs: r.ms, stages: stageMax.current, build: workerBuild.current });
   };

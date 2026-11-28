@@ -20,7 +20,7 @@ import { erodeThreshold, erosion, erosionAt, fossilWaitSec, pipeErosion, placeNo
 import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, meltMorph, mergeMeshes, partReach, type FuseConfig, type FuseMesh, type FuseTube } from "./fuse";
 import { WALL_BUILD } from "./build";
 import { inferFuture, type FutureConfig, type FutureResult } from "./futureVillage";
-import { fuseTilesOf, growData, unitExtent, unitLook, type UnitChunks, type UnitFused, type UnitJob, type UnitRequest } from "./fuseUnits";
+import { fuseTilesOf, growData, unitExtent, unitLook, type PieceTask, type UnitChunks, type UnitFused, type UnitJob, type UnitLook, type UnitRequest, type WholePieceBack, type WholePieces } from "./fuseUnits";
 import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import { hash2, type NatureConfig } from "./nature";
 import { ARRIVED, Arrivals } from "./arrive";
@@ -55,6 +55,8 @@ const BLOCK_TILE = 14;
 const STANDS = 1e9;
 /** SEEDED: a building's mass is not made again sooner than this after it was made (ms). */
 const UNIT_REST_MS = 12000;
+/** WHOLE STAGES BESIDE: how long a building waits for its pieces from the worker beside before it is begun again. */
+const WHOLE_BESIDE_GIVE_UP_MS = 180000;
 /** THE MASS MADE IN A WORKER OF ITS OWN: a call here spends no longer than this telling it what the buildings are made
  *  of (the rest are told at the next call). */
 const UNIT_SEND_MS = 80;
@@ -864,6 +866,14 @@ export class SpaceModel {
     steps?: Map<number, number>;
     /** The pieces made anew in this job (not kept from the mass it began from): only these melt. */
     fresh: Set<string>;
+    /** WHOLE STAGES BESIDE: the serial its new pieces were handed to the worker beside under, how many are still out,
+     *  each one's signature, and what that side makes them with (the history and the layers' look, as sent). */
+    remote?: number;
+    remoteAt?: number;
+    waiting?: number;
+    sigs?: Map<string, string>;
+    ctxH?: NatureHistory | null;
+    lookData?: UnitLook | null;
   } | null = null;
   /** Masses of buildings that are no longer a building of their own (joined to another): shown until that one is made again. */
   private unitOrphans: { mesh: FuseMesh; heir: string; heirAt: number }[] = [];
@@ -871,6 +881,8 @@ export class SpaceModel {
    *  (the morph clock's seconds), then let go. */
   private unitLeaving: { mesh: FuseMesh; until: number; key: number }[] = [];
   private leaveKey = 0;
+  /** WHOLE STAGES BESIDE: the serial of the last building whose pieces were handed to the worker beside (fuseBuildings). */
+  private wholeSerial = 1_000_000_000;
   // ── WHOLE STAGES: THE BUILDINGS' MASSES SENT ONE BY ONE (the artist, 2026-11-28: "시간 지날수록 무거워지면서 딜레이
   // 커짐") — a building made again sent every building's mass, merged anew into one mesh and put on the screen whole:
   // the more there was, the more each change cost. Now each building is a chunk of its own on the screen (the view's
@@ -917,8 +929,22 @@ export class SpaceModel {
       if (this.fusePort) this.fusePort.onmessage = null;
       if (this.remoteOn) this.dropUnits();
       this.fusePort = p.fuse;
+      // (a building whose pieces were handed to the side that is no more: begun again)
+      if (this.unitJob?.remote !== undefined) this.unitJob = null;
       if (p.fuse) {
-        p.fuse.onmessage = (ev: MessageEvent<UnitFused>) => {
+        p.fuse.onmessage = (ev: MessageEvent<UnitFused | WholePieceBack>) => {
+          // (WHOLE STAGES: a piece of the building being made, back from beside — kept with the job that asked for it)
+          if (ev.data.type === "whole-piece") {
+            const m = ev.data, job = this.unitJob;
+            const sig = job && job.remote === m.serial ? job.sigs?.get(m.key) : undefined;
+            if (!job || sig === undefined || job.done.has(m.key)) return;
+            job.done.set(m.key, { sig, mesh: m.mesh });
+            job.fresh.add(m.key);
+            job.waiting = Math.max(0, (job.waiting ?? 1) - 1);
+            this.stages["fuse pieces (n)"] = (this.stages["fuse pieces (n)"] ?? 0) + 1;
+            this.stages["fuse piece max ms"] = Math.max(this.stages["fuse piece max ms"] ?? 0, m.ms);
+            return;
+          }
           if (ev.data.type !== "fused" || !this.remoteOn) return;
           // these parts have a mass on the screen now: they are absorbed only as far as that (fusedAtOf)
           for (const k of ev.data.keys) this.unitFused.set(k, 1);
@@ -1514,6 +1540,7 @@ export class SpaceModel {
     this.unitOrphans = [];
     this.unitLeaving = [];
     this.unitFused.clear();
+    if (this.unitJob?.remote !== undefined) this.fusePort?.postMessage({ type: "whole-pieces", serial: ++this.wholeSerial, ctx: null, tasks: [] } satisfies WholePieces);
     this.unitJob = null;
     this.unitsEmitted = -1;
     this.dropChunks();
@@ -1865,7 +1892,10 @@ export class SpaceModel {
       if (heir) {
         job.id = heir;
         this.stages["fuse job carried to the building's new name (n)"] = (this.stages["fuse job carried to the building's new name (n)"] ?? 0) + 1;
-      } else this.unitJob = null;
+      } else {
+        if (job.remote !== undefined) this.fusePort?.postMessage({ type: "whole-pieces", serial: ++this.wholeSerial, ctx: null, tasks: [] } satisfies WholePieces);
+        this.unitJob = null;
+      }
     }
 
     // how far each building's state has moved from the one its mass was made from
@@ -1968,7 +1998,7 @@ export class SpaceModel {
       const snap = new Map<number, number>();
       for (const e of list) snap.set(key(e.b), e.d);
       const steps = byStep ? new Map(list.map((e) => [key(e.b), e.st ?? 0] as const)) : undefined;
-      return { id, cfg, snap, steps, ang, parts: seeded || byStep ? list.map((e) => ({ b: e.b, grow: e.grow })) : [], h: h && ang ? SpaceModel.turnedHistory(h, c, sn, ext, ka - 12, kb + 12) : h, look: lookOf(list), todo, done: new Map(), fresh: new Set(), base: this.units.get(id) };
+      return { id, cfg, snap, steps, ang, parts: seeded || byStep ? list.map((e) => ({ b: e.b, grow: e.grow })) : [], h: h && ang ? SpaceModel.turnedHistory(h, c, sn, ext, ka - 12, kb + 12) : h, look: lookOf(list), todo, done: new Map(), fresh: new Set(), base: this.units.get(id), ...(byStep && this.fusePort ? { ctxH: h ? SpaceModel.turnedHistory(h, c, sn, ext, ka - 12, kb + 12) : null, lookData: layered ? unitLook(list) : null } : {}) };
     };
 
     const deadline = performance.now() + FUSE_BUDGET_MS;
@@ -1993,6 +2023,41 @@ export class SpaceModel {
       const job = this.unitJob;
       // (the mass it began from — still this building's, or, carried to another name, the one it was taken over by)
       const was = job.base;
+      // MADE BESIDE, SIDE BY SIDE (the artist, 2026-11-28, measured on her values: a building of ~35 pieces took ~75 s
+      // here, one piece after another — "Yes, go ahead"): with a worker beside (and its pool of helpers: 렌더 › 화석 워커
+      // 수), the pieces made anew are handed over at once and made there side by side, by the same function
+      // (fuseUnits makePiece = fuseTilesOf, unturned, no growth data); they come back here, and the building is put
+      // together, given its growth data and melted as before. The kept ones are kept here.
+      if (byStep && this.fusePort && !this.remoteOn && job.remote === undefined) {
+        const serial = ++this.wholeSerial;
+        const tasks: WholePieces["tasks"] = [];
+        job.sigs = new Map();
+        for (const piece of job.todo) {
+          const kept = was && was.cfg === job.cfg ? was.pieces.get(piece.key) : undefined;
+          if (kept && kept.sig === piece.sig) {
+            job.done.set(piece.key, kept);
+            continue;
+          }
+          job.sigs.set(piece.key, piece.sig);
+          tasks.push({ type: "piece", ticket: tasks.length, id: "whole", serial, k0: piece.k0, k1: piece.k1, tx: piece.tx, tz: piece.tz, ps: piece.ps, tubes: [], own: [], grows: false, key: piece.key } satisfies PieceTask & { key: string });
+        }
+        job.todo = [];
+        job.remote = serial;
+        job.remoteAt = performance.now();
+        job.waiting = tasks.length;
+        if (tasks.length) this.fusePort.postMessage({ type: "whole-pieces", serial, ctx: { type: "ctx", id: "whole", serial, h: job.ctxH ?? null, u, sed, look: job.lookData ?? null, fuse, tile: T, ang: 0 }, tasks } satisfies WholePieces);
+      }
+      if (job.remote !== undefined && (job.waiting ?? 0) > 0) {
+        // (nothing back for this long — the worker beside is gone: the building is begun again, and made here if need be)
+        if (performance.now() - (job.remoteAt ?? 0) > WHOLE_BESIDE_GIVE_UP_MS) {
+          this.unitJob = null;
+          this.stages["fuse building: given up beside (n)"] = (this.stages["fuse building: given up beside (n)"] ?? 0) + 1;
+          break;
+        }
+        this.stages["fuse building: pieces left (n)"] = job.waiting ?? 0;
+        this.stages["fuse building: pieces made (n)"] = job.done.size;
+        break; // (its pieces are being made beside: the building is put together once they are all back)
+      }
       while (job.todo.length) {
         const piece = job.todo.shift()!;
         const kept = was && was.cfg === job.cfg ? was.pieces.get(piece.key) : undefined;
