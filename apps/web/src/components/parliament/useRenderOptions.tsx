@@ -409,7 +409,8 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
   // an explicit ratio is an upper bound (a screen with fewer device pixels gets its own); below 1 it is exact
   // (the hero shot: 2 while composing — every screen pixel drawn four times over — and the shot's own while saving)
   const dpr: number | [number, number] = hero ? (inp.shot ? inp.shot.dpr : 2) : dprPick > 0 ? (dprPick < 1 ? dprPick : [1, dprPick]) : autoDpr;
-  const antialias = hero ? true : (k.antialias as boolean);
+  // (the hero shot too: the same context as the wall's — see the hero branch below)
+  const antialias = k.antialias as boolean;
   const preserveDrawingBuffer = pick(k.keepBuffer as Tri, !wall);
   const ao = pick(k.ao as Tri, (saved.aoOn || hero) && post);
   const grainOn = pick(k.grain as Tri, saved.grain > 0 && post);
@@ -440,14 +441,20 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
     // THE HERO SHOT: the best of every knob left on 자동 — shadows, a large shadow map, AO at full resolution and its
     // highest quality, the refraction at full size, every vegetation point, the full detail at any distance
     const shadowsOn = pick(k.shadows as Tri, true);
-    // (the context's own MSAA does nothing while the composer draws the picture — it only costs memory, a buffer four
-    // samples deep at the hero shot's size: off then; changing it makes the canvas anew, once, as the mode turns)
-    const post = ao || grain > 0 || dof;
+    // THE SAME CANVAS AS THE WALL'S (the artist, 2026-11-28: "해상도 줄인 상태로 화석화되는 거 받아서 히어로샷 켰더니 장면을
+    // 다시 그리니까 화석이 바로 안 나오고"): the mode used to turn the context's own MSAA off while the composer draws the
+    // picture (there it only costs memory) — but a context attribute is fixed when the context is made, so the Canvas's
+    // key changed and everything inside it was made anew, on the way in and again on the way out: the space worker, the
+    // worker of the mass and its helpers stopped, the world worked out again from the log, the whole fossil made again
+    // piece by piece (and put on the screen a few MB a frame, slower at the mode's size). Now the context is left as the wall has it: the
+    // world, the fossil's chunks and the workers go on through the switch. (The MSAA buffer costs memory at the shot's
+    // size; 렌더 › 안티앨리어싱 off spares it, for the wall and the shot alike — with the composer on it shows only on what is
+    // drawn after it, the markers.)
     return {
       dpr,
-      antialias: !post,
+      antialias,
       preserveDrawingBuffer,
-      canvasKey: `gl:${post ? "noaa" : "aa"}:${preserveDrawingBuffer ? "keep" : "nokeep"}`,
+      canvasKey: `gl:${antialias ? "aa" : "noaa"}:${preserveDrawingBuffer ? "keep" : "nokeep"}`,
       shadowsOn,
       shadowType: k.shadowType as ShadowType,
       shadowMapSize: Math.max(4096, k.shadowMap as number),
