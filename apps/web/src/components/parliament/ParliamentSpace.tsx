@@ -113,6 +113,7 @@ import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindow
 import { applyValues, presetSource, reloadSaved, savable, showNote } from "./levaSave";
 import { LevelsPass, RenderLights, RenderTuning, StillNoise, TonePass, useRenderOptions } from "./useRenderOptions";
 import { HeroCapture, HeroFrame, useHeroShot } from "./HeroShot";
+import { HeroRecordLine, HeroRecordTap, useHeroRecord } from "./HeroRecord";
 import { EXHIBITION_FUSION, FUSION_PRESETS } from "@/presets/exhibitionFusion";
 import { arriveCompile, arriveDepthMaterial, makeArriveUniforms, setArrive, type ArriveWay } from "@/lib/parliament/arriveMaterial";
 import { setLevaFocus } from "./levaFocus";
@@ -5780,6 +5781,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   const focusTarget = useMemo(() => new THREE.Vector3(0, 4, 0), []);
   // THE HERO SHOT (HeroShot.tsx): markers and text hidden, the camera left to the hand, every render knob at its best
   const hero = useHeroShot(isV2 && !hideUi, rootBox);
+  // …and its recording: the frame as it plays, into one video (HeroRecord.tsx; its inputs join the same group, after)
+  const heroRec = useHeroRecord(isV2 && !hideUi, hero.on);
   // PERFORMANCE MODE: the same knobs, capped — fewer pixels, cheaper AO, no shadows, fewer vegetation points, closer LOD
   const perf = !hero.on && (rnd.perfMode || testPerf !== "off");
   // THE WALL (ui=0, the exhibition): one device pixel per CSS pixel and no shadows, whatever the rehearsal saved — at
@@ -6062,6 +6065,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           fixedDist={ro.detail.dofFocus === "dist" ? ro.detail.dofDist : null}
         />
         {hero.shot && <HeroCapture shot={hero.shot} composerOn={composerOn} onDone={hero.done} onArm={hero.arm} />}
+        {heroRec.on && <HeroRecordTap aspect={hero.aspect} fill={hero.fill} mbps={heroRec.mbps} paused={hero.shot !== null} />}
         <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={isV2 ? Math.PI : Math.PI * 0.499} enableRotate={!wall} enableZoom={!wall} enablePan={!wall} />
         <StageCamera
           controls={controls}
@@ -6101,7 +6105,10 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           </Hud>
         )}
       </Canvas>
-      <HeroFrame hero={hero}>{ro.dof && <FocusLine range={ro.detail.dofRange} bokeh={ro.detail.dofBokeh} />}</HeroFrame>
+      <HeroFrame hero={hero}>
+        {ro.dof && <FocusLine range={ro.detail.dofRange} bokeh={ro.detail.dofBokeh} />}
+        <HeroRecordLine />
+      </HeroFrame>
       {/* THE WALL (ui=0, the exhibition): no text at all — the readout and the markers' names are debugging (the artist,
           2026-10-28); the TEST entry (no ui parameter) keeps them */}
       {!hideUi && !hero.on && (
