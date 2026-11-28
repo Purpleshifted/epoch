@@ -22,7 +22,13 @@ export type LabAsset = "scan-future" | "scan-present" | "bot-present" | "bot-fut
 /** "frames": a study of its own (FrameLab.tsx — how a person's frames are laid out, nothing else on the page). */
 export type LabPage = LabAsset | "preview" | "frames";
 
-export const LAB_ASSETS: readonly LabAsset[] = ["scan-future", "scan-present", "bot-present", "bot-future"];
+/** The pages listed and served (bot (future) taken down — RETIRED_PAGES; its group stays, listed on scan (future)). */
+export const LAB_ASSETS: readonly LabAsset[] = ["scan-future", "scan-present", "bot-present"];
+/** PAGES TAKEN DOWN (the artist, 2026-11-28: "어차피 이 랩에서 더이상 할 게 없다면 frame, future bot 버튼이랑 페이지도
+ *  날려"): not in the lab's list or bar, not served. Their groups' saved values are still read — the frames study's by
+ *  FramePeopleLayer (the present people), bot (future)'s observers by the scan residue, its three knobs now listed on the
+ *  scan (future) page. */
+export const RETIRED_PAGES: ReadonlySet<string> = new Set(["frames", "bot-future"]);
 
 /** The Leva groups — names are storage keys: never rename one without a `legacy` entry in its savable(). */
 export const LAB_GROUP: Record<LabAsset | "base" | "frames", string> = {
@@ -186,7 +192,8 @@ export function installLabPanelFilter(store: { getVisiblePaths: () => string[] }
       const groups = Object.values(LAB_GROUP);
       return paths.filter((q) => PREVIEW_KNOBS.includes(q) || !groups.some((g) => inGroup(q, g)));
     }
-    const mine = [LAB_GROUP.base, LAB_GROUP[labPage]];
+    // (the scan (future) page also lists bot (future)'s observers — their own page taken down, RETIRED_PAGES)
+    const mine = [LAB_GROUP.base, LAB_GROUP[labPage], ...(labPage === "scan-future" ? [LAB_GROUP["bot-future"]] : [])];
     return paths.filter((q) => mine.some((g) => inGroup(q, g)));
   };
 }

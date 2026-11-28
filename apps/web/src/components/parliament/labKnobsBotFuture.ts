@@ -51,8 +51,7 @@ export function useBotFutureKnobs(isV2: boolean, bodyUrl: string | null) {
     savable(GROUP, {
       on: { value: true, label: "개인뷰에 켜기 (주소의 ?future= 가 우선 · 0 = 끔)", render: hidden },
       look: { options: LOOKS, value: "window" as Look, label: "방식", render: hidden },
-      // the invisible observers (lib/parliament/excavators) — what the residue reads; their places drawn on this page
-      // alone (ObserverMarkers.tsx)
+      // the invisible observers (lib/parliament/excavators) — what the residue reads
       "관찰자": folder(
         {
           excCount: { value: 7, min: 1, max: 30, step: 1, label: "관찰자 수" },
@@ -180,6 +179,8 @@ export function useBotFutureKnobs(isV2: boolean, bodyUrl: string | null) {
       // (2026-11-23: the observer's body has no clothes of its own — what was saved under it is kept, not shown, not read)
       winColor: { value: "colour", label: "옷의 색 (옛)", render: hidden },
     }),
-    { collapsed: false, order: 0.9, render: () => isV2 && labLists("bot-future") },
+    // (bot (future)'s own page taken down 2026-11-28: the observers' three knobs are listed on the scan (future) page,
+    // where the residue they make appear is)
+    { collapsed: false, order: 0.9, render: () => isV2 && (labLists("bot-future") || labLists("scan-future")) },
   );
 }

@@ -738,3 +738,19 @@ sound plays, together.
 - The page's line in the lab list: "보이지 않는 미래 관찰자 — 지금 어디 있는지 · 수 · 도는 반경 · 걸음"; its address no
   longer carries `futurefix=1` (that test scene was the encounter's).
 - Not captured (the machine's load was 90 when it was built); type check clean, the page compiles.
+
+#### Pages taken down (2026-11-28)
+
+The artist: "어차피 이 랩에서 더이상 할 게 없다면 frame, future bot 버튼이랑 페이지도 날려". The bot (future) page and the
+frames study are gone from the lab's list, the bar and the route (`mobileLab.ts RETIRED_PAGES`; `/lab/mobile/frames` and
+`/lab/mobile/bot-future` answer "no such page").
+- Deleted with them: `ObserverMarkers.tsx` (the observers' rings, that page's only content) and `FrameLab.tsx` (the
+  frames study page).
+- Kept: both groups' saved values are still read.
+  - The frames study's clips and states: `FramePeopleLayer` (the present people), through `savedGroup`.
+  - bot (future)'s observers: the scan residue, which reads count, roam and pace.
+- The observers' three knobs are now listed on the scan (future) page, beside the residue they make appear (the lab
+  panel filter lets that page show the `bot (future) · 미래 발굴자` group too).
+- Left for the sessions that own them: `"bot-future"` still sits in `LidarScan.lidarActive` and
+  `FutureResidue.residueActive` (scan (future)'s), where it is now never true; and the frames comments in
+  `framePeople.ts` / `FramePeopleLayer.tsx` (bot (present)'s).

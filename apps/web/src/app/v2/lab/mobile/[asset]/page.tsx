@@ -7,11 +7,12 @@
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import MobileLabStage from "@/components/parliament/MobileLabStage";
-import { LAB_INFO, type LabPage } from "@/components/parliament/mobileLab";
+import { LAB_INFO, RETIRED_PAGES, type LabPage } from "@/components/parliament/mobileLab";
 
 export default function MobileLabAssetPage() {
   const { asset } = useParams<{ asset: string }>();
-  if (!(asset in LAB_INFO)) {
+  // (a page taken down — frames, bot (future) — is no page any more)
+  if (!(asset in LAB_INFO) || RETIRED_PAGES.has(asset)) {
     return (
       <div className="flex h-screen items-center justify-center bg-[#0a0a0a] font-mono text-[11px] text-white/60">
         <Link href="/lab/mobile">no such page — back to the mobile view lab</Link>

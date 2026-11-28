@@ -550,7 +550,7 @@ export default function ParliamentScene({ lab }: { lab?: LabPage } = {}) {
     if (!lab || lab === "preview") return { ...futureKnobs, on: futureKnobs.overlayOn, encounterOn: false };
     // THE BODY-SHAPED WINDOWS RETIRED (the artist, 2026-11-28: "몸 모양 창은 이제 안 쓸 거잖아, 잔류를 왜 따로 계산하고
     // 있지?"): the future's crossing is the scan residue's alone (FutureResidue.tsx) — no encounter of its own on any lab
-    // page; bot (future)'s page shows where the invisible observers are (ObserverMarkers.tsx, mounted by RoleField)
+    // page (bot (future)'s own page taken down 2026-11-28: mobileLab RETIRED_PAGES)
     const overlayOn = lab === "scan-future";
     return { ...futureKnobs, on: overlayOn, overlayOn, encounterOn: false };
   }, [futureKnobs, lab, lidarOn, lookOn, futureAsked]);
