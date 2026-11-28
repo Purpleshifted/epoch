@@ -83,7 +83,7 @@ export function tubeBoxes(w: FuseTube): Box[] {
 
 /** A chunk's parts (all square to the grid) fused tile by tile. */
 export function fuseTilesOf(
-  w: { c0: number; c1: number; ps: { b: Box; d: number; up: boolean; sk: boolean; w?: number }[]; tubes: readonly FuseTube[]; x0: number; z0: number; nx: number; nz: number },
+  w: { c0: number; c1: number; ps: { b: Box; d: number; up: boolean; sk: boolean; w?: number; g?: number }[]; tubes: readonly FuseTube[]; x0: number; z0: number; nx: number; nz: number },
   h: NatureHistory | null,
   u: number,
   sed: Sed,
@@ -144,6 +144,7 @@ export function fuseTilesOf(
           parts: ps.map((e) => e.b),
           decay: ps.map((e) => e.d),
           weight: ps.map((e) => e.w ?? 1),
+          ...(ps.some((e) => (e.g ?? 0) > 0) ? { gone: ps.map((e) => e.g ?? 0) } : {}),
           standing: ps.map((e) => e.up),
           skeleton: ps.map((e) => e.sk),
           tubes,
@@ -659,7 +660,7 @@ export interface PieceTask {
   tx: number;
   tz: number;
   /** (`w`: the part's fossil share in the field — FuseChunkInput.weight, what the iso is read against) */
-  ps: { b: Box; d: number; up: boolean; sk: boolean; w?: number }[];
+  ps: { b: Box; d: number; up: boolean; sk: boolean; w?: number; g?: number }[];
   tubes: FuseTube[];
   /** The parts (and pipes and ways) it grows from (growData). */
   own: UnitPart[];
@@ -700,7 +701,7 @@ export interface PieceDone {
 export function makePiece(
   c: { h: NatureHistory | null; u: number; sed: Sed; fuse: FuseConfig; tile: number; ang: number },
   look: ((k: number) => number) | undefined,
-  p: { k0: number; k1: number; tx: number; tz: number; ps: readonly { b: Box; d: number; up: boolean; sk: boolean; w?: number }[]; tubes: readonly FuseTube[] },
+  p: { k0: number; k1: number; tx: number; tz: number; ps: readonly { b: Box; d: number; up: boolean; sk: boolean; w?: number; g?: number }[]; tubes: readonly FuseTube[] },
   own: readonly UnitPart[],
   stages: Record<string, number>,
   /** Whether it carries growth data (FuseUnits pick: a part that grows, or — seeded — a pipe's trunk alone). */
