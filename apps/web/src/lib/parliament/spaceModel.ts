@@ -845,7 +845,7 @@ export class SpaceModel {
   /** Which building a cell-run belongs to: per Seed, its runs of slots with the building's id. */
   private buildingRuns: { key: string; of: Map<number, { k0: number; k1: number; id: string }[]> } | null = null;
   /** Each building's mass as shown, with the state it was made from (part → decay) and its pieces kept for reuse. */
-  private units = new Map<string, { cfg: string; snap: Map<number, number>; mesh: FuseMesh; at: number; madeMs: number; pieces: Map<string, { sig: string; mesh: FuseMesh }>; born?: Map<number, number | undefined>; steps?: Map<number, number> }>();
+  private units = new Map<string, { cfg: string; snap: Map<number, number>; mesh: FuseMesh; at: number; madeMs: number; pieces: Map<string, { sig: string; mesh: FuseMesh }>; born?: Map<number, number | undefined>; steps?: Map<number, number>; ranges?: Map<string, readonly [number, number]> }>();
   /** The one building being made now: the state it is made from, the pieces still to do and those done. */
   private unitJob: {
     id: string;
@@ -862,6 +862,8 @@ export class SpaceModel {
     base: SpaceModel["units"] extends Map<string, infer V> ? V | undefined : never;
     /** (by the stage: each part's step in this state) */
     steps?: Map<number, number>;
+    /** The pieces made anew in this job (not kept from the mass it began from): only these melt. */
+    fresh: Set<string>;
   } | null = null;
   /** Masses of buildings that are no longer a building of their own (joined to another): shown until that one is made again. */
   private unitOrphans: { mesh: FuseMesh; heir: string; heirAt: number }[] = [];
@@ -1966,7 +1968,7 @@ export class SpaceModel {
       const snap = new Map<number, number>();
       for (const e of list) snap.set(key(e.b), e.d);
       const steps = byStep ? new Map(list.map((e) => [key(e.b), e.st ?? 0] as const)) : undefined;
-      return { id, cfg, snap, steps, ang, parts: seeded || byStep ? list.map((e) => ({ b: e.b, grow: e.grow })) : [], h: h && ang ? SpaceModel.turnedHistory(h, c, sn, ext, ka - 12, kb + 12) : h, look: lookOf(list), todo, done: new Map(), base: this.units.get(id) };
+      return { id, cfg, snap, steps, ang, parts: seeded || byStep ? list.map((e) => ({ b: e.b, grow: e.grow })) : [], h: h && ang ? SpaceModel.turnedHistory(h, c, sn, ext, ka - 12, kb + 12) : h, look: lookOf(list), todo, done: new Map(), fresh: new Set(), base: this.units.get(id) };
     };
 
     const deadline = performance.now() + FUSE_BUDGET_MS;
@@ -1999,6 +2001,7 @@ export class SpaceModel {
           const t0 = performance.now();
           const mesh = this.fuseTiles({ c0: piece.k0, c1: piece.k1, ps: piece.ps, tubes: [], x0: piece.tx, z0: piece.tz, nx: T, nz: T }, job.h, u, sed, job.look, fuse, T);
           job.done.set(piece.key, { sig: piece.sig, mesh });
+          job.fresh.add(piece.key);
           this.stages["fuse pieces (n)"] = (this.stages["fuse pieces (n)"] ?? 0) + 1;
           this.stages["fuse piece max ms"] = Math.max(this.stages["fuse piece max ms"] ?? 0, performance.now() - t0);
         }
@@ -2008,6 +2011,16 @@ export class SpaceModel {
       this.stages["fuse building: pieces made (n)"] = job.done.size;
       if (job.todo.length) break; // (out of time: the building goes on at the next call, from the same state)
       // every piece is done: the building's mass is changed whole
+      // (each piece's vertices in the merged mass: the melt reads only those of the pieces that changed)
+      const ranges = new Map<string, readonly [number, number]>();
+      {
+        let v = 0;
+        for (const [k, q] of job.done) {
+          const n = q.mesh.position.length / 3;
+          ranges.set(k, [v, v + n]);
+          v += n;
+        }
+      }
       const mesh = mergeMeshes([...job.done.values()].map((q) => q.mesh));
       // (carried to a name that is another building's — two that touched: its mass is not this one's to replace; it is
       // shown beside it until that building is made again, with these parts)
@@ -2041,9 +2054,16 @@ export class SpaceModel {
         const now = this.morphNow();
         const old = joined ? (wasBeside >= 0 && was!.mesh.index.length ? was!.mesh : null) : cur && cur.mesh.index.length ? cur.mesh : null;
         const tm = performance.now();
-        meltMorph(mesh, old, now, false);
+        // ONLY WHAT CHANGED MELTS (the new pieces, from the pieces they replace): the rest is the same in both masses
+        const oldRanges = old && old === cur?.mesh ? cur.ranges : undefined;
+        let only: [number, number][] | undefined, otherOnly: [number, number][] | undefined;
+        if (old && oldRanges) {
+          only = [...job.fresh].map((k) => ranges.get(k)).filter((r): r is readonly [number, number] => !!r).map((r) => [r[0], r[1]]);
+          otherOnly = [...oldRanges].filter(([k]) => job.fresh.has(k) || !job.done.has(k)).map(([, r]) => [r[0], r[1]]);
+        }
+        meltMorph(mesh, old, now, false, 2.4, 0.6, only, otherOnly);
         if (old) {
-          meltMorph(old, mesh, now, true);
+          meltMorph(old, mesh, now, true, 2.4, 0.6, otherOnly, only);
           this.unitLeaving.push({ mesh: old, until: now + meltSec + 0.5, key: ++this.leaveKey });
         }
         // (the masses of buildings that joined this one melt onto it too, rather than being let go at once)
@@ -2058,7 +2078,7 @@ export class SpaceModel {
         this.stages["melt ms (last building)"] = Math.round(performance.now() - tm);
       }
       if (joined) this.unitOrphans.push({ mesh, heir: job.id, heirAt: cur!.at }), this.unitsVersion++;
-      else this.units.set(job.id, { cfg: job.cfg, snap: job.snap, steps: job.steps, mesh, at: ++this.unitsVersion, madeMs: performance.now(), pieces: job.done });
+      else this.units.set(job.id, { cfg: job.cfg, snap: job.snap, steps: job.steps, mesh, at: ++this.unitsVersion, madeMs: performance.now(), pieces: job.done, ranges });
       this.unitJob = null;
       this.stages["fuse buildings (n)"] = (this.stages["fuse buildings (n)"] ?? 0) + 1;
       if (performance.now() > deadline) break;
