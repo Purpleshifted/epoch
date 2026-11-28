@@ -30,10 +30,28 @@ export const BOT_SERVER = process.env.NEXT_PUBLIC_BOT_SERVER ?? "wss://anthropoc
  * address. NEXT_PUBLIC_BOT_WORLD overrides both.
  */
 const PRODUCTION_HOSTS = ["anthropocene-redesign.vercel.app", "anthropocene-redesign-hesse-parks-projects.vercel.app"];
+/**
+ * A BRANCH PREVIEW READS THE EXHIBITION'S WORLD AND WRITES NOTHING (the artist, 2026-11-28, of a preview whose wall
+ * stood empty in "rehearsal": "프리뷰(모든 프리뷰 해당)에 봇 서버가 안 들어온다니까?", "프리뷰에도 서버 들어오게 하라고"):
+ * a Vercel preview joins "redesign" as a plain view — it hears the whole world and its bots as they walk — and is never
+ * the owner (botAdmin), never a visitor (useVisitorLink watches), and sends no people, knobs, rate or clear. What was
+ * kept from 2026-11-22 ("응, 막아", a test view cleared the shared world) stays kept: a preview cannot change it.
+ * `next dev` and every session's test page stay in "rehearsal". NEXT_PUBLIC_BOT_WORLD overrides it all.
+ */
+function previewHere(): boolean {
+  if (process.env.NEXT_PUBLIC_BOT_WORLD) return false;
+  if (process.env.NEXT_PUBLIC_VERCEL_ENV === "preview") return true;
+  if (process.env.NEXT_PUBLIC_VERCEL_ENV === "production") return false;
+  if (typeof window === "undefined") return false;
+  const h = window.location.hostname;
+  return h.endsWith(".vercel.app") && !PRODUCTION_HOSTS.includes(h);
+}
+export const READ_ONLY_PREVIEW = previewHere();
 function botWorldHere(): string {
   if (process.env.NEXT_PUBLIC_BOT_WORLD) return process.env.NEXT_PUBLIC_BOT_WORLD;
   if (process.env.NEXT_PUBLIC_VERCEL_ENV === "production") return "redesign";
   if (typeof window !== "undefined" && PRODUCTION_HOSTS.includes(window.location.hostname)) return "redesign";
+  if (READ_ONLY_PREVIEW) return "redesign";
   return "rehearsal";
 }
 export const BOT_WORLD = botWorldHere();
@@ -60,6 +78,8 @@ const BOT_ADMIN_KEY = "anthropocene:bot-admin:v1";
  */
 export function botAdmin(): boolean {
   if (typeof window === "undefined") return false;
+  // (a preview reads the exhibition's world and is never its owner, whatever mark its storage holds)
+  if (READ_ONLY_PREVIEW) return false;
   try {
     const params = new URLSearchParams(window.location.search);
     const q = params.get("botadmin");
@@ -295,7 +315,8 @@ export function useBotServer(log: EventLog, active: boolean, getSetup: () => Bot
         if (!e.o.startsWith("bot") && !fromServer.has(e.id)) people.push(e);
       }
       looked = i;
-      if (people.length) ws.send(JSON.stringify({ t: "people", events: people }));
+      // (a preview sends nothing to the exhibition's world: READ_ONLY_PREVIEW)
+      if (people.length && !READ_ONLY_PREVIEW) ws.send(JSON.stringify({ t: "people", events: people }));
     }, Math.min(SAVE_EVERY_MS, PEOPLE_EVERY_MS));
 
     return () => {
@@ -370,6 +391,8 @@ const WATCH_NEAR = 56;
 
 export function watchExhibition(): boolean {
   if (typeof window === "undefined") return false;
+  // (a preview's personal view only watches: never a visitor of the exhibition's world — READ_ONLY_PREVIEW)
+  if (READ_ONLY_PREVIEW) return true;
   return new URLSearchParams(window.location.search).get("watch") === "1";
 }
 
