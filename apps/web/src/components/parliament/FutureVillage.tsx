@@ -129,6 +129,7 @@ const BEAM_FRAGMENT = [
   "uniform float uGlow;",
   "uniform float uTaper;",
   "uniform float uSoft;",
+  "uniform float uRim;",
   "varying vec3 vW;",
   "float ign( vec2 p ) { return fract( 52.9829189 * fract( dot( p, vec2( 0.06711056, 0.00583715 ) ) ) ); }",
   "void main() {",
@@ -159,6 +160,7 @@ const BEAM_FRAGMENT = [
   "  float fallSum = level ? pow( 1.0 - h0, F ) : abs( u1 - u0 ) / ( ( F + 1.0 ) * abs( dh ) );",
   "  float j = ign( gl_FragCoord.xy );",
   "  float sum = 0.0;",
+  "  float rimSum = 0.0;",
   "  for ( int i = 0; i < 3; i++ ) {",
   "    float f = ( float( i ) + j ) / 3.0;",
   "    float h = level ? h0 : 1.0 - pow( mix( u0, u1, f ), 1.0 / ( F + 1.0 ) );",
@@ -167,9 +169,37 @@ const BEAM_FRAGMENT = [
   // (how far from the middle, against the light's half-width at this depth: 1 = its side)
   "    float m = max( abs( q.x ), abs( q.z ) ) / max( 1e-4, 0.5 * ( 1.0 - uTaper * h ) );",
   "    sum += 1.0 - smoothstep( 1.0 - uSoft, 1.0, m );",
+  // (how far inside the square's rim, in the world: the samples lie where the light is, so their mean is the rim's
+  // share of what this line of sight sees)
+  "    float dRim = 0.5 * uSize.x - max( abs( q.x * uSize.x ), abs( q.z * uSize.z ) );",
+  "    rimSum += uRim > 0.0 ? smoothstep( 0.0, uRim, dRim ) : 1.0;",
   "  }",
   "  float lit = uGlow * fallSum * ( sum / 3.0 ) * ( tf - tn ) / uSize.x;",
+  // THE RIM, SEEN FROM BELOW (the artist, 2026-11-28: "아래서 올려다봤을 때의 밑면 테두리는 부드럽게 블렌드 아웃"): the light
+  // goes out towards the square's edge — only as the eye looks up (from the side the glow is as it was). The light under
+  // the ceiling adds up far past white, so the fade bends it down from there too (lit^fade), else the edge would stay hard.
+  "  float rimA = mix( 1.0, rimSum / 3.0, smoothstep( 0.25, 0.7, rd.y ) );",
+  "  lit = ( lit > 1.0 ? pow( lit, rimA ) : lit ) * rimA;",
   "  gl_FragColor = vec4( max( vec3( 0.0 ), uLight * lit + ( j - 0.5 ) / 255.0 * step( 1e-4, lit ) ), 1.0 );",
+  "  #include <colorspace_fragment>",
+  "}",
+].join("\n");
+
+/** THE BRIGHT SQUARE (the lid): its colour, and — as the eye looks up — its rim going out over `uRim` (world) into whatever is
+ *  behind it (the same rim as the light's under it, BEAM_FRAGMENT). Blended in the opaque pass, so it can still be drawn
+ *  first, as a background. */
+const LID_VERTEX = "varying vec3 vW;\nvarying vec3 vC;\nvoid main() {\n  vec4 w = modelMatrix * vec4( position, 1.0 );\n  vW = w.xyz;\n  vC = modelMatrix[ 3 ].xyz;\n  gl_Position = projectionMatrix * viewMatrix * w;\n}";
+const LID_FRAGMENT = [
+  "uniform vec3 uColor;",
+  "uniform float uHalf;",
+  "uniform float uRim;",
+  "varying vec3 vW;",
+  "varying vec3 vC;",
+  "void main() {",
+  "  vec3 rd = normalize( vW - cameraPosition );",
+  "  float d = uHalf - max( abs( vW.x - vC.x ), abs( vW.z - vC.z ) );",
+  "  float a = uRim > 0.0 ? mix( 1.0, smoothstep( 0.0, uRim, d ), smoothstep( 0.25, 0.7, rd.y ) ) : 1.0;",
+  "  gl_FragColor = vec4( uColor, a );",
   "  #include <colorspace_fragment>",
   "}",
 ].join("\n");
@@ -225,6 +255,9 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
       beamFall: { value: 14, min: 0.5, max: 80, step: 0.5, label: "빛기둥의 감쇠 (클수록 천장 바로 아래에서만 빛나고 곧 사라짐)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
       beamTaper: { value: 0.7, min: 0, max: 1, step: 0.02, label: "빛기둥이 아래로 좁아지는 정도 (0 = 곧게 … 1 = 끝에서 한 점)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
       beamSoft: { value: 0.8, min: 0.05, max: 1, step: 0.05, label: "빛기둥 옆 가장자리의 번짐 (작으면 또렷한 네모 기둥 … 1 = 가운데부터 옅어짐)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
+      // (the artist, 2026-11-28: "지금같은 '아래 조명 느낌'은 유지하되 아래서 올려다봤을 때의 밑면 테두리는 부드럽게 블렌드
+      // 아웃 되거나 안 보이게"): the bright square and its light go out towards the square's edge, as the eye looks up
+      beamRim: { value: 30, min: 0, max: 80, step: 1, label: "올려다볼 때 밑면 테두리가 사라지는 폭 (칸 · 네모 천장과 그 빛 · 옆에서 볼 때는 그대로 · 0 = 잘린 그대로)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
       beamDeep: { value: 120, min: 5, max: 400, step: 5, label: "빛기둥의 길이 (단 · 천장에서 아래로 — 좁아짐은 이 끝에서 다함)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
       pitDepth: { value: 160, min: 10, max: 400, step: 5, label: "상자의 깊이 (단 · 미래 땅에서 아래로 — 위에서 볼 때의 버전들)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
       pitWide: { value: 6, min: 1.5, max: 20, step: 0.5, label: "바깥 땅의 넓이 (상자 한 변의 몇 배)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
@@ -276,13 +309,29 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
         depthWrite: false,
         blending: THREE.AdditiveBlending,
         toneMapped: false,
-        uniforms: { uLight: { value: new THREE.Color() }, uCap: { value: 0 }, uFall: { value: 14 }, uGlow: { value: 1 }, uTaper: { value: 0.7 }, uSoft: { value: 0.8 } },
+        uniforms: { uLight: { value: new THREE.Color() }, uCap: { value: 0 }, uFall: { value: 14 }, uGlow: { value: 1 }, uTaper: { value: 0.7 }, uSoft: { value: 0.8 }, uRim: { value: 0 } },
         vertexShader: BEAM_VERTEX,
         fragmentShader: BEAM_FRAGMENT,
       }),
     [],
   );
   useEffect(() => () => beamMat.dispose(), [beamMat]);
+  const lidMat = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        side: THREE.DoubleSide,
+        toneMapped: false,
+        // (blended, yet not "transparent": it stays in the opaque pass, drawn first as the background it is from below)
+        blending: THREE.CustomBlending,
+        blendSrc: THREE.SrcAlphaFactor,
+        blendDst: THREE.OneMinusSrcAlphaFactor,
+        uniforms: { uColor: { value: new THREE.Color() }, uHalf: { value: WORLD_SIZE / 2 }, uRim: { value: 0 } },
+        vertexShader: LID_VERTEX,
+        fragmentShader: LID_FRAGMENT,
+      }),
+    [],
+  );
+  useEffect(() => () => lidMat.dispose(), [lidMat]);
   useEffect(() => () => void (futureGround.y = null), []);
   const litGeo = useMemo(() => pitGeometry(k.pitLight, k.pitDark, k.pitFall, 1), [k.pitLight, k.pitDark, k.pitFall]);
   const darkGeo = useMemo(() => pitGeometry(k.pitLight, k.pitDark, k.pitFall, k.pitWall), [k.pitLight, k.pitDark, k.pitFall, k.pitWall]);
@@ -398,9 +447,10 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
       lid.current.position.set(0, lidY, 0);
       lid.current.scale.set(WORLD_SIZE, WORLD_SIZE, 1);
       lid.current.renderOrder = back ? -1000 : 0;
-      const m = lid.current.material as THREE.MeshBasicMaterial;
-      m.depthTest = !back;
-      m.depthWrite = !back;
+      lidMat.depthTest = !back;
+      lidMat.depthWrite = !back;
+      (lidMat.uniforms.uColor.value as THREE.Color).set(k.pitLight);
+      lidMat.uniforms.uRim.value = Math.max(0, k.beamRim) * CELL_SIZE;
     }
     // 6: under that ceiling nothing but its light — a body of it, strongest under the ceiling, narrowing and gone with
     // depth (the shader reads where the box stands from the box's own matrix)
@@ -419,6 +469,7 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
       u.uGlow.value = k.beamGlow;
       u.uTaper.value = k.beamTaper;
       u.uSoft.value = k.beamSoft;
+      u.uRim.value = Math.max(0, k.beamRim) * CELL_SIZE;
     }
     // 5: the section's plane, by where the eye is — its normal points away from the eye (what is beyond it is kept)
     const fg = face.current;
@@ -584,9 +635,8 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
       <mesh ref={shaft} visible={false} geometry={shaftGeo} frustumCulled={false}>
         <meshBasicMaterial vertexColors toneMapped={false} />
       </mesh>
-      <mesh ref={lid} visible={false} rotation={[-Math.PI / 2, 0, 0]} frustumCulled={false}>
+      <mesh ref={lid} visible={false} rotation={[-Math.PI / 2, 0, 0]} frustumCulled={false} material={lidMat}>
         <planeGeometry args={[1, 1]} />
-        <meshBasicMaterial color={k.pitLight} toneMapped={false} side={THREE.DoubleSide} />
       </mesh>
       <mesh ref={beam} visible={false} material={beamMat} frustumCulled={false} renderOrder={2}>
         <boxGeometry args={[1, 1, 1]} />

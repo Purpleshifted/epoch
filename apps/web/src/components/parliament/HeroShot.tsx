@@ -17,6 +17,9 @@
  * shrank against the larger picture ("렌더샷에 이펙트랑 피사계심도 반영이 안 돼"). (3) The whole canvas again, capped at
  * 16 M pixels — the points right, but a framed shot got only its share of the cap: smaller and softer ("화질도
  * 떨어지고 사이즈도 줄어드는데"). (4) NOW: only the frame, as (2), and
+ *   - no point is smaller than a screen pixel would be: the GPU's one-pixel floor is the screen's pixel on the screen,
+ *     so the finest plant dots read there; in the shot every point is held to the screen's pixel in the shot's pixels
+ *     (PointLod.tsx setPointMinPx — the artist, 2026-11-28: "히어로샷에서 식생 진짜 안 보여");
  *   - every point drawn with a size in the world (PointsMaterial with size attenuation) is drawn that zoom larger,
  *     just for its own draw (onBeforeRender / onAfterRender: whatever sets its size between frames is untouched);
  *     the two point shaders of their own (Dandelions, the plant clouds of ParliamentSpace) take the camera's zoom;
@@ -36,6 +39,7 @@ import { useEffect, useRef, useState, type ReactNode, type RefObject } from "rea
 import { useFrame, useThree } from "@react-three/fiber";
 import { button, useControls } from "leva";
 import * as THREE from "three";
+import { setPointMinPx } from "./PointLod";
 
 const GROUP = "히어로샷"; // (never saved — see above)
 
@@ -200,6 +204,14 @@ export function HeroCapture({ shot, composerOn, onDone, onArm }: { shot: Shot; c
   const acc = useRef<{ out: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null>(null);
   const cam = camera as THREE.PerspectiveCamera;
   const zoom = shot.fullH / Math.max(1, shot.rect.h);
+  // THE SCREEN'S PIXEL, KEPT (the artist, 2026-11-28: "히어로샷에서 식생 진짜 안 보여"): the finest plant dots are under a
+  // pixel on the screen and drawn one screen pixel wide; once the shot's ratio is applied the same frame has
+  // shot.dpr / (the screen's ratio) times the pixels, and every point is held to at least that many (PointLod.tsx)
+  const screenDpr = useRef(gl.getPixelRatio());
+  useEffect(() => {
+    if (shot.armed) setPointMinPx(shot.dpr / Math.max(0.5, screenDpr.current));
+    return () => setPointMinPx(1);
+  }, [shot.armed, shot.dpr]);
   // the frame's picture fills the smaller canvas: the field of view narrowed by the screen's height over the frame's
   useEffect(() => {
     const was = cam.zoom;
