@@ -62,7 +62,7 @@ const EXHIBITION_DEAD = new Set([...STAGE_DEAD, "pieceTile", "pieceSeg"]);
 /** THE TWO TOGETHER (방식 = 전시판 + 단계 순서 — fuse.ts wholeStages, 2026-11-21 night): made as the exhibition's, in the
  *  stages' order — the ruler (①) and the number of stages are read; the worker beside's sweep, the stages' roundness and
  *  wall (the exhibition's look is kept) and the life are not. */
-const WHOLE_DEAD = new Set([...EXHIBITION_DEAD, "stageSweep", "stageRound", "stageWall", "stageHoles", "growDie", "growDieAfterMin", "growDieSpanMin", "growDieHoles", "growDieGrain", "growDieRag", "growDiePatch"]);
+const WHOLE_DEAD = new Set([...EXHIBITION_DEAD, "unitChange", "stageSweep", "stageRound", "stageWall", "stageHoles", "growDie", "growDieAfterMin", "growDieSpanMin", "growDieHoles", "growDieGrain", "growDieRag", "growDiePatch"]);
 const SEED_DEAD = new Set(["fuseFull", "goneMass", "skeletonUntil", "fossilFrom", "fossilTo", "fossilNoise", "blocky", "shellSplit", "shellThickYoung", "fuseUnit", "unitChange", "walkRadius", "scatter", "steelFossil", "fuseFade"]);
 /**
  * …AND THE CHOICES THAT LEAD BACK TO THE OLD WAY: what the mass is made of (the parts' own skins / the crust) and where

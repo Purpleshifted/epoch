@@ -845,7 +845,7 @@ export class SpaceModel {
   /** Which building a cell-run belongs to: per Seed, its runs of slots with the building's id. */
   private buildingRuns: { key: string; of: Map<number, { k0: number; k1: number; id: string }[]> } | null = null;
   /** Each building's mass as shown, with the state it was made from (part → decay) and its pieces kept for reuse. */
-  private units = new Map<string, { cfg: string; snap: Map<number, number>; mesh: FuseMesh; at: number; madeMs: number; pieces: Map<string, { sig: string; mesh: FuseMesh }>; born?: Map<number, number | undefined> }>();
+  private units = new Map<string, { cfg: string; snap: Map<number, number>; mesh: FuseMesh; at: number; madeMs: number; pieces: Map<string, { sig: string; mesh: FuseMesh }>; born?: Map<number, number | undefined>; steps?: Map<number, number> }>();
   /** The one building being made now: the state it is made from, the pieces still to do and those done. */
   private unitJob: {
     id: string;
@@ -860,6 +860,8 @@ export class SpaceModel {
     done: Map<string, { sig: string; mesh: FuseMesh }>;
     /** The building's mass as it was when the job began (undefined: its first) — what the new one replaces. */
     base: SpaceModel["units"] extends Map<string, infer V> ? V | undefined : never;
+    /** (by the stage: each part's step in this state) */
+    steps?: Map<number, number>;
   } | null = null;
   /** Masses of buildings that are no longer a building of their own (joined to another): shown until that one is made again. */
   private unitOrphans: { mesh: FuseMesh; heir: string; heirAt: number }[] = [];
@@ -1730,7 +1732,7 @@ export class SpaceModel {
    * parts stand exactly as they did is kept as it was.
    */
   private fuseBuildings(
-    bySlot: ReadonlyMap<number, { b: Box; d: number; up: boolean; sk: boolean; ang: number; grow?: number[] }[]>,
+    bySlot: ReadonlyMap<number, { b: Box; d: number; up: boolean; sk: boolean; ang: number; grow?: number[]; st?: number }[]>,
     h: NatureHistory | null,
     u: number,
     sed: NonNullable<ReturnType<typeof sedimentOf>>,
@@ -1739,7 +1741,7 @@ export class SpaceModel {
     padSlots: number,
     box: BoxConfig,
   ): FuseMesh | null {
-    type P = { b: Box; d: number; up: boolean; sk: boolean; ang: number; grow?: number[] };
+    type P = { b: Box; d: number; up: boolean; sk: boolean; ang: number; grow?: number[]; st?: number };
     const SEG = NATURE_CHUNK, T = BLOCK_TILE, PAD = 4;
     // (SEEDED: the mass is the building's whole mass, whatever its progress — it is made again only when its parts
     // are other than they were, and not more often than every so long: its assets come one by one)
@@ -1789,8 +1791,16 @@ export class SpaceModel {
       this.unitLeaving = melt ? this.unitLeaving.filter((l) => l.until > now) : [];
       if (this.unitLeaving.length !== n0) this.unitsVersion++;
     }
-    // (the crust has no growths: only where it has come)
-    const fusing = (list: readonly { d: number }[]): boolean => list.some((e) => fusedShare(e.d, fuse) >= 0.05 || (!fuse.crust && accretionShare(e.d, fuse) > 0.01));
+    // BY THE STAGE, NOT BY A THRESHOLD (the artist, 2026-11-28: "판정에 안 걸리는 밀도의 건물은 사라지기까지 화석화가 안
+    // 됨, 건물 변화량 감지하는 역치 때문에"). In whole stages every part carries the step its progress has reached
+    // (computeFuse: P.st): a building is made when it first has a part with a step, and again whenever a part's step
+    // is other than it was in the mass shown, or a part with a step came or went — not when a mean of its values
+    // passes `unitChange`, which a sparse band (fewer than four parts) or a building where the vegetation gathered
+    // little never passed. At most a building's stages' count of makes, whatever its density.
+    let byStep = false;
+    if (!seeded && fuse.wholeStages) for (const l of bySlot.values()) if (l.some((e) => e.st !== undefined)) { byStep = true; break; }
+    // (the crust has no growths: only where it has come — by the stage: where a part has a step)
+    const fusing = (list: readonly { d: number; st?: number }[]): boolean => byStep ? list.some((e) => (e.st ?? 0) > 0) : list.some((e) => fusedShare(e.d, fuse) >= 0.05 || (!fuse.crust && accretionShare(e.d, fuse) > 0.01));
     const value = (d: number) => 0.7 * fusedShare(d, fuse) + 0.3 * d;
     const key = (b: Box) => SpaceModel.partKey(b);
     // A BUILDING UNDER ANOTHER NAME (it grew a cell older than its oldest, or its foot went with the window's floor):
@@ -1849,6 +1859,18 @@ export class SpaceModel {
       const ent = this.units.get(id);
       if (!ent) return fusing(list) ? 1 : 0;
       if (ent.cfg !== cfg) return 1;
+      if (byStep) {
+        // (by the stage: any part whose step is other than in the mass shown — or that came or went with one)
+        const was = ent.steps;
+        if (!was) return fusing(list) ? 1 : 0;
+        let seen = 0;
+        for (const e of list) {
+          const st = e.st ?? 0, w = was.get(key(e.b));
+          if (w !== undefined) seen++;
+          if ((w ?? 0) !== st) return 1;
+        }
+        return seen < was.size ? 1 : 0;
+      }
       const sum = new Map<number, number>(), cnt = new Map<number, number>();
       const add = (band: number, v: number) => {
         sum.set(band, (sum.get(band) ?? 0) + v);
@@ -1931,7 +1953,8 @@ export class SpaceModel {
       }
       const snap = new Map<number, number>();
       for (const e of list) snap.set(key(e.b), e.d);
-      return { id, cfg, snap, ang, parts: seeded ? list.map((e) => ({ b: e.b, grow: e.grow })) : [], h: h && ang ? SpaceModel.turnedHistory(h, c, sn, ext, ka - 12, kb + 12) : h, look: lookOf(list), todo, done: new Map(), base: this.units.get(id) };
+      const steps = byStep ? new Map(list.map((e) => [key(e.b), e.st ?? 0] as const)) : undefined;
+      return { id, cfg, snap, steps, ang, parts: seeded ? list.map((e) => ({ b: e.b, grow: e.grow })) : [], h: h && ang ? SpaceModel.turnedHistory(h, c, sn, ext, ka - 12, kb + 12) : h, look: lookOf(list), todo, done: new Map(), base: this.units.get(id) };
     };
 
     const deadline = performance.now() + FUSE_BUDGET_MS;
@@ -1941,7 +1964,7 @@ export class SpaceModel {
         // the building that has moved most from its state
         let pick = "", most = 0;
         waiting = 0;
-        const th = seeded ? 1e-6 : Math.max(0.02, fuse.unitChange ?? 0.15);
+        const th = seeded ? 1e-6 : byStep ? 0.5 : Math.max(0.02, fuse.unitChange ?? 0.15);
         const nowMs = performance.now();
         for (const [id, list] of lists) {
           const ch = changeOf(id, list);
@@ -2021,7 +2044,7 @@ export class SpaceModel {
         this.stages["melt ms (last building)"] = Math.round(performance.now() - tm);
       }
       if (joined) this.unitOrphans.push({ mesh, heir: job.id, heirAt: cur!.at }), this.unitsVersion++;
-      else this.units.set(job.id, { cfg: job.cfg, snap: job.snap, mesh, at: ++this.unitsVersion, madeMs: performance.now(), pieces: job.done });
+      else this.units.set(job.id, { cfg: job.cfg, snap: job.snap, steps: job.steps, mesh, at: ++this.unitsVersion, madeMs: performance.now(), pieces: job.done });
       this.unitJob = null;
       this.stages["fuse buildings (n)"] = (this.stages["fuse buildings (n)"] ?? 0) + 1;
       if (performance.now() > deadline) break;
@@ -3708,7 +3731,7 @@ export class SpaceModel {
     const gone = bc ? Math.max(0, Math.min(1, fuse.goneMass ?? 0)) : 1;
     const skCfg = fuse;
     const q20 = (v: number) => Math.round(v * 20) / 20;
-    type P = { b: Box; d: number; up: boolean; sk: boolean; ang: number; grow?: number[] };
+    type P = { b: Box; d: number; up: boolean; sk: boolean; ang: number; grow?: number[]; st?: number };
     // the angle each seed's district is turned by (fuseTiled)
     const angleOf = new Map<number, number>();
     if (box.variety) for (const sd of this.seeds) angleOf.set(sd.id, districtOf(sd.x, sd.z, box.variety).angle);
@@ -3804,12 +3827,13 @@ export class SpaceModel {
           continue;
         }
         // THE FOSSIL IN STAGES (FuseInput.stages): the part goes in at the step its progress has reached — none yet, no mass
-        let stageD = 1;
+        let stageD = 1, stageAt = 0;
         if (stg && bc) {
           const ruler = (stgNow - bornAge - stg.after) * Math.max(0.2, own) * (1 - stg.deep * (1 - Math.max(0, Math.min(1, (bc.top - (b.slot + 0.5)) / deadH))));
           const step = Math.min(stg.n, Math.floor((ruler / Math.max(1, stg.span)) * stg.n));
           if (step <= 0) continue;
           stageD = step / stg.n;
+          stageAt = step;
         }
         // A PART THAT GOES BEFORE ITS FOSSIL BEGINS LEAVES NONE (the wall's shader lets the fossil out by the layer's
         // depth: FUSE_GROW_VERT_BODY): how deep the part lies when the erosion takes it — its progress summed slot by
@@ -3840,7 +3864,7 @@ export class SpaceModel {
         // (WHOLE STAGES: nothing in the shader lets the mass out — what the vegetation makes of it is in its progress,
         // as the exhibition's was: d × the share the vegetation gathered there)
         const e: P = staged
-          ? { b, d: q20(stageD * most), up: true, sk: isSkeleton(b, q20(stageD * most), skCfg), ang: angleOf.get(b.seed) ?? 0 }
+          ? { b, d: q20(stageD * most), up: true, sk: isSkeleton(b, q20(stageD * most), skCfg), ang: angleOf.get(b.seed) ?? 0, st: stg ? stageAt : undefined }
           : { b, d: stageD, up: true, sk: isSkeleton(b, 0, fuse), ang: angleOf.get(b.seed) ?? 0, grow: [b.slot, bornAge, g, own, nEff, most] };
         const l = bySlot.get(b.slot);
         if (l) l.push(e);

@@ -5236,7 +5236,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           },
           stageN: { value: 3, min: 2, max: 5, step: 1, label: "단계 수 (2 = 거칠게 · 5 = 촘촘히)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && (get(`${FU}.화석이 생기는 과정.fuseStages`) === "stages" || get(`${FU}.화석이 생기는 과정.fuseStages`) === "whole") },
           // (WHOLE STAGES: how long a building melts from one stage into the next — the same knob as the cross-fade's, fuseFade)
-          stageMelt: { value: "위 「덩어리가 바뀔 때 녹아드는 시간」 · 다시 만드는 기준은 「건물 상태가 이만큼 달라지면」", editable: false, label: "녹아드는 시간은", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && get(`${FU}.화석이 생기는 과정.fuseStages`) === "whole" },
+          stageMelt: { value: "위 「덩어리가 바뀔 때 녹아드는 시간」 · 다시 만드는 때: 부재 하나라도 단계가 바뀌면 (역치 없음)", editable: false, label: "녹아드는 시간은", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && get(`${FU}.화석이 생기는 과정.fuseStages`) === "whole" },
           stageSweep: { value: 4, min: 0, max: 20, step: 0.5, label: "단계가 바뀌는 시간 (초 · 아래부터 한 단씩 · 0 = 한꺼번에)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && get(`${FU}.화석이 생기는 과정.fuseStages`) === "stages" },
           // (ROUND — fuse.ts roundness; "내 말은 둥글게 하라고 둥글게")
           stageRound: { value: 1, min: 0, max: 1.5, step: 0.05, label: "둥글기 (0 = 각진 그대로 · 높을수록 둥글고 구멍이 메워짐)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && get(`${FU}.화석이 생기는 과정.fuseStages`) === "stages" },
@@ -5303,7 +5303,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         label: "덩어리를 만드는 단위 (예전 방식에서만)",
         render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) !== "seed",
       },
-      unitChange: { value: 0.15, min: 0.03, max: 0.5, step: 0.01, label: "건물 상태가 이만큼 달라지면 덩어리를 다시 만듦 (전시판 방식 · 작을수록 자주 바뀌고 무거움)", render: (get: (path: string) => unknown) => REDESIGN && (get(`${FU}.fuseGrow`) !== "seed" ? get(`${FU}.fuseUnit`) === "building" : ["exhibition", "whole"].includes(String(get(`${FU}.화석이 생기는 과정.fuseStages`)))) },
+      unitChange: { value: 0.15, min: 0.03, max: 0.5, step: 0.01, label: "건물 상태가 이만큼 달라지면 덩어리를 다시 만듦 (전시판 방식 · 작을수록 자주 바뀌고 무거움)", render: (get: (path: string) => unknown) => REDESIGN && (get(`${FU}.fuseGrow`) !== "seed" ? get(`${FU}.fuseUnit`) === "building" : ["exhibition"].includes(String(get(`${FU}.화석이 생기는 과정.fuseStages`)))) },
       // ONE CLOCK: what happens to a part is read off its corrosion (0 = new … 1 = gone), the same for every stage
       [FU_WHEN]: folder({
         // THREE BANDS (the artist, 2026-10-31 night): the present (풍화 · 지층 › 현재 두께), the layer where the processes
