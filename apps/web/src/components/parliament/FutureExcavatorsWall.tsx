@@ -17,15 +17,12 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { levaStore, useControls } from "leva";
 import { botGround, currentEpochKey, worldNow, wrapDist, type EventLog } from "@/lib/parliament";
-import { excavatorsAt, type Excavator } from "@/lib/parliament/excavators";
+import { excavatorsAt } from "@/lib/parliament/excavators";
 import { futureOnly } from "@/lib/parliament/futureOnly";
 import { savable } from "./levaSave";
 
 const GROUP = "미래의 발굴자 (벽)";
 
-/** THE WALKERS NOW, for whoever on the wall asks whether the future is with someone (ParliamentSpace MeMark's thread —
- *  docs/me-future-link.md): this frame's list (empty while this is off) and the reach of a meeting. Read only. */
-export const wallExcavators: { list: Excavator[]; meetR: number } = { list: [], meetR: 4 };
 /** A visitor whose meeting is drawn by someone else (MeMark's thread, for "me"): no pillar of light for it here. */
 export const wallMeetSkip: { id: string | null } = { id: null };
 const MAX_EX = 40;
@@ -134,14 +131,11 @@ export function FutureExcavatorsWall({ log, unit, top, secPerUnit }: { log: Even
     // drawn or not: the pillars always; the archaeologists' strokes only where the layer is drawn)
     const layerOn = knob("미래 마을 층.on") === true || futureOnly();
     if (g) g.visible = k.on;
-    wallExcavators.list = [];
-    wallExcavators.meetR = k.meetR;
     if (!k.on) return;
     const epoch = Number(currentEpochKey());
     if (!(epoch > 0)) return;
     const sec = (worldNow() - epoch) / 1000;
     const exs = excavatorsAt(epoch, sec, { count: k.count, roam: k.roam, legSec: k.legSec, stand: 0.35 });
-    wallExcavators.list = exs;
     // THE FUTURE'S GROUND: where FutureVillage stands it — above the window's top, the layer's gap apart
     // (the window's top: the fusion's uniform where it is filled, else the bots' window — botGround.window — as the
     // wall's readout reads it)
