@@ -102,6 +102,7 @@ import { WALL_BUILD } from "@/lib/parliament/build";
 import { FutureVillage, futureGround, futureLink } from "./FutureVillage";
 import { FutureUnder, futureUnder } from "./FutureUnder";
 import { FutureExcavatorsWall, wallMeetSkip } from "./FutureExcavatorsWall";
+import { PointLod } from "./PointLod";
 import { excavatorsAt } from "@/lib/parliament/excavators";
 import { futureMeetRule, futureMeetRuleFrom } from "@/lib/parliament/futureMeetRule";
 import { wrapDist } from "@/lib/parliament/world";
@@ -2301,6 +2302,8 @@ function SpaceWorld({
       </group>
       {/* what is to come, inferred from the window's latest slots: apart from the column, above its top */}
       {REDESIGN && !!density && <FutureVillage unit={boxCfg.unit} top={fuseU.uGrowTop} kindColor={KIND_COLOR} />}
+      {/* (far points clump — every point cloud of this scene with a size in the world, the hero shot's too: PointLod.tsx) */}
+      {REDESIGN && <PointLod />}
       {REDESIGN && !!density && <FutureUnder unit={boxCfg.unit} top={fuseU.uGrowTop} />}
       {/* the future's archaeologists, and the light where they meet a visitor (FutureExcavatorsWall.tsx, 2026-11-22) */}
       {REDESIGN && !!density && <FutureExcavatorsWall log={log} unit={boxCfg.unit} top={fuseU.uGrowTop} secPerUnit={boxCfg.secPerUnit} />}
