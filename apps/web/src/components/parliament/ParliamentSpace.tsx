@@ -102,7 +102,7 @@ import { WALL_BUILD } from "@/lib/parliament/build";
 import { FutureVillage, futureGround, futureLink } from "./FutureVillage";
 import { FutureUnder, futureUnder } from "./FutureUnder";
 import { FutureExcavatorsWall, wallMeetSkip } from "./FutureExcavatorsWall";
-import { PointLod } from "./PointLod";
+import { PointFrame, PointLod } from "./PointLod";
 import { excavatorsAt } from "@/lib/parliament/excavators";
 import { futureMeetRule, futureMeetRuleFrom } from "@/lib/parliament/futureMeetRule";
 import { wrapDist } from "@/lib/parliament/world";
@@ -6079,6 +6079,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
             {/* (what these measure in pixels — the blur, the grain — is scaled by hero.fx while a hero shot is drawn at a
                 larger ratio than the screen's: the same look in the larger picture, HeroShot.tsx) */}
             {aoOn && <N8AO aoRadius={ro.detail.aoRadius} distanceFalloff={ro.detail.distanceFalloff} intensity={ro.detail.aoIntensity} quality={aoQuality} halfRes={aoHalfRes} color={ro.aoColor} />}
+            {/* (the point clouds in a frame of their own, softened by distance as the personal view's photograph — after
+                the AO, under the blur, the bloom and the grain: PointLod.tsx) */}
+            {REDESIGN && <PointFrame />}
             {ro.dof && <DepthOfField target={focusTarget} worldFocusRange={ro.detail.dofRange} bokehScale={ro.detail.dofBokeh * hero.fx} />}
             {flowerBloom.on && <Bloom mipmapBlur intensity={flowerBloom.intensity} luminanceThreshold={flowerBloom.threshold} luminanceSmoothing={0.2} radius={flowerBloom.radius} />}
             {/* (the exposure and the curve, then the levels: on the finished picture, under the grain) */}
