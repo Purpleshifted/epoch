@@ -67,6 +67,7 @@ import { newLook } from "./mobileLab";
 import { FuturePresence, futurePeek, type FuturePresenceVisual } from "./FuturePresence";
 import { FutureEncounter, futureMeet } from "./FutureEncounter";
 import { NatureCloud, type GrassReaction } from "./NatureCloud";
+import { personWhere, peoplePaper } from "./peopleWhere";
 import { AnswerBurst, ConcreteLines, ConcreteOutline, OtherDots, type BurstAt, type MarksData } from "./Marks";
 import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
@@ -280,6 +281,8 @@ export function RoleField({
   // plays it when the ask is heard as counterpoint, sound-logic §13d)
   const askerNow = useRef<{ o: string; until: number; word: Motif | null } | null>(null);
   const answerDue = useRef<{ other: string; seed: number } | null>(null);
+  // whom I answered last (the redesigned view's burst goes off at them)
+  const answeredWho = useRef<string | null>(null);
   // the record's 합주 (witness ensemble.start … end): the sound plays it as an ensemble (sound-logic §13e)
   const ensembleNow = useRef(false);
   // whom I am really building with (the last fold's coBuilders): the record's 합주 needs it on the new look (witness builtOnly)
@@ -298,6 +301,7 @@ export function RoleField({
           };
         else if (e.kind === "word.answered" && e.who) {
           askerNow.current = null;
+          answeredWho.current = e.who;
           answerDue.current = { other: e.who, seed: Math.floor(e.lifeT ?? 0) };
         }
       }),
@@ -504,7 +508,10 @@ export function RoleField({
       // (the redesigned view): from it every page that reads the log learns this visitor's new melody (glyph.ts)
       const word = sound?.params.askCounterpoint ? answerWord?.current ?? undefined : undefined;
       emit(me.current.id, "tree", "s", x, z, sMe, word);
-      burst.current = { id: `${me.current.id}:${answers.current}`, x, y: BURST_Y, z, atMs: performance.now() };
+      // (the redesigned view: the burst goes off by the one who received my answer, where the street draws them — their
+      // frames respond there too, FramePeopleLayer; the artist, 2026-11-28: "내 화답을 받은 상대 근처에서 터지도록")
+      const at = newLook() ? personWhere(answerWord?.current?.to ?? answeredWho.current) : null;
+      burst.current = { id: `${me.current.id}:${answers.current}`, x: at?.x ?? x, y: BURST_Y, z: at?.z ?? z, atMs: performance.now() };
     }
     const p = playerPosRef.current;
     // (a tab watching the exhibition's world takes in only what is near the walker: useBotServer.ts)
@@ -708,9 +715,9 @@ export function RoleField({
         />
       )}
       <PathLines playerPosRef={playerPosRef} getSnapshot={() => snap.current} brightness={pathLine} radius={VIEW_RADIUS} />
-      {/* (the redesigned view: no burst — the one I answer responds in the frames instead, FramePeopleLayer; the artist
-          2026-11-28: "응답할 때 점 효과 이제 다른 걸로 바꾸거나 없애도 되지 않을까? 차라리 상대가 화답을 주면서") */}
-      {marks?.burst.on && !newLook() && <AnswerBurst getBurst={() => burst.current} count={marks.burst.count} reach={marks.burst.reach} lifeSec={marks.burst.lifeSec} dot={marks.burst.dot} />}
+      {/* (the redesigned view: the burst goes off by the one I answered, with their frames' response — in ink on the white
+          paper; the artist 2026-11-28: "팡 터지던 거 아예 없애긴 그렇고, 내 화답을 받은 상대 근처에서 터지도록") */}
+      {marks?.burst.on && <AnswerBurst getBurst={() => burst.current} count={marks.burst.count} reach={marks.burst.reach} lifeSec={marks.burst.lifeSec} dot={marks.burst.dot} ink={() => newLook() && peoplePaper()} />}
       {marks?.others.on && (
         <OtherDots
           getMarks={() => marksRef.current}

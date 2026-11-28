@@ -29,6 +29,7 @@ import { CELL_SIZE } from "@/lib/stratum/field";
 import type { FuturePresenceVisual } from "./FuturePresence";
 import { visitorWorld } from "./useBotServer";
 import { markSpan } from "./usePerfMeter";
+import { newLook } from "./mobileLab";
 
 /** The last encounter, for the record (RoleField puts it on the observation; witness.ts writes its line once); and
  *  whether the present is to be dark now (the future holds — RoleField hides its drawing). */
@@ -918,7 +919,8 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
     const wd = waterDistance(epoch, visitorWorld.herd, sNow, p.x, p.z);
     const yaw = getYaw?.() ?? 0, rx = -Math.cos(yaw), rz = Math.sin(yaw);
     const side = Math.max(-1, Math.min(1, ex.dx * rx + ex.dz * rz));
-    const heard = cfg.fxLevel > 0 && playFuturePassing(sound, { glitter: Math.min(1, flowering / 15), river: wd <= 10 ? 1 - wd / 10 : 0, found, panFrom: -side * 0.8, panTo: side * 0.8, dur: cfg.inSec + (cfg.frames ? cfg.frameHold + 2 : cfg.scan ? cfg.scanHold : cfg.holdSec) + cfg.outSec, level: cfg.fxLevel });
+    // (the redesigned view: no river — the artist, 2026-11-28: "강물은 빼자"; the glitter stays)
+    const heard = cfg.fxLevel > 0 && playFuturePassing(sound, { glitter: Math.min(1, flowering / 15), river: !newLook() && wd <= 10 ? 1 - wd / 10 : 0, found, panFrom: -side * 0.8, panTo: side * 0.8, dur: cfg.inSec + (cfg.frames ? cfg.frameHold + 2 : cfg.scan ? cfg.scanHold : cfg.holdSec) + cfg.outSec, level: cfg.fxLevel });
     markSpan("future-meet", performance.now() - t0);
     (window as unknown as { __futureMeet?: unknown }).__futureMeet = { at: Math.round(getWorldSec()), ex: ex.i, found, heard, flowering, water: Number.isFinite(wd) ? Math.round(wd * 10) / 10 : null, points: v, ms: Math.round(performance.now() - t0), readMs: Math.round(r.ms), fillMs: Math.round(fillMs), k: K, kMe, n: r.n, surface: r.surface.length / 4, plants: r.plantClouds.length / 12, trees: r.vegTree.length / 5, mounds: r.mounds.length / 4, stains: r.stains.length / 4, traces: r.traces.length / 4, scan: cfg.scan ? { W: scan.current.W, H: scan.current.H, K: scan.current.K, points: scan.current.W * scan.current.H * scan.current.K } : null };
   });

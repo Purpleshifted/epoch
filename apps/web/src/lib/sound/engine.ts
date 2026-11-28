@@ -218,14 +218,15 @@ export interface SoundParams {
    * THE FUTURE PASSING AS A DAYDREAM (§13k — the artist, 2026-11-28: "'미래' 찾아왔을 때 … 소리 효과가 없음. 음색이나 화성을
    * 퓨처리스틱 + 원래 하던 꽃 효과 + 뭔가 전파스러운 … 백일몽이 나를 스쳐가는 느낌", then "훨씬 엠비언트 하게 … 삐악 하는
    * 코드 소리? 는 빼는"; the redesigned view only): on, its level and length (s), and each part's share — the haze (the
-   * place's lydian, low and slow), the radio far off (a dark band of static), my own melody as if from the future, the
-   * old meadow's glitter (futureSound.ts), the patch's bloom.
+   * place's lydian, low and slow), the radio far off (a dark band of static), its whistle, my own melody as if from the
+   * future, the old meadow's glitter (futureSound.ts), the patch's bloom.
    */
   futureSound: boolean;
   futureLevel: number;
   futureDur: number;
   futureHaze: number;
   futureRadio: number;
+  futureWhistle: number;
   futureEcho: number;
   futureGlitter: number;
   futureBloom: number;
@@ -336,8 +337,9 @@ export const DEFAULT_SOUND: SoundParams = {
   futureDur: 10,
   futureHaze: 1,
   futureRadio: 1,
+  futureWhistle: 1,
   futureEcho: 1,
-  futureGlitter: 0.5,
+  futureGlitter: 1,
   futureBloom: 1,
   reactTension: 1,
   reactChange: 1,
@@ -1311,7 +1313,10 @@ export class SoundEngine {
    * as if tuned from far off, and MY MELODY once, slowed to half its pace, on a soft radio voice deep in the hall, passing
    * (its pitch falls a little as it goes by) — panned from `panFrom` to `panTo` over futureDur s, more wet than dry; the
    * patch blooms. `leave` — the static sinking and the haze falling a semitone as it fades, off the way the wind blows.
-   * (The high quintal chord that shimmered at 4.5–9 Hz — the chirp — and the radio's gliding whistle are gone.)
+   * The radio's thin WHISTLE glides down until it locks, as before ("휘파람은 괜찮음"). (The high quintal chord that
+   * shimmered at 4.5–9 Hz — the chirp — is gone; and the whole sits under ~1.5 kHz but the whistle, so the meadow's glitter
+   * above it is heard again — the old daydream's static swept up to 2.6 kHz and its chord and square melody filled the
+   * glitter's band: "반짝거리는 꽃 효과음 … 거의 안 들림".)
    * False when nothing was played (sound off, dead, the switch off).
    */
   daydream(kind: "arrive" | "leave", panFrom: number, panTo: number): boolean {
@@ -1398,6 +1403,19 @@ export class SoundEngine {
       src.start(t0);
       src.stop(stop);
       tidy.push(bp, g);
+    }
+    // THE WHISTLE: a thin tone gliding down until it locks (kept — the artist, 2026-11-28: "휘파람은 괜찮음")
+    if (p.futureWhistle > 0) {
+      const wh = ctx.createOscillator();
+      wh.type = "sine";
+      wh.frequency.setValueAtTime(kind === "arrive" ? 3100 : 1500, t0);
+      wh.frequency.exponentialRampToValueAtTime(kind === "arrive" ? 1180 : 420, t0 + D * 0.6);
+      const wg = ctx.createGain();
+      env(wg.gain, t0, 0.3, t0 + D * 0.75, 0.025 * p.futureWhistle);
+      wh.connect(wg).connect(out);
+      wh.start(t0);
+      wh.stop(stop);
+      tidy.push(wg);
     }
     // MY MELODY, FROM THE FUTURE: my motif in the place's lydian, an octave up, ONCE at half its pace, a soft triangle
     // (slow onsets, long tails) through a wide radio band, passing (a doppler's fall)

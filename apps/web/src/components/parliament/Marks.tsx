@@ -19,6 +19,7 @@ import { CELL_SIZE } from "@/lib/stratum/field";
 import { hash2, outlineSegments, rhythmOf, scatterPoints, stepAt, type ConcreteLine, type OtherMark } from "@/lib/parliament";
 import { streetGround } from "./streetLook";
 import { LidarScan, lidarActive } from "./LidarScan";
+import { PICTO_LAYER } from "./framePeople";
 
 export interface MarksData {
   others: OtherMark[];
@@ -29,6 +30,8 @@ const MAX_OTHERS = 128;
 const MAX_CONCRETE = 6000;
 const MAX_OUTLINE_SEGS = 24000;
 const MAX_BURST = 400;
+/** The burst on the white paper: the pictograms' ink (FramePeopleLayer's 12, 12, 12). */
+const BURST_INK = "#0c0c0c";
 const REFRESH = 0.5;
 /** A square whose melody rests on this step is not off: it stays as a dark grey square. */
 const SQUARE_REST = 0.22;
@@ -352,8 +355,11 @@ export interface BurstAt {
 /**
  * The answer in the player's frame (the artist, 2026-11-01): hard white square points thrown from where the visitor stands,
  * each simply gone at a time of its own. Nothing stays; what stays is on the wall (Dandelions).
+ * `ink` (the redesigned view on the white paper — the artist, 2026-11-28: "응답했을 때 … 팡 터지던 거 … 내 화답을 받은 상대
+ * 근처에서"): the points are the pictograms' ink, drawn over the frame on their layer as they are (InkPaper's last pass);
+ * white again in the lidar, which reads the white onto black.
  */
-export function AnswerBurst({ getBurst, count, reach, lifeSec, dot }: { getBurst: () => BurstAt | null; count: number; reach: number; lifeSec: number; dot: number }) {
+export function AnswerBurst({ getBurst, count, reach, lifeSec, dot, ink }: { getBurst: () => BurstAt | null; count: number; reach: number; lifeSec: number; dot: number; ink?: () => boolean }) {
   const geom = useMemo(() => {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MAX_BURST * 3), 3));
@@ -361,9 +367,18 @@ export function AnswerBurst({ getBurst, count, reach, lifeSec, dot }: { getBurst
     return g;
   }, []);
   const shown = useRef(0);
+  const pts = useRef<THREE.Points>(null);
+  const mat = useRef<THREE.PointsMaterial>(null);
+  const inked = useRef(false);
   useEffect(() => () => geom.dispose(), [geom]);
   useFrame(() => {
     const b = getBurst();
+    const k = !!ink?.() && !lidarActive();
+    if (k !== inked.current && pts.current && mat.current) {
+      inked.current = k;
+      mat.current.color.set(k ? BURST_INK : "#ffffff");
+      pts.current.layers.set(k ? PICTO_LAYER : 0);
+    }
     const pos = geom.getAttribute("position") as THREE.BufferAttribute;
     const n = b ? scatterPoints(b.id, (performance.now() - b.atMs) / 1000, b.x, b.y, b.z, { count, reach, lifeSec, wind: 0, rise: reach * 0.1, waver: 0, from: 0 }, { pos: pos.array as Float32Array }) : 0;
     if (n === 0 && shown.current === 0) return;
@@ -372,8 +387,8 @@ export function AnswerBurst({ getBurst, count, reach, lifeSec, dot }: { getBurst
     pos.needsUpdate = true;
   });
   return (
-    <points geometry={geom} frustumCulled={false} renderOrder={5}>
-      <pointsMaterial color="#ffffff" size={dot} sizeAttenuation fog={false} depthTest={false} toneMapped={false} />
+    <points ref={pts} geometry={geom} frustumCulled={false} renderOrder={5}>
+      <pointsMaterial ref={mat} color="#ffffff" size={dot} sizeAttenuation fog={false} depthTest={false} toneMapped={false} />
     </points>
   );
 }

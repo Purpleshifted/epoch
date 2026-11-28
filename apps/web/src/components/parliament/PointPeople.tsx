@@ -38,6 +38,7 @@ import { FramePeopleLayer } from "./FramePeopleLayer";
 import { mobileLab } from "./mobileLab";
 import { streetGaze } from "./streetLook";
 import { onLifeEvent } from "./lifeEvents";
+import { setPeopleWhere } from "./peopleWhere";
 
 export type PeopleMode = "boxes" | "points" | "fibers" | "sprites" | "frames";
 
@@ -679,6 +680,18 @@ export function PointPeople({
   const framesList = useRef<readonly Other[] | null>(null);
   // (frames: where the pictograms held in talk are drawn — the bubble follows them)
   const framePins = useRef(new Map<string, { x: number; z: number }>());
+  // (where each is drawn, for marks that go off at a person — my answer's burst at the one I answered: peopleWhere.ts)
+  const framesMode = look.mode === "frames";
+  const paperWhere = !!look.paper;
+  useEffect(() => {
+    setPeopleWhere((id) => {
+      const p = people.current.get(id);
+      if (!p) return null;
+      const at = (framesMode ? framePins.current.get(id) : undefined) ?? (paperWhere ? p.body : p);
+      return { x: at.x, z: at.z };
+    }, paperWhere);
+    return () => setPeopleWhere(null);
+  }, [framesMode, paperWhere]);
   // 흰 바탕: the 3D bodies (bodySheet.ts) — each person now and their traces, ray-marched, drawn as filters on the white
   // (bodySheet "paper"); the bodies now once more into the depth only (the scene's near-sharp/far-soft rule reads them)
   const poses = useMemo(() => new BodyPoses(MAX_BODIES), []);
