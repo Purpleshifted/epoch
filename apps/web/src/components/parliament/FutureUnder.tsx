@@ -100,15 +100,34 @@ function growStem(seg: number[], far: number[], kind: number[], t: StemTree, i: 
   // (six pieces, as it was — the artist chose fewer trees instead: 나무 — 수; every tree's trunk is still drawn first)
   const NT = 6;
   for (let q = 1; q <= NT; q++) line(trunk((q - 1) / NT), trunk(q / NT), ((q - 1) / NT) * 0.3, (q / NT) * 0.3);
-  // ROOTS (the artist, 2026-11-18: "나무 아래 돌이나 흙, 덤불, 뿌리도 (특히 큰 나무는) 있어야 자연스러울 듯"): a big
-  // tree's foot spreads — buttresses leave the trunk a little above the ground, arch out over it and go into it,
-  // turned round the trunk by the golden angle, some long, some short (they come with the trunk: kind 0)
+  // ROOTS, UNDER THE GROUND (the artist, 2026-11-18: "나무 아래 돌이나 흙, 덤불, 뿌리도 (특히 큰 나무는) 있어야 자연스러울
+  // 듯"; then, 2026-11-28, of the roots that arched over it: "뿌리가 왜 땅 밑으로 안 생기고 땅 위로 생기냐", "뿌리는 끝이
+  // 가늘어지지도 않는 것 같고"): each root leaves the trunk's foot at the ground, runs out just under it and dives as it
+  // goes, wandering a little, turned round the trunk by the golden angle, some long, some short. It thins all the way
+  // to a fine tip — from the trunk's thickness at the foot (its far 0.04) to its tip (far 0.98: 나무 — 끝으로 갈수록
+  // 가늘어지는 정도 makes the rest) — and its outer half puts out two thin rootlets that go on down (twigs' thickness).
   for (let j = 0; j < roots; j++) {
-    const th = j * 2.39996 + (r(200 + j) - 0.5) * 1.3 + a1, L = t.R * (0.3 + 0.35 * r(210 + j));
-    const S = trunk(0.01);
-    S[1] = t.foot + trunkH * (0.025 + 0.04 * r(230 + j));
-    const E: V3 = [t.x + Math.cos(th) * L, t.foot - trunkH * 0.015, t.z + Math.sin(th) * L];
-    bow(S, E, [0, 0.05 * L, 0], 3, 0.12, 0.62);
+    const th = j * 2.39996 + (r(200 + j) - 0.5) * 1.3 + a1, L = t.R * (0.45 + 0.4 * r(210 + j));
+    const deep = L * (0.35 + 0.35 * r(220 + j)), wander = (r(240 + j) - 0.5) * 0.3 * L, ph = r(250 + j) * 6.283;
+    const NR = 6;
+    const at = (u: number): V3 => {
+      const side = Math.sin(u * 3.1 + ph) * wander * u;
+      const out = L * u;
+      return [t.x + Math.cos(th) * out - Math.sin(th) * side, t.foot - 0.04 * L * Math.min(1, u * 5) - deep * Math.pow(u, 1.6), t.z + Math.sin(th) * out + Math.cos(th) * side];
+    };
+    cur = 0;
+    const pts: V3[] = [at(0)];
+    for (let q = 1; q <= NR; q++) {
+      pts.push(at(q / NR));
+      line(pts[q - 1], pts[q], 0.04 + (0.94 * (q - 1)) / NR, 0.04 + (0.94 * q) / NR);
+    }
+    // (the rootlets: off the outer half, turned aside, going on down)
+    cur = 2;
+    for (let w = 0; w < 2; w++) {
+      const from = pts[3 + w], tw = th + (w ? 1 : -1) * (0.45 + 0.5 * r(260 + j * 2 + w)), len = L * (0.25 + 0.2 * r(270 + j * 2 + w));
+      const E: V3 = [from[0] + Math.cos(tw) * len, from[1] - len * (0.3 + 0.3 * r(280 + j * 2 + w)), from[2] + Math.sin(tw) * len];
+      bow(from, E, [0, -0.08 * len, 0], 3, 0.7, 1);
+    }
   }
   // THE BOUGHS
   const nb = 4 + Math.floor(r(3) * 3);
@@ -441,7 +460,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           treeTaper: { value: 0.85, min: 0, max: 0.97, step: 0.01, label: "나무 — 끝으로 갈수록 가늘어지는 정도 (0 = 끝까지 같은 굵기 · 0.85 = 잔가지 끝은 밑동의 1/7)" },
           treeStemKindLink: { value: 0.8, min: 0, max: 2, step: 0.05, label: "나무 — 줄기 명도를 나무 종류(수관 색의 밝기)에 맞춤 (0 = 종류와 무관)" },
           // (the foot of a big tree: "나무 아래 돌이나 흙, 덤불, 뿌리도 (특히 큰 나무는)")
-          treeRoots: { value: 6, min: 0, max: 12, step: 1, label: "나무 — 뿌리 (가장 큰 나무의 갈래 수 · 작은 나무는 없음 · 줄기 방식이 가지일 때)" },
+          treeRoots: { value: 6, min: 0, max: 12, step: 1, label: "나무 — 뿌리 (땅 밑으로 뻗어 끝으로 가늘어짐 · 가장 큰 나무의 갈래 수 · 작은 나무는 없음 · 줄기 방식이 가지일 때)" },
           treeFoot: { value: 1, min: 0, max: 4, step: 0.05, label: "나무 — 발치의 흙과 돌 (큰 나무일수록 넓고 많음 · 0 = 없음)" },
           treeStemBySize: { value: 0.9, min: 0, max: 2, step: 0.05, label: "나무 — 줄기 굵기를 나무 크기에 맞춤 (0 = 모든 나무 같은 굵기 · 1 = 크기에 비례 · 어린 나무는 가늘게)", render: (get: (path: string) => unknown) => ["line", "branch"].includes(String(get(`${GROUP}.나무.treeStemMode`))) },
           treeTrunkR: { value: 0.035, min: 0.002, max: 0.4, step: 0.002, label: "나무 — 기둥의 굵기 (월드, 반지름)", render: (get: (path: string) => unknown) => ["line", "branch"].includes(String(get(`${GROUP}.나무.treeStemMode`))) },
@@ -1416,7 +1435,8 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
                 const H = Math.max(1e-4, tr.hi - tr.lo), hold = tr.R * 0.18 * k.treeLeafSpread;
                 for (let q2 = 0; q2 < lk.length; q2++) {
                   const f0 = lf[q2 * 2], f1 = lf[q2 * 2 + 1];
-                  if (f1 < 0.45) continue;
+                  // (no leaves in the earth: a piece wholly under the tree's ground is a root's — growStem ROOTS)
+                  if (f1 < 0.45 || Math.max(ls[q2 * 6 + 1], ls[q2 * 6 + 4]) < tr.foot) continue;
                   const nL = Math.round(k.treeLeaves * (lk[q2] === 2 ? 1 : 0.6) * (0.5 + f1));
                   for (let j = 0; j < nL; j++) {
                     const u = Math.pow(rnd(q2 + t * 13.1, j), 0.6), th = rnd(j * 3.1, q2 + t) * 6.2832, rr = hold * Math.sqrt(rnd(q2, j * 1.7 + t));
