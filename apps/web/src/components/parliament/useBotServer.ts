@@ -102,8 +102,13 @@ export function useBotServer(log: EventLog, active: boolean, getSetup: () => Bot
     /** The server's setup as its hello said it (null = no hello yet), and whether the owner has compared its saved knobs. */
     let serverSetup: string | null = null;
     let synced = false;
+    // THE WALL WATCHES THE EXHIBITION (the artist, 2026-11-28, on a branch preview: "봇을 키든 말든 걍 안 보인다고" —
+    // a preview's own world, "rehearsal", is off and empty, so no look could be judged there): `?watch=1` on the wall's
+    // address joins the EXHIBITION's world as a plain view, as the scan's watch does — it hears the world as it stands
+    // and the bots as they walk, and sends NOTHING: no setup, no rate, no clear, no people. Never the owner.
+    const watch = watchExhibition();
     // only the owner's browser changes the server's bots, clock or world (botAdmin)
-    const admin = botAdmin();
+    const admin = !watch && botAdmin();
     let saidNotOwner = false;
     const notOwner = () => {
       if (saidNotOwner) return;
@@ -159,7 +164,7 @@ export function useBotServer(log: EventLog, active: boolean, getSetup: () => Bot
     };
     const connect = () => {
       if (gone) return;
-      const ws = new WebSocket(`${BOT_SERVER}/${BOT_WORLD}`);
+      const ws = new WebSocket(`${BOT_SERVER}/${watch ? "redesign" : BOT_WORLD}`);
       sock.current = ws;
       ws.onopen = () => {
         tries = 0;
@@ -295,7 +300,7 @@ export function useBotServer(log: EventLog, active: boolean, getSetup: () => Bot
         if (!e.o.startsWith("bot") && !fromServer.has(e.id)) people.push(e);
       }
       looked = i;
-      if (people.length) ws.send(JSON.stringify({ t: "people", events: people }));
+      if (people.length && !watch) ws.send(JSON.stringify({ t: "people", events: people }));
     }, Math.min(SAVE_EVERY_MS, PEOPLE_EVERY_MS));
 
     return () => {
