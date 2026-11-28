@@ -5599,6 +5599,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           // to its shadowed side and a warm rim; its own colour stays. The defaults are the matte, powdery version (2790fd1)
           boneMass: { value: 1, min: 0, max: 1, step: 0.05, label: "뼈 — 무늬 · 빛 (화석이 된 것에만 · 색은 그대로 · 0 = 끔)" },
           bonePores: { value: 0.6, min: 0, max: 1, step: 0.05, label: "뼈 — 해면질 구멍 (0 = 매끈 … 1 = 구멍마다 짙음)" },
+          bonePoreClump: { value: 0, min: 0, max: 1, step: 0.05, label: "뼈 — 해면질 구멍이 몰린 정도 (0 = 고르게 퍼짐 … 1 = 군데군데 몰리고 사이는 매끈)" },
           bonePoreSize: { value: 0.35, min: 0.05, max: 2, step: 0.01, label: "뼈 — 구멍의 크기 (월드)" },
           boneFill: { value: 0.25, min: 0, max: 1, step: 0.05, label: "뼈 — 속빛 (빛이 조금 지나오는 듯 · 그늘을 덜어 줌)" },
           boneWrap: { value: 0.5, min: 0, max: 1, step: 0.05, label: "뼈 — 빛이 그늘 쪽으로 감겨 듦 (반투명 · 보송함)" },
@@ -5805,6 +5806,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     boneU.uBonePipes.value = fu.boneMass > 0 ? 1 : 0;
     boneU.uBoneWays.value = fu.boneMass > 0 ? 1 : 0;
     boneU.uBonePores.value = fu.bonePores;
+    boneU.uBonePoreClump.value = fu.bonePoreClump;
     boneU.uBonePoreSize.value = fu.bonePoreSize;
     boneU.uBoneFill.value = fu.boneFill;
     boneU.uBoneWrap.value = fu.boneWrap;
@@ -5812,7 +5814,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     boneU.uBoneWarm.value.set(fu.boneWarm);
     boneU.uSeeBase.value = fu.boneSee;
     boneU.uSeeParts.value = fu.boneSeeParts;
-  }, [fu.boneMass, fu.bonePores, fu.bonePoreSize, fu.boneFill, fu.boneWrap, fu.boneRim, fu.boneWarm, fu.boneSee, fu.boneSeeParts]);
+  }, [fu.boneMass, fu.bonePores, fu.bonePoreClump, fu.bonePoreSize, fu.boneFill, fu.boneWrap, fu.boneRim, fu.boneWarm, fu.boneSee, fu.boneSeeParts]);
   const rnd = useControls(
     "렌더 · 성능",
     savable("렌더 · 성능", {
