@@ -107,18 +107,20 @@ export function startPointShot(scene: THREE.Object3D, r: number): () => void {
 /** (a cell's own three numbers, 0 … 1 — the jittered lattice of the clumps' centres) */
 const HASH3 =
   "vec3 plodHash3( vec3 c ) {\n  uvec3 q = uvec3( ivec3( c ) ) * uvec3( 1597334673u, 3812015801u, 2798796415u );\n  uint n = ( q.x ^ q.y ^ q.z ) * 1597334673u;\n  return vec3( n, n * 16807u, n * 48271u ) * ( 1.0 / 4294967296.0 );\n}\n";
-const HEAD = "uniform float uPlodOn, uPlodStart, uPlodPow, uPlodMax, uPlodGather, uPlodCell, uPlodShot, uPlodCopy;\nuniform vec2 uPlodView;\nvarying float vPlodSoft;\n" + HASH3;
+const HEAD = "uniform float uPlodOn, uPlodStart, uPlodPow, uPlodMax, uPlodGather, uPlodCell, uPlodShot, uPlodCopy;\nuniform vec2 uPlodView;\nvarying float vPlodSoft;\nvarying float vPlodShade;\n" + HASH3;
 /**
  * FAR POINTS GATHER INTO CLUMPS (the artist, 2026-11-28, of the first far-point LOD in a hero shot: "lod 적용은 좋은데,
  * 유기적으로 뭉쳐보이진 않음 그냥 점이 커지고 줄어들었다 정도"): past the start a point moves toward the nearest of a
  * jittered lattice of centres fixed in the world (덩어리 크기 apart; the nearest of the 27 round it, so the clumps are
  * irregular and stay put as the eye turns), the further the more (뭉침, in full at twice the start) — neighbours merge
  * into one mass and the gaps between masses open. Those points also take sizes of their own and a round outline, the
- * larger ones a soft (dithered) rim: a clump's edge is lumpy, not a row of squares. A hero shot's four averaged
- * renders turn the dither into a soft edge.
+ * larger ones a soft (dithered) rim: a clump's edge is lumpy, not a row of squares; and a clump's core is a little
+ * lighter than its rim (by how far each point lay from its centre), so it reads as a volume ("다 넣으라 해"). A hero
+ * shot's four averaged renders turn the dither into a soft edge.
  */
 const GATHER = `
   vPlodSoft = 0.0;
+  vPlodShade = 1.0;
   // FAR POINTS GATHER (PointLod.tsx): toward the nearest centre of a jittered lattice fixed in the world
   float plodF = 0.0;
   if ( uPlodOn > 0.5 && uPlodGather > 0.0 && gl_Position.w > uPlodStart && abs( gl_Position.x ) < 1.5 * gl_Position.w ) {
@@ -146,6 +148,8 @@ const GATHER = `
       }
     }
     gl_Position = projectionMatrix * viewMatrix * vec4( mix( plodW, plodC * plodCs, uPlodGather * plodF ), 1.0 );
+    // (the core a little lighter, the rim a little darker: by how far it lay from its centre, in cells)
+    vPlodShade = 1.0 + 0.1 * uPlodGather * plodF * ( 1.0 - 2.0 * clamp( sqrt( plodBest ) / 0.7, 0.0, 1.0 ) );
   }
 `;
 const LUMPS = `
@@ -157,7 +161,9 @@ const LUMPS = `
   }
 `;
 /** The round, soft-rimmed outline, in the fragment shader (only where the vertex side above was patched in). */
-const FRAG_HEAD = "varying float vPlodSoft;\n";
+const FRAG_HEAD = "varying float vPlodSoft;\nvarying float vPlodShade;\n";
+/** (at the very end: the clump's core against its rim) */
+const FRAG_TAIL = "\n  gl_FragColor.rgb *= vPlodShade;\n";
 const FRAG_BODY = `
   if ( vPlodSoft > 0.001 ) {
     float plodR = length( gl_PointCoord - 0.5 ) * 2.0;
@@ -206,9 +212,10 @@ function lodShader(shader: Shader, m: THREE.Material): void {
   // (the gathered points' round, soft rim)
   const fs = shader.fragmentShader;
   const main = /void\s+main\s*\(\s*\)\s*\{/.exec(fs);
-  if (main) {
+  const close = fs.lastIndexOf("}");
+  if (main && close > main.index) {
     const at = main.index + main[0].length;
-    shader.fragmentShader = FRAG_HEAD + fs.slice(0, at) + FRAG_BODY + fs.slice(at);
+    shader.fragmentShader = FRAG_HEAD + fs.slice(0, at) + FRAG_BODY + fs.slice(at, close) + FRAG_TAIL + fs.slice(close);
   }
 }
 
