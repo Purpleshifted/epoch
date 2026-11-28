@@ -43,6 +43,7 @@ import {
   STEEL,
   clearWorld,
   currentEpochKey,
+  worldNow,
   MAX_TIME_RATE,
   MIN_TIME_RATE,
   getEpochMs,
@@ -100,7 +101,9 @@ import { FUSE_BLEND_S, type UnitChunks, type UnitStats } from "@/lib/parliament/
 import { WALL_BUILD } from "@/lib/parliament/build";
 import { FutureVillage, futureGround, futureLink } from "./FutureVillage";
 import { FutureUnder, futureUnder } from "./FutureUnder";
-import { FutureExcavatorsWall, wallExcavators, wallMeetSkip } from "./FutureExcavatorsWall";
+import { FutureExcavatorsWall, wallMeetSkip } from "./FutureExcavatorsWall";
+import { excavatorsAt } from "@/lib/parliament/excavators";
+import { futureMeetRule, futureMeetRuleFrom } from "@/lib/parliament/futureMeetRule";
 import { wrapDist } from "@/lib/parliament/world";
 import { futureOnly } from "@/lib/parliament/futureOnly";
 import { DEFAULT_ERODE, erosionAt, fossilWaitSec, type ErodeConfig } from "@/lib/parliament/erode";
@@ -2742,14 +2745,17 @@ interface MeLook {
   thread: { w: number; linkW: number; glow: number; glowA: number };
 }
 /**
- * WHEN THE FUTURE MEETS ME, ON THE WALL — the personal view's rule (FutureResidue's arrival, the lab's saved values): an
- * observer (FutureExcavatorsWall's walkers, the same as every phone's) within its reach of me; no new meeting within
- * GAP s of the last; joined while it is near and HOLD s after it leaves (the residue's 남는 시간).
+ * WHEN THE FUTURE COMES TO ME, ON THE WALL — the personal view's own rule, read from its saved values
+ * (lib/parliament/futureMeetRule.ts; FutureResidue, scan (future), 2026-11-28): one of bot (future)'s walkers within
+ * 응시 거리 LOOKS at me (the phone: words and a weak daydream, 4 s — here a faint swell for as long); within 관찰자 거리 it
+ * FINDS me (the residue and the full daydream — here the thread at its full); found, it stays while the walker is near
+ * and 남는 시간 after; no arrival within 다시 찾아오기까지 최소 of the last, no gaze within it of the last gaze or arrival.
  */
-const ME_LINK_GAP = 60;
-const ME_LINK_HOLD = 10;
-/** 시험: the thread joined until this time (performance.now() ms), as if an observer had come. */
-const meLinkTest = { until: 0 };
+/** How far the thread swells at a gaze (of the full), and how long the gaze lasts (s; the phone's glance). */
+const ME_GAZE_U = 0.35;
+const ME_GAZE_SEC = 4;
+/** 시험: the thread found until `found`, or a gaze from `gaze` (performance.now() ms), as if a walker had come. */
+const meLinkTest = { found: 0, gaze: -1e12 };
 /** The quiet others: a bot and a visitor as small achromatic points (the old visitor's #111111 is invisible on the black wall). */
 const QUIET_COLOR = { me: "#ffffff", bot: "#8a8f96", visitor: "#d4d7db" } as const;
 
@@ -2879,7 +2885,7 @@ function MeMark({ m, y, look, topRef, label }: { m: Mark; y: number; look: MeLoo
   const pool = useRef<THREE.Mesh>(null);
   // the meeting, kept as the phone keeps it (FutureResidue): with me now, last arrival, when it is let go; `u` the
   // thread's swell (0 at rest … 1 joined), `beat` its eased pulse
-  const link = useRef({ present: false, lastArrive: -1e9, releaseAt: 0, u: 0, beat: 1, t: -1 });
+  const link = useRef({ present: false, lastArrive: -1e9, lastGaze: -1e9, releaseAt: 0, u: 0, beat: 1, t: -1 });
   const tmpV = useMemo(() => new THREE.Vector3(), []);
   // (while the thread draws my meeting, the walkers' own pillar of light stands for the others only)
   useEffect(() => {
@@ -2929,20 +2935,28 @@ function MeMark({ m, y, look, topRef, label }: { m: Mark; y: number; look: MeLoo
     const L = link.current;
     const dt = L.t < 0 ? 0 : Math.min(0.1, now - L.t);
     L.t = now;
-    // THE MEETING (FutureResidue's arrival, as the wall can know it: the same walkers, the same reach, the same gap)
+    // THE CROSSING, as the phone decides it (FutureResidue): the same walkers, the same distances, the same gap
+    const R = futureMeetRule();
+    const epoch = Number(currentEpochKey());
     let nearD = Infinity;
-    for (const ex of wallExcavators.list) nearD = Math.min(nearD, wrapDist(ex.x, ex.z, m.x, m.z));
+    if (epoch > 0 && !m.stale) for (const ex of excavatorsAt(epoch, (worldNow() - epoch) / 1000, { count: R.count, roam: R.roam, legSec: R.legSec, stand: 0.35 })) nearD = Math.min(nearD, wrapDist(ex.x, ex.z, m.x, m.z));
     const held = L.present || L.releaseAt > 0;
-    let want = !m.stale && nearD <= wallExcavators.meetR * (L.present ? 1.1 : 1);
-    if (want && !held && now - L.lastArrive < ME_LINK_GAP) want = false;
+    let want = nearD <= R.gateR * (L.present ? 1.1 : 1);
+    if (want && !held && now - L.lastArrive < R.gap) want = false;
+    // (looked at: further off than found, nothing held, not within the gap of the last gaze or arrival)
+    if (!want && !held && R.gazeR > R.gateR && nearD <= R.gazeR && now - L.lastGaze >= R.gap && now - L.lastArrive >= R.gap) L.lastGaze = now;
     if (want && !held) L.lastArrive = now;
-    if (L.present && !want) L.releaseAt = now + ME_LINK_HOLD;
+    if (L.present && !want) L.releaseAt = now + Math.max(0, R.life);
     if (want) L.releaseAt = 0;
     L.present = want;
     if (!want && L.releaseAt > 0 && now >= L.releaseAt) L.releaseAt = 0;
-    const joined = L.present || L.releaseAt > 0 || performance.now() < meLinkTest.until;
+    const found = L.present || L.releaseAt > 0 || performance.now() < meLinkTest.found;
+    // a gaze: a faint swell in and out over the phone's glance
+    const gazeAt = Math.min(now - L.lastGaze, performance.now() / 1000 - meLinkTest.gaze / 1000);
+    const gaze = gazeAt >= 0 && gazeAt <= ME_GAZE_SEC ? ME_GAZE_U * Math.sin((Math.PI * gazeAt) / ME_GAZE_SEC) : 0;
+    const want1 = found ? 1 : gaze;
     // it swells in about a second and settles back over a few
-    L.u += ((joined ? 1 : 0) - L.u) * (1 - Math.exp(-dt / (joined ? 0.5 : 1.4)));
+    L.u += (want1 - L.u) * (1 - Math.exp(-dt / (want1 > L.u ? 0.5 : 1.4)));
     // my melody's onsets, eased — a breath, not a blink
     const on = !look.pulse || rhythm[stepAt(performance.now()) % rhythm.length];
     L.beat += ((on ? 1 : 0.55) - L.beat) * (1 - Math.exp(-dt / 0.12));
@@ -2981,7 +2995,7 @@ function MeMark({ m, y, look, topRef, label }: { m: Mark; y: number; look: MeLoo
     }
     mats.pool.uniforms.uA.value = (0.04 + (T.glowA * 0.5 - 0.04) * u) * s;
     mats.dot.opacity = (m.stale ? 0.4 : 0.95) * (0.7 + 0.3 * L.beat);
-    (window as unknown as { __meLink?: unknown }).__meLink = { joined, u: Math.round(u * 100) / 100, nearD: Number.isFinite(nearD) ? Math.round(nearD * 10) / 10 : null, wait: Math.max(0, Math.round(ME_LINK_GAP - (now - L.lastArrive))) };
+    (window as unknown as { __meLink?: unknown }).__meLink = { found, gaze: Math.round(gaze * 100) / 100, u: Math.round(u * 100) / 100, nearD: Number.isFinite(nearD) ? Math.round(nearD * 10) / 10 : null, wait: Math.max(0, Math.round(R.gap - (now - Math.max(L.lastArrive, L.lastGaze)))), rule: { ...R, from: futureMeetRuleFrom() } };
   };
   const dotR = look.style === "plane" ? 0.35 * k : 0.5 * k;
   return (
@@ -4856,7 +4870,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         {
           meTrialMid: { value: true, label: "나를 봇들 높이에 그림 (표시만)" },
           // (the thread joined for 8 s now, as if an observer had come — to see it without waiting for one)
-          "실: 미래가 온 것처럼 (8 s)": button(() => void (meLinkTest.until = performance.now() + 8000)),
+          "실: 미래가 발견한 것처럼 (8 s)": button(() => void (meLinkTest.found = performance.now() + 8000)),
+          "실: 미래가 응시한 것처럼 (4 s)": button(() => void (meLinkTest.gaze = performance.now())),
         },
         { collapsed: true },
       ),
