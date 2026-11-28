@@ -27,7 +27,7 @@ import { useParliamentVersion } from "./version";
 import { detailKnobsListed, newLook } from "./mobileLab";
 import { useBaseKnobs } from "./labKnobsBase";
 import { useBotPresentKnobs } from "./labKnobsBotPresent";
-import { useScanPresentKnobs } from "./labKnobsScanPresent";
+import { useScanPresentKnobs, type LogLeftStyle } from "./labKnobsScanPresent";
 
 export type Look = "brutal" | "soft";
 export type GrassStyle = "field" | "dither" | "squares" | "dots";
@@ -92,6 +92,9 @@ export interface StreetVisual {
   hints: { on: boolean; radius: number; everySec: number };
   /** Where the log stands: "auto" = with the eye at a person's height, a left column on a laptop and a top strip on a phone. */
   logPlace: LogPlace | "auto";
+  /** The record's look (scan (present) › 기록): on the left a floating box or the long panel; width (screen %, 0 = the
+   *  shape's own), the box's lines and its top's fade. */
+  log: { leftStyle: LogLeftStyle; widthPct: number; lines: number; fade: number };
   /** 흰 바탕 (오가닉): the personal view on paper (streetLook.ts). */
   paper: boolean;
   /** 먹과 종이: the finish pass (InkPaper). */
@@ -330,10 +333,11 @@ export function usePersonalVisuals(): PersonalVisuals {
       view: { on: c.streetOn && c.viewOn, radius: c.viewRadius },
       hints: { on: c.streetOn && c.hintsOn, radius: c.hintRadius, everySec: c.hintEvery },
       logPlace: c.streetOn ? c.logPlace : "bottom",
+      log: { leftStyle: c.logLeftStyle, widthPct: c.logWidthPct, lines: c.logLines, fade: c.logFade },
       paper: c.streetOn && c.paperOn,
       ink: { narrow: c.inkNarrow, wide: c.inkWide, decay: c.inkDecay, gain: c.paperExposure, density: c.inkDensity, fade: c.inkFade, grain: c.inkGrain, rolloff: c.inkRolloff, shake: c.inkShake, halo: c.inkHalo, burn: c.inkBurn },
     }),
-    [partial, c.botPictoSize, c.streetOn, c.streetPeople, c.paperOn, c.paperInk, c.paperBlur, c.paperFade, c.paperLabel, c.paperFlicker, c.paperStretch, c.paperShake, c.paperBlot, c.paperBubble, c.paperAspectMin, c.paperAspectMax, c.paperTail, c.paperVariety, c.paperExposure, c.paperFrame, c.askTurn, c.askRipple, c.inkNarrow, c.inkWide, c.inkDecay, c.inkDensity, c.inkFade, c.inkGrain, c.inkRolloff, c.inkShake, c.inkHalo, c.inkBurn, c.ppMode, c.ppBoxAspect, c.ppBoxRest, c.ppCue, c.ppPoints, c.ppPointsPhone, c.ppScale, c.ppDot, c.ppMaxPx, c.ppGait, c.ppColour, c.viewOn, c.viewRadius, c.hintsOn, c.hintRadius, c.hintEvery, c.logPlace, c.ppGrey, c.ppHeight, c.ppVariety, c.ppMaxCadence, c.ppPlate, c.ppPlateAlpha, c.ppSmearSec, c.ppSmearCopies, c.ppBreath, c.ppFog, c.ppMaxSpeed, c.otherRecent, c.ppFaceEach, c.ppFaceRadius, c.meBody, c.meRest, c.frHop, c.frAskSolid, c.frAskScale, c.frSize, c.frBlur, c.frTrack, c.frTrackRadius, c.soloSec, c.eyeOn, c.eyeHeight, c.eyeBack, c.eyeLook, c.streetFog, c.walkSpeed],
+    [partial, c.botPictoSize, c.streetOn, c.streetPeople, c.paperOn, c.paperInk, c.paperBlur, c.paperFade, c.paperLabel, c.paperFlicker, c.paperStretch, c.paperShake, c.paperBlot, c.paperBubble, c.paperAspectMin, c.paperAspectMax, c.paperTail, c.paperVariety, c.paperExposure, c.paperFrame, c.askTurn, c.askRipple, c.inkNarrow, c.inkWide, c.inkDecay, c.inkDensity, c.inkFade, c.inkGrain, c.inkRolloff, c.inkShake, c.inkHalo, c.inkBurn, c.ppMode, c.ppBoxAspect, c.ppBoxRest, c.ppCue, c.ppPoints, c.ppPointsPhone, c.ppScale, c.ppDot, c.ppMaxPx, c.ppGait, c.ppColour, c.viewOn, c.viewRadius, c.hintsOn, c.hintRadius, c.hintEvery, c.logPlace, c.logLeftStyle, c.logWidthPct, c.logLines, c.logFade, c.ppGrey, c.ppHeight, c.ppVariety, c.ppMaxCadence, c.ppPlate, c.ppPlateAlpha, c.ppSmearSec, c.ppSmearCopies, c.ppBreath, c.ppFog, c.ppMaxSpeed, c.otherRecent, c.ppFaceEach, c.ppFaceRadius, c.meBody, c.meRest, c.frHop, c.frAskSolid, c.frAskScale, c.frSize, c.frBlur, c.frTrack, c.frTrackRadius, c.soloSec, c.eyeOn, c.eyeHeight, c.eyeBack, c.eyeLook, c.streetFog, c.walkSpeed],
   );
   // the ground's part of the street look goes to the components RoleField mounts, through the module value
   useEffect(() => {

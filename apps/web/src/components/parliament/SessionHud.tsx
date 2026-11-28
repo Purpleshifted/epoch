@@ -200,6 +200,7 @@ export function SessionHud({
   coarse = false,
   footprint = true,
   logPlace = "bottom",
+  logLook = null,
   logWidth = 0,
   card = { theme: "paper", orient: "portrait" },
   venue = null,
@@ -225,6 +226,9 @@ export function SessionHud({
    *  record stands — "bottom" as it was; "left", a column at the left edge, the newest line lowest and the old ones fading
    *  upwards, the middle of the view left empty; "top", a short strip under the top edge with the newest line first. */
   logPlace?: "bottom" | "left" | "top";
+  /** With the lab's look (ParliamentScene): the left as the long panel or the box — its width (CSS, null = the old), the
+   *  lines it shows and its top's fade (0 = none). Null = the exhibition's record as it was. */
+  logLook?: { panel: boolean; width: string | null; lines: number; fade: number } | null;
   /** The record's width (rem; 0 = as it was): the left column's width, the strip's / the block's widest (Leva 역할 › 기록창 폭). */
   logWidth?: number;
   /** After a suicide, one line of where to get help (the artist's call). */
@@ -261,7 +265,10 @@ export function SessionHud({
   const S = SCRIPT[lang];
   const say = lang === "ko" || phase === "ended" ? "hud-ko" : "";
   /** The record as the long left panel (the lab's look only; ParliamentScene gives its width in --log-panel). */
-  const panel = logPlace === "left" && newLook();
+  const panel = logPlace === "left" && !!logLook?.panel;
+  /** The box's lines: all of a panel; with the lab's look the knob's count; else the record's own five. */
+  const shownLines = panel ? 40 : logLook ? Math.max(1, Math.round(logLook.lines)) : 5;
+  const boxFade = logLook ? Math.max(0, Math.min(1, logLook.fade)) : 0.3;
   // (the story's and the bond's lines only with the lab's new look: the exhibition's personal view keeps its record —
   // the rule of 2026-11-27, mobileLab.newLook)
   // (the new look: the story's and the bond's lines, and 합주 only while really building together — sound-logic §13e)
@@ -638,13 +645,23 @@ export function SessionHud({
             panel
               ? "absolute inset-y-0 left-0 flex"
               : logPlace === "left"
-              ? "absolute bottom-24 left-4 top-20 flex w-[min(24vw,22rem)] flex-col justify-end [mask-image:linear-gradient(to_bottom,transparent,black_30%)]"
+              ? "absolute bottom-24 left-4 top-20 flex w-[min(24vw,22rem)] flex-col justify-end"
               : logPlace === "top"
                 ? "absolute inset-x-0 top-14 flex justify-center px-3 [&>div>div:nth-child(2)]:flex [&>div>div:nth-child(2)]:max-h-[4.6rem] [&>div>div:nth-child(2)]:min-h-0 [&>div>div:nth-child(2)]:flex-col-reverse [&>div>div:nth-child(2)]:justify-end [&>div>div:nth-child(2)]:overflow-hidden"
                 : "absolute inset-x-0 bottom-0 flex justify-center px-4 pb-4"
           }
           // (the width the knob gives: the left column's own width, else the block's widest — never past the screen)
-          style={panel ? { width: "var(--log-panel, clamp(20rem, 34vw, 38rem))" } : logWidth > 0 && logPlace === "left" ? { width: `min(92vw, ${logWidth}rem)` } : undefined}
+          style={
+            panel
+              ? { width: "var(--log-panel, clamp(20rem, 34vw, 38rem))" }
+              : logPlace === "left"
+                ? {
+                    ...(logLook?.width ? { width: logLook.width } : logWidth > 0 ? { width: `min(92vw, ${logWidth}rem)` } : null),
+                    // (the box's top fades out — the knob's share of its height; 0 = every line as solid as the last)
+                    ...(boxFade > 0 ? { maskImage: `linear-gradient(to bottom, transparent, black ${Math.round(boxFade * 100)}%)`, WebkitMaskImage: `linear-gradient(to bottom, transparent, black ${Math.round(boxFade * 100)}%)` } : null),
+                  }
+                : undefined
+          }
         >
           <div
             className={panel ? "flex h-full w-full flex-col border-r border-white bg-black text-[16px] leading-[1.4] tracking-[0.04em]" : "w-full max-w-[36rem] border border-white bg-black text-[15px] leading-[1.25] tracking-[0.04em]"}
@@ -660,7 +677,7 @@ export function SessionHud({
               </div>
             )}
             <div className={panel ? "flex min-h-0 flex-1 flex-col justify-end gap-1 overflow-hidden px-4 py-3" : "min-h-[6.5rem] px-3 py-2"}>
-              {(panel ? rec.entries : rec.entries.slice(-5)).map((e, i) => {
+              {rec.entries.slice(-shownLines).map((e, i) => {
                 const { prefix, text } = formatEntry(e, lang);
                 return (
                   <div key={`${i}:${e.t}:${e.key}`} className={`flex items-start gap-2 ${LEVEL_CLASS[e.level]}`}>

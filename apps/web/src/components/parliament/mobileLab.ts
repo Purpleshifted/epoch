@@ -150,6 +150,12 @@ function knobsAll(): boolean {
 const PREVIEW_KNOBS: readonly string[] = [
   `${LAB_GROUP["scan-present"]}.눈.walkSpeed`,
   `${LAB_GROUP["scan-present"]}.눈.eyeHeight`,
+  // (the record's place and shape — the artist, 2026-11-28: "여기서 패널폭이랑 모드 내가 조절 가능하게")
+  `${LAB_GROUP["scan-present"]}.기록 (로그).logPlace`,
+  `${LAB_GROUP["scan-present"]}.기록 (로그).logLeftStyle`,
+  `${LAB_GROUP["scan-present"]}.기록 (로그).logWidthPct`,
+  `${LAB_GROUP["scan-present"]}.기록 (로그).logLines`,
+  `${LAB_GROUP["scan-present"]}.기록 (로그).logFade`,
   `${LAB_GROUP["scan-present"]}.__save`,
   // (and the frame's ceiling, 바탕 › 성능 · 상한 — the artist, 2026-11-27: "액션 프리뷰에서 랙이 심한데 프레임 리소스 상한 같은 거")
   `${LAB_GROUP.base}.성능 · 상한.maxDpr`,

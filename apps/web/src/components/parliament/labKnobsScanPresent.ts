@@ -28,6 +28,13 @@ const LIDAR_COLOURS: Record<string, LidarColour> = {
   "회색": "grey",
 };
 
+/** The record's shape on the left: the old floating box, or the long solid panel the view begins beside. */
+export type LogLeftStyle = "float" | "panel";
+const LOG_LEFT_STYLES: Record<string, LogLeftStyle> = {
+  "떠 있는 상자 (예전)": "float",
+  "긴 패널 (화면 높이 전체, 화면이 옆으로)": "panel",
+};
+
 const LOG_PLACES: Record<string, LogPlace | "auto"> = {
   "자동 — 눈높이면 랩탑은 왼쪽 패널 · 폰은 위쪽 띠, 아니면 아래": "auto",
   "아래 (지금)": "bottom",
@@ -106,7 +113,16 @@ export function useScanPresentKnobs(isV2: boolean) {
         viewOn: { value: false, label: "시야 반경 — 밖은 안 보임", render: v2 },
         viewRadius: { value: 8, min: 2, max: 24, step: 0.5, label: "시야 반경 (월드)", render: v2 },
       }),
-      logPlace: { options: LOG_PLACES, value: "auto" as LogPlace | "auto", label: "로그의 자리", render: v2 },
+      // the record (SessionHud): where it stands and, on the left, its shape (the artist, 2026-11-28: the long panel —
+      // "언어정보 주는 콘솔창이 왼쪽에 아예 긴 패널로" — then "예전이 더 나은 것 같긴 함 비주얼적으로. 다만 그게 너무 정보전달이
+      // 안 된다": both kept, the old floating box the default, with more lines and less fade to choose)
+      "기록 (로그)": folder({
+        logPlace: { options: LOG_PLACES, value: "auto" as LogPlace | "auto", label: "로그의 자리", render: v2 },
+        logLeftStyle: { options: LOG_LEFT_STYLES, value: "float" as LogLeftStyle, label: "왼쪽 모양", render: v2 },
+        logWidthPct: { value: 0, min: 0, max: 70, step: 1, label: "폭 (화면 %, 0 = 모양마다 기본)", render: v2 },
+        logLines: { value: 10, min: 3, max: 40, step: 1, label: "상자: 보이는 줄 수 (예전 5)", render: v2 },
+        logFade: { value: 0.3, min: 0, max: 1, step: 0.05, label: "상자: 위쪽 흐림 (0 = 없음 · 예전 0.3)", render: v2 },
+      }),
       "땅": folder({
         groundOn: { value: true, label: "길이 난 칸의 닳음", render: v2 },
         groundWear: { value: 0.7, min: 0, max: 1, step: 0.05, label: "닳음 세기", render: v2 },

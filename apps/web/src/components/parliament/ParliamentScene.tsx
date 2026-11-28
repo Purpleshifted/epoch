@@ -585,8 +585,12 @@ export default function ParliamentScene({ lab }: { lab?: LabPage } = {}) {
   // 사람들이 그나마 읽을 것 같음"): with the lab's look, while a life is lived, the left place is a solid column the
   // screen's full height and the view begins beside it (its width in --log-panel, read by SessionHud and StreetHud) —
   // ~370 px on the show's portrait 1080 pt; the 기록창 폭 knob, when set, gives it
-  const logPanel = lookOn && logPlace === "left" && session.phase === "live";
-  const logPanelW = logWidth > 0 ? `min(92vw, ${logWidth}rem)` : "clamp(min(20rem, 60vw), 34vw, 38rem)";
+  // (since the artist's "예전이 더 나은 것 같긴 함 비주얼적으로": a choice — 기록 › 왼쪽 모양, the floating box by default)
+  const logPanel = lookOn && logPlace === "left" && street.log.leftStyle === "panel" && session.phase === "live";
+  const logPct = lookOn ? street.log.widthPct : 0;
+  const logPanelW = logPct > 0 ? `max(16rem, ${logPct}vw)` : logWidth > 0 ? `min(92vw, ${logWidth}rem)` : "clamp(min(20rem, 60vw), 34vw, 38rem)";
+  // what SessionHud draws: the panel, or (with the lab's look) the box at this width, these many lines, this much fade
+  const logLook = lookOn ? { panel: logPanel, width: logPct > 0 ? `max(14rem, ${logPct}vw)` : null, lines: street.log.lines, fade: street.log.fade } : null;
   const getFar = useCallback(() => witnessRef.current?.far, []);
   // the drawing's density: the paper look at the device's own (at least 1.5, at most 2) — and under the lab's look, no
   // more than the frame ceiling's (바탕 › 성능 · 상한); the old view's as it was
@@ -683,7 +687,7 @@ export default function ParliamentScene({ lab }: { lab?: LabPage } = {}) {
           before and after stay as they are) */}
       <div className="pointer-events-none absolute inset-0" style={paper && !scanBlack && session.phase === "live" ? { filter: "invert(1)" } : undefined}>
       {withSession && !demo && (
-        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} visitorRef={visitorRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} card={visuals.card} venue={venueParam} recordingUrl={recordingQr} uploadRecording={uploadLifeRecording} onAnswer={onAnswer} onFound={onFound} logPlace={logPlace} logWidth={logWidth} />
+        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} visitorRef={visitorRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} card={visuals.card} venue={venueParam} recordingUrl={recordingQr} uploadRecording={uploadLifeRecording} onAnswer={onAnswer} onFound={onFound} logPlace={logPlace} logWidth={logWidth} logLook={logLook} />
       )}
       {/* 길거리 › 방향 말: the nearest one beyond the eye's reach, as a line beside the log (StreetHud) */}
       {withSession && !demo && isV2 && street.hints.on && session.phase === "live" && (
