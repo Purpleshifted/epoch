@@ -16,15 +16,14 @@
  *     (먼 흐림) and paler (멀수록 옅어짐), and laid over the picture. Far greenery melts into soft masses, and near points
  *     keep no halo of the far blur (each part is blurred on its own).
  *
- * Applied to every point cloud of the wall's scene that has a size in the world: a PointsMaterial with size attenuation,
- * or a point shader of its own (a ShaderMaterial on a Points that writes gl_PointSize). That is, as of 2026-11-28:
+ * Applied to the PRESENT's point clouds that have a size in the world: a PointsMaterial with size attenuation, or a
+ * point shader of its own (a ShaderMaterial on a Points that writes gl_PointSize). That is, as of 2026-11-28:
  *   - the present's plants: Vegetation's clouds (ParliamentSpace VEG shader), the gathered plants (cloudPointsMaterial)
  *     and the other fading points (fadingPointsMaterial);
- *   - the future layer's: FutureVillage's plants, FutureUnder's plants and their glow, trees, grass, scrub, stones, wild
- *     forest, deposits, water belt, footprints, clumps;
- *   - Dandelions (seed heads, ghosts, dust).
- * Left as they are: points with a size on the screen (no size attenuation — the walkways' end dots), and any Points
- * whose userData.noPointLod is true.
+ *   - Dandelions (seed heads, ghosts, dust), which stand in the present.
+ * Left as they are: THE FUTURE LAYER, all of it (the artist, 2026-11-28: "이거 미래 층에는 적용되면 안 됨" — FutureVillage and
+ * FutureUnder stand in groups marked userData.noPointLod: nothing under such a mark is touched); points with a size on
+ * the screen (no size attenuation — the walkways' end dots).
  *
  * How: a few lines at the end of each one's shaders (its own onBeforeCompile kept, run first), found by walking the scene
  * once a second; a material its component replaces, or whose hook React sets again, is patched again then. The
@@ -107,7 +106,7 @@ export function startPointShot(scene: THREE.Object3D, r: number): () => void {
     const hosts: THREE.Points[] = [];
     scene.traverse((o) => {
       const pts = o as THREE.Points;
-      if (!pts.isPoints || pts.userData.plodCopy || Array.isArray(pts.material) || !patched.has(pts.material)) return;
+      if (!pts.isPoints || pts.userData.plodCopy || Array.isArray(pts.material) || !patched.has(pts.material) || markedOut(pts)) return;
       hosts.push(pts);
     });
     for (const pts of hosts) {
@@ -200,6 +199,12 @@ const patched = new WeakMap<THREE.Material, Rec>();
 function wanted(m: THREE.Material): boolean {
   if ((m as THREE.PointsMaterial).isPointsMaterial) return (m as THREE.PointsMaterial).sizeAttenuation;
   return !!(m as THREE.ShaderMaterial).isShaderMaterial && /gl_PointSize/.test((m as THREE.ShaderMaterial).vertexShader);
+}
+
+/** Whether `o` or anything it stands in is marked out of all this (userData.noPointLod — the future layer's groups). */
+function markedOut(o: THREE.Object3D | null): boolean {
+  for (let p = o; p; p = p.parent) if (p.userData.noPointLod) return true;
+  return false;
 }
 
 /** Patches `m` (again, if its hook or key was set back); true when its shader must be built anew. */
@@ -499,19 +504,28 @@ export function PointLod() {
     last.current = now;
     let n = 0, fresh = 0;
     const seen = new Set<THREE.Points>();
-    scene.traverse((o) => {
-      if (!(o as THREE.Points).isPoints || o.userData.noPointLod) return;
+    // (a marked object and everything in it is passed over — the future layer: markedOut)
+    const walk = (o: THREE.Object3D): void => {
+      if (o.userData.noPointLod) return;
       const pts = o as THREE.Points, m = pts.material;
-      if (Array.isArray(m) || !wanted(m)) return;
-      n++;
-      if (ensure(m)) fresh++;
-      seen.add(pts);
-      if (!hosts.current.has(pts)) {
-        hosts.current.set(pts, pts.layers.mask === 1 << POINT_LAYER ? 1 : pts.layers.mask);
-        if (inFrame) pts.layers.mask = 1 << POINT_LAYER;
+      if (pts.isPoints && !Array.isArray(m) && wanted(m)) {
+        n++;
+        if (ensure(m)) fresh++;
+        seen.add(pts);
+        if (!hosts.current.has(pts)) {
+          hosts.current.set(pts, pts.layers.mask === 1 << POINT_LAYER ? 1 : pts.layers.mask);
+          if (inFrame) pts.layers.mask = 1 << POINT_LAYER;
+        }
       }
-    });
-    for (const pts of hosts.current.keys()) if (!seen.has(pts)) hosts.current.delete(pts);
+      for (const c of o.children) walk(c);
+    };
+    walk(scene);
+    // (gone from the scene, or now under a mark: its own layers back, and off the list)
+    for (const [pts, mask] of hosts.current) {
+      if (seen.has(pts)) continue;
+      pts.layers.mask = mask;
+      hosts.current.delete(pts);
+    }
     (window as unknown as { __pointLod?: unknown }).__pointLod = { on: k.on, materials: n, patchedNow: fresh, frame: inFrame };
   });
   return null;

@@ -2301,10 +2301,20 @@ function SpaceWorld({
       <group ref={chunkGroup} visible={fuse.enabled} />
       </group>
       {/* what is to come, inferred from the window's latest slots: apart from the column, above its top */}
-      {REDESIGN && !!density && <FutureVillage unit={boxCfg.unit} top={fuseU.uGrowTop} kindColor={KIND_COLOR} />}
+      {/* (the future layer is none of PointLod's: its points draw as they always did — the artist, 2026-11-28: "이거 미래 층에는
+          적용되면 안 됨"; an identity group, marked) */}
+      {REDESIGN && !!density && (
+        <group userData={{ noPointLod: true }}>
+          <FutureVillage unit={boxCfg.unit} top={fuseU.uGrowTop} kindColor={KIND_COLOR} />
+        </group>
+      )}
       {/* (far points clump — every point cloud of this scene with a size in the world, the hero shot's too: PointLod.tsx) */}
       {REDESIGN && <PointLod />}
-      {REDESIGN && !!density && <FutureUnder unit={boxCfg.unit} top={fuseU.uGrowTop} />}
+      {REDESIGN && !!density && (
+        <group userData={{ noPointLod: true }}>
+          <FutureUnder unit={boxCfg.unit} top={fuseU.uGrowTop} />
+        </group>
+      )}
       {/* the future's archaeologists, and the light where they meet a visitor (FutureExcavatorsWall.tsx, 2026-11-22) */}
       {REDESIGN && !!density && <FutureExcavatorsWall log={log} unit={boxCfg.unit} top={fuseU.uGrowTop} secPerUnit={boxCfg.secPerUnit} />}
       <group visible={!futureOnly()}>
