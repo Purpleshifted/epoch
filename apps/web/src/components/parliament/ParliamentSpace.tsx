@@ -16,7 +16,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Canvas, useFrame, useThree, type RootState } from "@react-three/fiber";
 import { Html, Hud, OrbitControls } from "@react-three/drei";
 import { Dandelions } from "./Dandelions";
 import { keepWindowSec, setKeepWindowSec } from "@/lib/parliament/log";
@@ -100,7 +100,8 @@ import { FUSE_BLEND_S, type UnitChunks, type UnitStats } from "@/lib/parliament/
 import { WALL_BUILD } from "@/lib/parliament/build";
 import { FutureVillage, futureGround, futureLink } from "./FutureVillage";
 import { FutureUnder, futureUnder } from "./FutureUnder";
-import { FutureExcavatorsWall } from "./FutureExcavatorsWall";
+import { FutureExcavatorsWall, wallExcavators, wallMeetSkip } from "./FutureExcavatorsWall";
+import { wrapDist } from "@/lib/parliament/world";
 import { futureOnly } from "@/lib/parliament/futureOnly";
 import { DEFAULT_ERODE, erosionAt, fossilWaitSec, type ErodeConfig } from "@/lib/parliament/erode";
 import { useTicker } from "./useTicker";
@@ -2713,8 +2714,12 @@ const BOT_KIND_COLOR: Record<BotKind, string> = { settle: "#2a62ff", roam: "#ff8
  *           (the artist, 2026-11-22: "내 미래랑 빛기둥으로 잇는 게 낫지 않나"; before that it stood ground to top)
  *   glyph   my name — the melody written down (glyph.ts) — floating at my place, blinking my rhythm
  *   up      the line goes UP from me to the block's top: what is stacked above me (my future), not the floor
+ *   thread  a faint thread from me up to the future layer's ground; when the future meets me (the personal view's
+ *           gaze: an observer within reach, by the phone's own rule) it thickens and glows, its edge lost in the light
+ *           (the artist, 2026-11-28: "약한 실(평소) -> 이어지면 굵음 + 강한 glow 로 경계 흐려서 조명처럼 보이게 함
+ *           정도로 하면 안 되나? 안 그래도 글로벌은 무거운데" — docs/me-future-link.md)
  */
-type MeStyle = "line" | "plane" | "column" | "glyph" | "up";
+type MeStyle = "line" | "plane" | "column" | "glyph" | "up" | "thread";
 /** The bots and the other visitors beside "me": as before; small achromatic points, no line; or the visitors as small glyphs. */
 type OthersStyle = "now" | "quiet" | "glyph";
 interface MeLook {
@@ -2732,7 +2737,19 @@ interface MeLook {
    * column has nothing to reach. On, "me" is DRAWN at half the block's height — the record is untouched.
    */
   trialMid: boolean;
+  /** The thread (style "thread"): its width at rest and when joined (world), the glow's reach when joined (world) and
+   *  its strength. */
+  thread: { w: number; linkW: number; glow: number; glowA: number };
 }
+/**
+ * WHEN THE FUTURE MEETS ME, ON THE WALL — the personal view's rule (FutureResidue's arrival, the lab's saved values): an
+ * observer (FutureExcavatorsWall's walkers, the same as every phone's) within its reach of me; no new meeting within
+ * GAP s of the last; joined while it is near and HOLD s after it leaves (the residue's 남는 시간).
+ */
+const ME_LINK_GAP = 60;
+const ME_LINK_HOLD = 10;
+/** 시험: the thread joined until this time (performance.now() ms), as if an observer had come. */
+const meLinkTest = { until: 0 };
 /** The quiet others: a bot and a visitor as small achromatic points (the old visitor's #111111 is invisible on the black wall). */
 const QUIET_COLOR = { me: "#ffffff", bot: "#8a8f96", visitor: "#d4d7db" } as const;
 
@@ -2785,6 +2802,47 @@ const COLUMN_FRAG = /* glsl */ `
   }
 `;
 
+/** THE THREAD (style "thread"): an upright card turned to the eye, its light across it a thin core and a glow round it
+ *  (both gaussian, so no edge), its two ends soft. uHalf: the card's half-width; uCore, uGlow: their widths (world). */
+const THREAD_VERT = /* glsl */ `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+const THREAD_FRAG = /* glsl */ `
+  uniform vec3 uColor;
+  uniform float uHalf;
+  uniform float uCore;
+  uniform float uGlow;
+  uniform float uCoreA;
+  uniform float uGlowA;
+  uniform float uEnd;
+  varying vec2 vUv;
+  void main() {
+    float d = abs(vUv.x * 2.0 - 1.0) * uHalf;
+    float core = exp(-2.0 * (d / uCore) * (d / uCore));
+    float glow = exp(-2.0 * (d / uGlow) * (d / uGlow));
+    float ends = smoothstep(0.0, uEnd, vUv.y) * (1.0 - smoothstep(1.0 - uEnd, 1.0, vUv.y));
+    float a = (uCoreA * core + uGlowA * glow) * ends;
+    if (a < 0.002) discard;
+    gl_FragColor = vec4(uColor, a);
+  }
+`;
+/** Where the thread meets the future's ground: a round glow lying on it (gaussian, no edge). */
+const POOL_FRAG = /* glsl */ `
+  uniform vec3 uColor;
+  uniform float uA;
+  varying vec2 vUv;
+  void main() {
+    vec2 p = vUv * 2.0 - 1.0;
+    float a = uA * exp(-4.0 * dot(p, p));
+    if (a < 0.002) discard;
+    gl_FragColor = vec4(uColor, a);
+  }
+`;
+
 /** "Me" on the wall, by the chosen style (MeLook). The group stands on the ground at my (x, z); heights are world y. */
 function MeMark({ m, y, look, topRef, label }: { m: Mark; y: number; look: MeLook; topRef: React.MutableRefObject<number>; label: string | null }) {
   const color = look.white ? QUIET_COLOR.me : MARK_COLOR.me;
@@ -2800,13 +2858,16 @@ function MeMark({ m, y, look, topRef, label }: { m: Mark; y: number; look: MeLoo
       fill: new THREE.MeshBasicMaterial({ transparent: true, side: THREE.DoubleSide, depthWrite: false }),
       sprite: new THREE.SpriteMaterial({ depthTest: false, transparent: true }),
       column: new THREE.ShaderMaterial({ vertexShader: COLUMN_VERT, fragmentShader: COLUMN_FRAG, transparent: true, depthWrite: false, side: THREE.DoubleSide, uniforms: { uColor: { value: new THREE.Color("#ffffff") }, uY: { value: 0 }, uAlpha: { value: 0.3 }, uFall: { value: 6 } } }),
+      // (the thread and its pool add light: on the black wall they glow, and nothing behind is hidden)
+      thread: new THREE.ShaderMaterial({ vertexShader: THREAD_VERT, fragmentShader: THREAD_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, uniforms: { uColor: { value: new THREE.Color("#ffffff") }, uHalf: { value: 1 }, uCore: { value: 0.05 }, uGlow: { value: 0.2 }, uCoreA: { value: 0.5 }, uGlowA: { value: 0.1 }, uEnd: { value: 0.05 } } }),
+      pool: new THREE.ShaderMaterial({ vertexShader: THREAD_VERT, fragmentShader: POOL_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, uniforms: { uColor: { value: new THREE.Color("#ffffff") }, uA: { value: 0 } } }),
     }),
     [],
   );
   useEffect(() => () => Object.values(mats).forEach((x) => x.dispose()), [mats]);
   useEffect(() => {
     for (const x of [mats.dot, mats.line, mats.ring, mats.fill, mats.sprite]) x.color.set(color);
-    (mats.column.uniforms.uColor.value as THREE.Color).set(color);
+    for (const x of [mats.column, mats.thread, mats.pool]) (x.uniforms.uColor.value as THREE.Color).set(color);
   }, [mats, color]);
   useEffect(() => {
     if (look.style === "glyph") mats.sprite.map = glyphTexture(m.id);
@@ -2814,7 +2875,25 @@ function MeMark({ m, y, look, topRef, label }: { m: Mark; y: number; look: MeLoo
   const up = useRef<THREE.Mesh>(null);
   const cap = useRef<THREE.Mesh>(null);
   const column = useRef<THREE.Mesh>(null);
-  useFrame(() => {
+  const thread = useRef<THREE.Mesh>(null);
+  const pool = useRef<THREE.Mesh>(null);
+  // the meeting, kept as the phone keeps it (FutureResidue): with me now, last arrival, when it is let go; `u` the
+  // thread's swell (0 at rest … 1 joined), `beat` its eased pulse
+  const link = useRef({ present: false, lastArrive: -1e9, releaseAt: 0, u: 0, beat: 1, t: -1 });
+  const tmpV = useMemo(() => new THREE.Vector3(), []);
+  // (while the thread draws my meeting, the walkers' own pillar of light stands for the others only)
+  useEffect(() => {
+    if (look.style !== "thread") return;
+    wallMeetSkip.id = m.id;
+    return () => {
+      if (wallMeetSkip.id === m.id) wallMeetSkip.id = null;
+    };
+  }, [look.style, m.id]);
+  useFrame((state) => {
+    if (look.style === "thread") {
+      frameThread(state);
+      return;
+    }
     const pulsing = look.pulse || look.style === "glyph";
     const on = !pulsing || rhythm[stepAt(performance.now()) % rhythm.length];
     const f = on ? 1 : 0.3;
@@ -2843,6 +2922,67 @@ function MeMark({ m, y, look, topRef, label }: { m: Mark; y: number; look: MeLoo
       column.current.scale.y = Math.max(top - y, 0.001);
     }
   });
+  /** THE THREAD'S FRAME: is the future with me (the phone's rule), how swollen the thread is, and its card turned to the
+   *  eye. Two cards and a handful of uniforms — nothing more per frame. */
+  const frameThread = (state: RootState): void => {
+    const now = performance.now() / 1000;
+    const L = link.current;
+    const dt = L.t < 0 ? 0 : Math.min(0.1, now - L.t);
+    L.t = now;
+    // THE MEETING (FutureResidue's arrival, as the wall can know it: the same walkers, the same reach, the same gap)
+    let nearD = Infinity;
+    for (const ex of wallExcavators.list) nearD = Math.min(nearD, wrapDist(ex.x, ex.z, m.x, m.z));
+    const held = L.present || L.releaseAt > 0;
+    let want = !m.stale && nearD <= wallExcavators.meetR * (L.present ? 1.1 : 1);
+    if (want && !held && now - L.lastArrive < ME_LINK_GAP) want = false;
+    if (want && !held) L.lastArrive = now;
+    if (L.present && !want) L.releaseAt = now + ME_LINK_HOLD;
+    if (want) L.releaseAt = 0;
+    L.present = want;
+    if (!want && L.releaseAt > 0 && now >= L.releaseAt) L.releaseAt = 0;
+    const joined = L.present || L.releaseAt > 0 || performance.now() < meLinkTest.until;
+    // it swells in about a second and settles back over a few
+    L.u += ((joined ? 1 : 0) - L.u) * (1 - Math.exp(-dt / (joined ? 0.5 : 1.4)));
+    // my melody's onsets, eased — a breath, not a blink
+    const on = !look.pulse || rhythm[stepAt(performance.now()) % rhythm.length];
+    L.beat += ((on ? 1 : 0.55) - L.beat) * (1 - Math.exp(-dt / 0.12));
+    const u = L.u, T = look.thread;
+    const top = Math.max(topRef.current, y + 1, futureGround.y ?? -Infinity);
+    const len = Math.max(top - y, 0.001);
+    // (never thinner than about a pixel and a half where it stands, so it does not shimmer)
+    const cam = state.camera as THREE.PerspectiveCamera;
+    tmpV.set(m.x, (y + top) / 2, m.z);
+    const ppw = cam.isPerspectiveCamera ? (2 * cam.position.distanceTo(tmpV) * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2)) / Math.max(1, state.size.height) : 0;
+    const core = Math.max(1.5 * ppw, (T.w + (T.linkW - T.w) * u) * k);
+    const glow = Math.max(core * 1.5, (T.w * 4 + (T.glow - T.w * 4) * u) * k);
+    const half = Math.max(core, glow) * 2.2;
+    const s = (m.stale ? 0.5 : 1) * (0.55 + 0.45 * L.beat);
+    const U = mats.thread.uniforms;
+    U.uHalf.value = half;
+    U.uCore.value = core;
+    U.uGlow.value = glow;
+    U.uCoreA.value = (0.45 + 0.5 * u) * s;
+    U.uGlowA.value = (0.06 + (T.glowA * 0.55 - 0.06) * u) * s;
+    U.uEnd.value = Math.min(0.3, 1.5 / len);
+    const th = thread.current;
+    if (th) {
+      th.position.y = (y + top) / 2;
+      th.scale.set(half * 2, len, 1);
+      // (an upright card turned to the eye about its own axis)
+      th.getWorldPosition(tmpV);
+      th.rotation.y = Math.atan2(cam.position.x - tmpV.x, cam.position.z - tmpV.z);
+    }
+    // where it meets the future's ground: a glow lying on it, as a light's on a ceiling
+    const p = pool.current;
+    if (p) {
+      p.position.y = top;
+      const r = glow * 2.5 + 0.5;
+      p.scale.set(r * 2, r * 2, 1);
+    }
+    mats.pool.uniforms.uA.value = (0.04 + (T.glowA * 0.5 - 0.04) * u) * s;
+    mats.dot.opacity = (m.stale ? 0.4 : 0.95) * (0.7 + 0.3 * L.beat);
+    (window as unknown as { __meLink?: unknown }).__meLink = { joined, u: Math.round(u * 100) / 100, nearD: Number.isFinite(nearD) ? Math.round(nearD * 10) / 10 : null, wait: Math.max(0, Math.round(ME_LINK_GAP - (now - L.lastArrive))) };
+  };
   const dotR = look.style === "plane" ? 0.35 * k : 0.5 * k;
   return (
     <group position={[m.x, 0, m.z]}>
@@ -2890,6 +3030,16 @@ function MeMark({ m, y, look, topRef, label }: { m: Mark; y: number; look: MeLoo
           {/* where the light meets the layer above: a faint ring at the top */}
           <mesh ref={cap} position={[0, y, 0]} rotation={[-Math.PI / 2, 0, 0]} scale={[k, k, 1]} material={mats.ring}>
             <ringGeometry args={[0.6, 0.75, 32]} />
+          </mesh>
+        </>
+      )}
+      {look.style === "thread" && (
+        <>
+          <mesh ref={thread} position={[0, y, 0]} material={mats.thread} frustumCulled={false} renderOrder={5}>
+            <planeGeometry args={[1, 1]} />
+          </mesh>
+          <mesh ref={pool} position={[0, y, 0]} rotation={[-Math.PI / 2, 0, 0]} material={mats.pool} frustumCulled={false} renderOrder={5}>
+            <planeGeometry args={[1, 1]} />
           </mesh>
         </>
       )}
@@ -4688,27 +4838,35 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     // artist's saved values of 16:33 (빛기둥 · 1.2 · 흰색 · 깜빡임 · 시험 켬). Saved values keep their keys.
     savable("마커", {
       // "ME" ON THE WALL — the proposals of docs/me-marker.md
-      meStyle: { options: { "수직선": "line", "수면": "plane", "빛기둥": "column", "기호": "glyph", "위로": "up" }, value: "column" as MeStyle, label: "나의 표시" },
+      meStyle: { options: { "수직선": "line", "수면": "plane", "빛기둥": "column", "실 → 빛 (미래가 오면)": "thread", "기호": "glyph", "위로": "up" }, value: "column" as MeStyle, label: "나의 표시" },
       meScale: { value: 1.2, min: 0.5, max: 3, step: 0.1, label: "크기 (×)" },
       meColor: { options: { "흰색": "white", "주황": "orange" }, value: "white", label: "색" },
       // (the glyph always blinks its rhythm)
       mePulse: { value: true, label: "내 박자로 깜빡임", render: (get: (path: string) => unknown) => get("마커.meStyle") !== "glyph" },
+      // THE THREAD (the artist, 2026-11-28: "약한 실(평소) -> 이어지면 굵음 + 강한 glow 로 경계 흐려서 조명처럼"): its width
+      // at rest, and when the future comes to me (the personal view's gaze) its width and the glow round it
+      meThreadW: { value: 0.05, min: 0.01, max: 0.5, step: 0.01, label: "실 굵기 — 평소 (월드)", render: (get: (path: string) => unknown) => get("마커.meStyle") === "thread" },
+      meLinkW: { value: 0.45, min: 0.05, max: 3, step: 0.05, label: "이어지면 굵기 (월드)", render: (get: (path: string) => unknown) => get("마커.meStyle") === "thread" },
+      meGlow: { value: 3, min: 0.2, max: 12, step: 0.1, label: "이어지면 빛 번짐 (월드)", render: (get: (path: string) => unknown) => get("마커.meStyle") === "thread" },
+      meGlowA: { value: 1, min: 0, max: 3, step: 0.05, label: "이어지면 빛 세기", render: (get: (path: string) => unknown) => get("마커.meStyle") === "thread" },
       others: { options: { "파랑 공 + 선": "now", "회색 점": "quiet", "회색 점 · 타인 기호": "glyph" }, value: "now" as OthersStyle, label: "봇 · 타인" },
       byKind: { value: false, label: "봇 성격별 색" },
       names: { value: false, label: "봇 이름" },
       "시험": folder(
         {
           meTrialMid: { value: true, label: "나를 봇들 높이에 그림 (표시만)" },
+          // (the thread joined for 8 s now, as if an observer had come — to see it without waiting for one)
+          "실: 미래가 온 것처럼 (8 s)": button(() => void (meLinkTest.until = performance.now() + 8000)),
         },
         { collapsed: true },
       ),
     }),
     { order: lab ? 7.2 : 1.55 },
     // (a knob shown by another's value — render (get) — loses Leva's inferred type: say what the folder holds)
-  ) as unknown as { meStyle: MeStyle; meScale: number; meColor: string; mePulse: boolean; others: OthersStyle; byKind: boolean; names: boolean; meTrialMid: boolean };
+  ) as unknown as { meStyle: MeStyle; meScale: number; meColor: string; mePulse: boolean; others: OthersStyle; byKind: boolean; names: boolean; meTrialMid: boolean; meThreadW: number; meLinkW: number; meGlow: number; meGlowA: number };
   const meLook = useMemo<MeLook>(
-    () => ({ style: mk.meStyle as MeStyle, scale: mk.meScale, white: mk.meColor === "white", pulse: mk.mePulse, others: mk.others as OthersStyle, trialMid: mk.meTrialMid }),
-    [mk.meStyle, mk.meScale, mk.meColor, mk.mePulse, mk.others, mk.meTrialMid],
+    () => ({ style: mk.meStyle as MeStyle, scale: mk.meScale, white: mk.meColor === "white", pulse: mk.mePulse, others: mk.others as OthersStyle, trialMid: mk.meTrialMid, thread: { w: mk.meThreadW, linkW: mk.meLinkW, glow: mk.meGlow, glowA: mk.meGlowA } }),
+    [mk.meStyle, mk.meScale, mk.meColor, mk.mePulse, mk.others, mk.meTrialMid, mk.meThreadW, mk.meLinkW, mk.meGlow, mk.meGlowA],
   );
   // BROUGHT OVER (the artist, 2026-11-12: "길 로직은 예전 버전 따를 수 있나?" — judged on the ground, between
   // buildings: walkways.ts): the old walkways, on the density's buildings
