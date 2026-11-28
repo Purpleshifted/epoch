@@ -38,6 +38,7 @@ import { FramePeopleLayer } from "./FramePeopleLayer";
 import { mobileLab } from "./mobileLab";
 import { streetGaze } from "./streetLook";
 import { onLifeEvent } from "./lifeEvents";
+import { SOLO, onSolo, soloOn, soloShow } from "./daydreamSolo";
 import { setPeopleWhere } from "./peopleWhere";
 
 export type PeopleMode = "boxes" | "points" | "fibers" | "sprites" | "frames";
@@ -138,6 +139,8 @@ export interface PeopleLook {
   /** The tracking boxes round who is with me (0 none, 1 the asker, 2 + whoever is within frTrackRadius m). */
   frTrack: number;
   frTrackRadius: number;
+  /** The daydream's first seconds, mine alone: how long the others are gone when the future arrives (s — daydreamSolo.ts). */
+  soloSec?: number;
   /** The pictograms seen from outside myself (the old personal view's camera — FramePeopleLayer `orbit`). */
   orbit?: boolean;
 }
@@ -631,11 +634,26 @@ export function PointPeople({
   useEffect(
     () =>
       onLifeEvent((e) => {
-        if ((e.kind === "word.new" || e.kind === "word.asked") && e.who) asking.current.set(e.who, performance.now() + DEFAULT_WITNESS.askOpenSec * 1000);
-        else if (e.kind === "word.answered" && e.who) asking.current.delete(e.who);
+        if ((e.kind === "word.new" || e.kind === "word.asked") && e.who) {
+          // (the daydream's first seconds: nobody asks — daydreamSolo.ts)
+          if (!soloOn()) asking.current.set(e.who, performance.now() + DEFAULT_WITNESS.askOpenSec * 1000);
+        } else if (e.kind === "word.answered" && e.who) asking.current.delete(e.who);
         // (a life that ends with a question open: nobody is asking any more — its bubble, its hold and its box go; the
         // artist, 2026-11-27: "죽을 때 응답 안 하면 블롭이 남음")
         else if (e.kind === "ended" || e.kind === "life.begin") asking.current.clear();
+      }),
+    [],
+  );
+  // THE DAYDREAM'S FIRST SECONDS ARE MINE ALONE (daydreamSolo.ts — the artist, 2026-11-28: "백일몽 처음 10-20초 정도는 다른
+  // 봇들도 안 보이고 인터랙션도 끊겨야"): as the future arrives whoever was asking lets go — the cue, the hold, the bubble —
+  // and everyone fades out below (their alpha's target), to come back after
+  useEffect(() => {
+    SOLO.sec = look.soloSec ?? 15;
+  }, [look.soloSec]);
+  useEffect(
+    () =>
+      onSolo((on) => {
+        if (on) asking.current.clear();
       }),
     [],
   );
@@ -1061,6 +1079,9 @@ export function PointPeople({
     // the melody's step now
     const step = stepAt(performance.now());
     const nowMs = performance.now();
+    // (how much of the others shows: 1 as ever, 0 through the daydream's first seconds — every way of drawing a person
+    // reads p.alpha, so its target carries it)
+    const solo = soloShow(nowMs);
     for (const [id, p] of P) {
       const gone = now - p.seen > GONE_SEC;
       if (gone && p.alpha <= 0.01) {
@@ -1132,7 +1153,7 @@ export function PointPeople({
         }
       }
       if (paper) p.body.heading = p.heading;
-      const target = gone ? 0 : p.bright;
+      const target = gone ? 0 : p.bright * solo;
       // gone: the fade is the tail's length on paper
       p.alpha += (target - p.alpha) * Math.min(1, dt / (gone && paper ? Math.max(0.2, look.tailSec) : FADE_SEC)) * (gone ? 1 : 3);
       const speed = Math.hypot(p.vx, p.vz);
@@ -1389,7 +1410,7 @@ export function PointPeople({
         B[n * 4 + 3] = p.hash;
         n++;
       }
-      if (plates && look.plate && np < MAX_PEOPLE) {
+      if (plates && look.plate && np < MAX_PEOPLE && (solo >= 1 || p.alpha > 0.05)) {
         v3.set(p.x, heightU * p.hs * 0.56, p.z);
         q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.heading);
         s3.set(0.95 * heightU * p.ws * (1 / 1.7), heightU * p.hs * 1.12, 1);

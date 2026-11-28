@@ -11,6 +11,7 @@
 
 import { button, folder, useControls } from "leva";
 import { emitLifeEvent } from "./lifeEvents";
+import { beginSolo, soloOn } from "./daydreamSolo";
 import { savable } from "./levaSave";
 import { LAB_GROUP, labLists } from "./mobileLab";
 import { DEFAULT_PEOPLE, type PeopleMode } from "./PointPeople";
@@ -291,8 +292,19 @@ export function useBotPresentKnobs(isV2: boolean) {
         // world or the bot server)
         "말 걸기 시험 — 가장 가까운 이": button(() => {
           const id = (window as unknown as { __framesNearest?: string | null }).__framesNearest;
-          if (id) emitLifeEvent({ kind: "word.asked", text: "(시험)", level: 1, who: id });
+          if (id && !soloOn()) emitLifeEvent({ kind: "word.asked", text: "(시험)", level: 1, who: id });
         }),
+        // (my answer to whoever is asking — the test's asker has no question in the record, so SPACE has nothing to
+        // answer here; this stands in for the press: the line between us thick at once, then their response)
+        "화답 시험 — 지금 말 거는 이에게 (스페이스 대신)": button(() => {
+          const id = (window as unknown as { __framesAsking?: string | null }).__framesAsking;
+          if (id && !soloOn()) emitLifeEvent({ kind: "word.answered", text: "(시험)", level: 1, who: id });
+        }),
+        // THE DAYDREAM'S FIRST SECONDS ARE MINE ALONE (daydreamSolo.ts — the artist, 2026-11-28: "백일몽 처음 10-20초
+        // 정도는 다른 봇들도 안 보이고 인터랙션도 끊겨야 경험 취지랑 맞는듯")
+        soloSec: { value: 15, min: 10, max: 20, step: 1, label: "미래가 찾아오면 처음 이만큼은 나 혼자 (s) — 사람들 사라지고 말 끊김", render: v2 },
+        // (a test on this screen only: the people and the talk go as if the future had come — no residue, no sound)
+        "나 혼자 시험 — 지금 미래가 찾아온 것처럼": button(() => beginSolo()),
         "이야기 시험 — 보이는 가까운 셋": button(() => {
           const ids = (window as unknown as { __framesInView?: string[] }).__framesInView ?? [];
           if (ids.length >= 2) emitLifeEvent({ kind: "story.born", text: "(시험)", level: 2, with: ids, n: ids.length });

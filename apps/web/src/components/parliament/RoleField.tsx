@@ -73,6 +73,7 @@ import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
 import { blockFrameFor, botServerOn, livingBotsNear, useVisitorLink, watchCentre } from "./useBotServer";
 import { onLifeEvent } from "./lifeEvents";
+import { onSolo } from "./daydreamSolo";
 import { learnWords, newWordMotifOf } from "@/lib/parliament/glyph";
 import { blockSeatOffset, herdSeatOffset } from "@/lib/parliament/rise";
 import type { SoundSetup } from "./useSound";
@@ -304,6 +305,14 @@ export function RoleField({
           answeredWho.current = e.who;
           answerDue.current = { other: e.who, seed: Math.floor(e.lifeT ?? 0) };
         }
+      }),
+    [],
+  );
+  // (the daydream's first seconds are mine alone: whoever was asking lets go, their voice with them — daydreamSolo.ts)
+  useEffect(
+    () =>
+      onSolo((on) => {
+        if (on) askerNow.current = null;
       }),
     [],
   );

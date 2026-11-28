@@ -397,6 +397,18 @@ export class WitnessLog {
     this.voices.set(who.o, { t, r: who.r });
   }
 
+  /**
+   * Nothing passes between the others and me for a while (the daydream's first seconds — components/parliament/
+   * daydreamSolo.ts): no question opens while it is on, and an open one closes unanswered. Returns whose it was.
+   */
+  private quiet = false;
+  setQuiet(on: boolean): Who | null {
+    this.quiet = on;
+    const closed = on && this.question ? this.question.who : null;
+    if (on) this.question = null;
+    return closed;
+  }
+
   /** Someone's question is open now. */
   asking(): boolean {
     return this.question !== null;
@@ -518,7 +530,7 @@ export class WitnessLog {
     for (const [o, st] of this.near) {
       const forSec = obs.t - st.since;
       if (forSec >= this.cfg.groupSec) this.totals.group.add(o);
-      if (forSec >= this.cfg.wordAfterSec && !this.worded.has(o) && obs.t - this.lastWordT >= this.cfg.wordGapSec) {
+      if (!this.quiet && forSec >= this.cfg.wordAfterSec && !this.worded.has(o) && obs.t - this.lastWordT >= this.cfg.wordGapSec) {
         this.worded.add(o);
         this.lastWordT = obs.t;
         this.ask(obs.t, { o, r: st.r });
@@ -527,7 +539,7 @@ export class WitnessLog {
     }
     // the one near for longest asks again now and then: their melody, gone strange with mine in it
     if (this.question && obs.t - this.question.t > this.cfg.askOpenSec) this.question = null;
-    if (!this.question && obs.t - this.lastWordT >= this.cfg.askEverySec) {
+    if (!this.quiet && !this.question && obs.t - this.lastWordT >= this.cfg.askEverySec) {
       let longest: { o: string; r: RoleId; since: number } | null = null;
       for (const [o, st] of this.near) if (st.missing === null && this.worded.has(o) && (!longest || st.since < longest.since)) longest = { o, r: st.r, since: st.since };
       if (longest) {

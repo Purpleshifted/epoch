@@ -17,6 +17,7 @@ import * as THREE from "three";
 import { DEFAULT_WITNESS, GLYPH_ROWS, glyphOf, nearestImage, rhythmOf, type Other } from "@/lib/parliament";
 import { musicNow, soundSelf, voiceAnswer, voiceHop } from "./musicClock";
 import { emitLifeEvent, onLifeEvent } from "./lifeEvents";
+import { soloOn, soloShow } from "./daydreamSolo";
 import { savedGroup } from "./levaSave";
 import { lidarActive } from "./LidarScan";
 import { LAB_GROUP } from "./mobileLab";
@@ -77,6 +78,9 @@ const JUMP_M = 20;
 const STILL_MPS = 0.15;
 /** How far the asker's box swells out on each of its notes as heard (a share of its width, each side). */
 const ASK_SWELL = 0.25;
+/** MY ANSWER, FELT AT ONCE: how long the line between us stays swollen after the press (s), and how thick it starts (px). */
+const PRESS_SEC = 0.45;
+const PRESS_PX = 8;
 /** The melody glyph over a box: px a cell (8 × 8 cells). */
 const GLYPH_CELL = 3;
 
@@ -388,7 +392,10 @@ export function FramePeopleLayer({
       if (ctx) {
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, cw, ch);
-        if (track > 0 && L.pix && !over.current) {
+        // (the daydream's first seconds are mine alone: the boxes and lines go with the people — daydreamSolo.ts)
+        const show = soloShow();
+        ctx.globalAlpha = show;
+        if (track > 0 && L.pix && !over.current && show > 0.01) {
           const ink = L.pixWhite ? "255,255,255" : "12,12,12";
           const col = (a: number) => `rgba(${ink},${a})`;
           const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).setY(0).normalize();
@@ -514,6 +521,22 @@ export function FramePeopleLayer({
                 my = (1 - (v.y * 0.5 + 0.5)) * ch;
               }
               const fx = (r.x0 + r.x1) / 2, fy = r.y1;
+              // THE PRESS, FELT AT ONCE (the artist, 2026-11-28: "응답할 때 스페이스바 누르면 즉각적으로 이어진 선이
+              // 굵어진다든가 하는 피드백도 있어야 관객이 체험적이라 느낄 듯"): on the frame I answer the line between us is
+              // thick and their box struck with it, thinning within PRESS_SEC into the response drawn here — the press is
+              // felt now, the music's answer follows on its bar
+              const press = ans ? Math.max(0, 1 - (performance.now() - ans.at) / (PRESS_SEC * 1000)) : 0;
+              if (press > 0) {
+                const e = press * press;
+                ctx.strokeStyle = col(1);
+                ctx.lineWidth = 1 + (PRESS_PX - 1) * e;
+                ctx.beginPath();
+                ctx.moveTo(fx, fy);
+                ctx.lineTo(mx, my);
+                ctx.stroke();
+                ctx.lineWidth = 2 + 3 * e;
+                ctx.strokeRect(r.x0 - 4 * e, r.y0 - 4 * e, r.x1 - r.x0 + 8 * e, r.y1 - r.y0 + 8 * e);
+              }
               if (!one) {
                 // two lines, theirs lit on their notes
                 const nx = my - fy, ny = -(mx - fx), nl = Math.hypot(nx, ny) || 1, ox = (nx / nl) * 3, oy = (ny / nl) * 3;
@@ -615,12 +638,17 @@ export function FramePeopleLayer({
     (window as unknown as { __framesBots?: unknown }).__framesBots = { cards: n, bots: W.length, tracked };
     // (the lab's "말 걸기 시험" asks with the nearest one)
     (window as unknown as { __framesNearest?: string | null }).__framesNearest = nearest;
+    // (…and its "화답 시험" answers whoever is asking)
+    (window as unknown as { __framesAsking?: string | null }).__framesAsking = W.find((w) => w.asks)?.id ?? null;
     // (a handle for the headless checks: the material, to switch the layer off and see what else draws)
     // (and, where there is no lab test button — the old view — a way to have the nearest one ask)
     if (process.env.NODE_ENV === "development") {
-      const win = window as unknown as { __framesLayer?: unknown; __framesAsk?: (id: string) => void };
+      const win = window as unknown as { __framesLayer?: unknown; __framesAsk?: (id: string) => void; __framesAnswer?: (id: string) => void };
       win.__framesLayer = { mat, sideMat, geom };
-      win.__framesAsk ??= (id: string) => emitLifeEvent({ kind: "word.asked", text: "(시험)", level: 1, who: id });
+      win.__framesAnswer ??= (id: string) => emitLifeEvent({ kind: "word.answered", text: "(시험)", level: 1, who: id });
+      win.__framesAsk ??= (id: string) => {
+        if (!soloOn()) emitLifeEvent({ kind: "word.asked", text: "(시험)", level: 1, who: id });
+      };
     }
   });
 

@@ -65,6 +65,7 @@ import { FootprintMap } from "./FootprintMap";
 import { Glyph } from "./Glyph";
 import { qrModules } from "@/lib/qr";
 import { emitLifeEvent } from "./lifeEvents";
+import { onSolo, soloOn } from "./daydreamSolo";
 import { setLifeNote } from "./useLifeRecording";
 import { SpecimenCard, printCard, saveCard, type CardAct } from "./SpecimenCard";
 import type { CardVisual } from "./usePersonalVisuals";
@@ -326,6 +327,8 @@ export function SessionHud({
 
   // someone asked: SPACE answers
   const answer = useCallback(() => {
+    // (the daydream's first seconds are mine alone: nothing I press answers — daydreamSolo.ts)
+    if (soloOn()) return;
     const me = witnessRef.current?.me;
     const said = me ? log.answer(session.lifeRef.current.t, me) : null;
     if (!said) return;
@@ -341,6 +344,18 @@ export function SessionHud({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [phase, answer]);
+  // …and through the daydream's first seconds nobody asks: the record opens no question, an open one closes unanswered
+  // (the artist, 2026-11-28: "백일몽 처음 10-20초 정도는 다른 봇들도 안 보이고 인터랙션도 끊겨야")
+  useEffect(() => {
+    if (phase !== "live") return;
+    const off = onSolo((on) => {
+      if (log.setQuiet(on)) setRec((r) => ({ ...r, asking: false }));
+    });
+    return () => {
+      off();
+      log.setQuiet(false);
+    };
+  }, [phase, log]);
 
   // a failed attempt to stop living goes into the record as two flat lines
   const seenAttempts = useRef(0);

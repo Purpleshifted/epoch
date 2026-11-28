@@ -537,6 +537,18 @@ lab's saved values) and it is seen from the old camera (`FramePeopleLayer` `orbi
 stand, nobody thinned or cut for being close to the camera). The rehearsal and the exhibition share this group's saved
 values: saved ON, it is on in `/exhibition/personal` too.
 
+**My answer felt at once; the daydream's first seconds mine alone (2026-11-28).** The artist: "응답할 때 스페이스바 누르면
+즉각적으로 이어진 선이 굵어진다든가 하는 피드백도 있어야 관객이 체험적이라 느낄 듯" — on the frame I answer (SPACE, the
+phone's button) the line between the asker and me is thick (8 px) and their box struck with it, thinning within 0.45 s
+into the response the sound session drew (two lines, then one, on the music's bar): `FramePeopleLayer` `PRESS_SEC` /
+`PRESS_PX`, inside the `responds` branch. And: "백일몽 처음 10-20초 정도는 다른 봇들도 안 보이고 인터랙션도 끊겨야 경험
+취지랑 맞는듯" — `daydreamSolo.ts` listens for the future's `arrive` (lib/sound/futureCue, untouched) and for
+`말 걸기 › 미래가 찾아오면 처음 이만큼은 나 혼자` seconds (15; 10–20) everyone fades out (PointPeople: every person's alpha
+target × `soloShow()`, so all its modes; the boxes and lines with them), nobody asks (WitnessLog `setQuiet`: no question
+opens, an open one closes unanswered; the cue, hold, bubble and the asker's voice let go), and SPACE answers nothing;
+then they fade back over 3 s. The lab's look only (`newLook()`). Lab tests in the same folder: "화답 시험" (my answer
+to the test's asker, in place of SPACE) and "나 혼자 시험" (people and talk only — no residue, no sound).
+
 **Evening, 2026-11-23 — 2D PEOPLE from real video become the default (`그리기 = 2D 사람`, mode `"sprites"`,
 `spritePeople.ts`).** The artist: "걍 3d 몸 버려야하나 … 후져 … 한계가 있어보여 … 2d 실루엣" → "Pexels 클립으로 먼저
 시험해봐" → "내가 찾을게". Pipeline: clips in `visual_reference_images/people_clips/` (gitignored; one person head to foot,
