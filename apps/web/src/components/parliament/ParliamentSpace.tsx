@@ -24,7 +24,10 @@ import { Bloom, DepthOfField, EffectComposer, N8AO, Noise } from "@react-three/p
 import { useFlowerBloom } from "./plantCloudsGpu";
 import { VEG_FLOW_W, VegFlow, vegFlowSupported, type VegFlowKnobs } from "./vegFlow";
 import { useFutureRender } from "./futureLife";
-import { BONE_GLSL, boneLight, boneU, FOSSIL_AT_GLSL, pickClock, wayBoneShader, type FossilClock } from "./boneLook";
+import { BONE_GLSL, boneLight, boneU, FOSSIL_AT_GLSL, pickClock, type FossilClock } from "./boneLook";
+import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
+import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
+import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import { BlendFunction } from "postprocessing";
 import { Leva, button, buttonGroup, folder, levaStore, monitor, useControls as useLevaControls } from "leva";
 import * as THREE from "three";
@@ -985,6 +988,8 @@ interface WalkLook {
   /** A free end's dot (px); opacity of the kept lines (below the present). */
   walkDot: number;
   walkKeptOpacity: number;
+  /** The ways' lines' width (px). */
+  walkWidth: number;
   /** A way just over the threshold against one as trodden as can be: its brightness and its opacity (1 = no difference). */
   walkUseDim: number;
   walkUseFade: number;
@@ -1031,6 +1036,34 @@ function setSegmentUse(lines: THREE.LineSegments | null, use: Float32Array, buil
     col[i * 4 + 3] = fade + (1 - fade) * u;
   }
   lines.geometry.setAttribute("color", new THREE.BufferAttribute(col, 4));
+}
+
+/**
+ * THE WAYS AS LINES WITH A WIDTH (the artist, 2026-11-28: "길은 너무 가늘어서 안 보이고"): a GL line is one pixel, whatever
+ * is asked; these are drawn as quads (three's LineSegments2), `walkWidth` pixels wide. Their use (brighter and more there
+ * the more used) is in the colour: per-vertex alpha is not had, so the less used are darker instead of fainter.
+ */
+function setFatSegments(lines: LineSegments2, segs: Float32Array): void {
+  const g = new LineSegmentsGeometry();
+  if (segs.length >= 6) {
+    g.setPositions(segs);
+    // (white until the use comes: a colour for every vertex, or the line reads none)
+    g.setColors(new Float32Array(segs.length).fill(1));
+  }
+  lines.geometry.dispose();
+  lines.geometry = g;
+  lines.userData.n = segs.length / 3;
+}
+function setFatUse(lines: LineSegments2, use: Float32Array, buildAt: number, dim: number, fade: number): void {
+  const n = use.length;
+  if (!n || n !== lines.userData.n) return;
+  const col = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const u = Math.max(0, Math.min(1, (use[i] - buildAt) / Math.max(1e-6, 1 - buildAt)));
+    const v = (dim + (1 - dim) * u) * (fade + (1 - fade) * u);
+    col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = v;
+  }
+  (lines.geometry as LineSegmentsGeometry).setColors(col);
 }
 
 /** Free ends [x, y, z, weight] × n into a points cloud (positions only: the dot takes the line's colour). */
@@ -1569,8 +1602,29 @@ function SpaceWorld({
   const stageMax = useRef<{ ms: number; at: number; stages: Record<string, number> }>({ ms: 0, at: 0, stages: {} });
   // the ticker reads the latest props through this ref
   const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, immutable, bake, water, noAxis, walk, density, pathLook, onStats, resin });
-  const walkLive = useRef<THREE.LineSegments>(null);
-  const walkKept = useRef<THREE.LineSegments>(null);
+  // (the ways' lines, as quads of a width: setFatSegments)
+  const walkLines = useMemo(() => {
+    const mk = (kept: boolean) => {
+      const l = new LineSegments2(new LineSegmentsGeometry(), new LineMaterial({ vertexColors: true, linewidth: 2.5, transparent: true, depthWrite: !kept }));
+      l.frustumCulled = false;
+      l.userData.n = 0;
+      return l;
+    };
+    return { live: mk(false), kept: mk(true) };
+  }, []);
+  useEffect(() => () => {
+    for (const l of [walkLines.live, walkLines.kept]) {
+      l.geometry.dispose();
+      l.material.dispose();
+    }
+  }, [walkLines]);
+  useEffect(() => {
+    for (const [l, op] of [[walkLines.live, 1], [walkLines.kept, walkLook.walkKeptOpacity]] as const) {
+      l.material.color.set(walkLook.walkColor);
+      l.material.linewidth = walkLook.walkWidth;
+      l.material.opacity = op;
+    }
+  }, [walkLines, walkLook.walkColor, walkLook.walkWidth, walkLook.walkKeptOpacity]);
   // how used each walkway is (per vertex), and its look applied (again when the look's knobs turn)
   const walkUse = useRef<{ live: Float32Array; kept: Float32Array } | null>(null);
   const walkUseLook = useRef({ buildAt: 0.45, dim: 1, fade: 1 });
@@ -1578,14 +1632,13 @@ function SpaceWorld({
   const applyWalkUse = useCallback(() => {
     const u = walkUse.current, l = walkUseLook.current;
     if (!u) return;
-    setSegmentUse(walkLive.current, u.live, l.buildAt, l.dim, l.fade);
-    setSegmentUse(walkKept.current, u.kept, l.buildAt, l.dim, l.fade);
+    setFatUse(walkLines.live, u.live, l.buildAt, l.dim, l.fade);
+    setFatUse(walkLines.kept, u.kept, l.buildAt, l.dim, l.fade);
   }, []);
   useEffect(() => applyWalkUse(), [applyWalkUse, walk?.buildAt, walkLook.walkUseDim, walkLook.walkUseFade]);
   const endLive = useRef<THREE.Points>(null);
   const endKept = useRef<THREE.Points>(null);
   // (the ways' lines turning to bone: the mass's ruler and a slot's height — boneLook.ts)
-  const wayBone = useMemo(() => wayBoneShader(() => fuseU, () => live.current.boxCfg.unit), []);
   const dotTex = useMemo(() => dotTexture(), []);
   useEffect(() => () => dotTex.dispose(), [dotTex]);
   useEffect(() => {
@@ -1596,8 +1649,10 @@ function SpaceWorld({
   const pipeMats = useMemo(
     // (the kept pipes — below the present — turn to bone with the mass: boneLook.ts; the mass's uniforms are read when
     // the material is first drawn)
-    () => ({ live: corrodingPipeMaterial(walkLook.pipeColor, walkLook.pipeRoughness, walkLook.pipeMetalness), kept: corrodingPipeMaterial(keptPipeColor, walkLook.pipeRoughness, walkLook.pipeMetalness, () => fuseU) }),
-    [walkLook.pipeColor, keptPipeColor, walkLook.pipeRoughness, walkLook.pipeMetalness],
+    // (…ONLY WHILE THE PIPES ARE IN THE FOSSIL — 엉김 › 배관의 본줄기가 화석 덩어리에 들어감; the artist, 2026-11-28: "길이나 배관
+    // 화석화 끈 상태에서도 침식 시작하면 자동으로 묘한 상아빛 재질이 배관에도 적용이됨": off, they stay pipes, and corrode)
+    () => ({ live: corrodingPipeMaterial(walkLook.pipeColor, walkLook.pipeRoughness, walkLook.pipeMetalness), kept: corrodingPipeMaterial(keptPipeColor, walkLook.pipeRoughness, walkLook.pipeMetalness, fuse.fusePipes ? () => fuseU : undefined) }),
+    [walkLook.pipeColor, keptPipeColor, walkLook.pipeRoughness, walkLook.pipeMetalness, fuse.fusePipes],
   );
   useEffect(() => () => { pipeMats.live.dispose(); pipeMats.kept.dispose(); }, [pipeMats]);
   useEffect(() => {
@@ -1916,8 +1971,8 @@ function SpaceWorld({
         ax.geometry.dispose();
         ax.geometry = g;
       }
-      setSegments(walkLive.current, p.walk.live);
-      setSegments(walkKept.current, p.walk.kept);
+      setFatSegments(walkLines.live, p.walk.live);
+      setFatSegments(walkLines.kept, p.walk.kept);
       walkUse.current = { live: p.walk.liveU, kept: p.walk.keptU };
       applyWalkUse();
       setWalkEnds(endLive.current, p.walk.liveEnds);
@@ -2276,15 +2331,9 @@ function SpaceWorld({
       </lineSegments>
       {/* WALKWAYS' pre-layer as lines: light grey, the kept ones (below the present) see-through; an end with nothing
           to arrive at any more is closed with a round dot */}
-      <lineSegments ref={walkLive} frustumCulled={false} visible={!!walk}>
-        <bufferGeometry />
-        <lineBasicMaterial color={walkLook.walkColor} vertexColors transparent />
-      </lineSegments>
-      <lineSegments ref={walkKept} frustumCulled={false} visible={!!walk}>
-        <bufferGeometry />
-        {/* (an old way turns to bone with the mass round it — the trace kept in the stone: boneLook.ts) */}
-        <lineBasicMaterial color={walkLook.walkColor} vertexColors transparent opacity={walkLook.walkKeptOpacity} depthWrite={false} onBeforeCompile={wayBone} customProgramCacheKey={() => "way-bone"} />
-      </lineSegments>
+      <primitive object={walkLines.live} visible={!!walk} />
+      {/* (the kept ways are drawn as they are: their bone look is gone with them out of the fossil — 2026-11-28) */}
+      <primitive object={walkLines.kept} visible={!!walk} />
       {(["live", "kept"] as const).map((w) => (
         <points key={w} ref={w === "live" ? endLive : endKept} frustumCulled={false} visible={!!walk}>
           <bufferGeometry />
@@ -4938,6 +4987,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           {
             walkColor: { value: "#d8d8d8", label: "색 (무채색)" },
             walkKeptOpacity: { value: 0.4, min: 0.05, max: 1, step: 0.05, label: "굳은 길의 불투명도 (지금 것 = 1)" },
+            walkWidth: { value: 2.5, min: 0.5, max: 10, step: 0.25, label: "선 굵기 (px)" },
             walkDot: { value: 6, min: 0, max: 20, step: 0.5, label: "이어지지 않은 끝의 점 (px · 0 = 없음)" },
             walkUseDim: { value: 0.35, min: 0, max: 1, step: 0.05, label: "덜 쓰는 길의 밝기 × (1 = 차이 없음)" },
             walkUseFade: { value: 0.35, min: 0, max: 1, step: 0.05, label: "덜 쓰는 길의 불투명도 × (1 = 차이 없음)" },
@@ -5157,8 +5207,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     [pc.partMass, pc.partSlab, pc.partDrip, pc.partColumn, pc.partBeam, pc.partBrace, pc.partPlinth, pc.partBasement, pc.partPile],
   );
   const walkLook = useMemo<WalkLook>(
-    () => ({ walkColor: wlk.walkColor, walkDot: wlk.walkDot, walkKeptOpacity: wlk.walkKeptOpacity, walkUseDim: wlk.walkUseDim, walkUseFade: wlk.walkUseFade, pipeColor: wtr.pipeColor, pipeRoughness: wtr.pipeRoughness, pipeMetalness: wtr.pipeMetalness, pipeKeptDim: REDESIGN ? 1 : wtr.pipeKeptDim, pipeHoles: wtr.pipeHoles, pipeHoleOnset: wtr.pipeHoleOnset, pipeDarken: wtr.pipeDarken, pipeGrain: wtr.pipeGrain }),
-    [wlk.walkColor, wlk.walkDot, wlk.walkKeptOpacity, wlk.walkUseDim, wlk.walkUseFade, wtr.pipeColor, wtr.pipeRoughness, wtr.pipeMetalness, wtr.pipeKeptDim, wtr.pipeHoles, wtr.pipeHoleOnset, wtr.pipeDarken, wtr.pipeGrain],
+    () => ({ walkColor: wlk.walkColor, walkDot: wlk.walkDot, walkKeptOpacity: wlk.walkKeptOpacity, walkWidth: wlk.walkWidth, walkUseDim: wlk.walkUseDim, walkUseFade: wlk.walkUseFade, pipeColor: wtr.pipeColor, pipeRoughness: wtr.pipeRoughness, pipeMetalness: wtr.pipeMetalness, pipeKeptDim: REDESIGN ? 1 : wtr.pipeKeptDim, pipeHoles: wtr.pipeHoles, pipeHoleOnset: wtr.pipeHoleOnset, pipeDarken: wtr.pipeDarken, pipeGrain: wtr.pipeGrain }),
+    [wlk.walkColor, wlk.walkDot, wlk.walkKeptOpacity, wlk.walkWidth, wlk.walkUseDim, wlk.walkUseFade, wtr.pipeColor, wtr.pipeRoughness, wtr.pipeMetalness, wtr.pipeKeptDim, wtr.pipeHoles, wtr.pipeHoleOnset, wtr.pipeDarken, wtr.pipeGrain],
   );
   const { cfg: natureCfg } = useNatureControls({ hidden: REDESIGN, folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: lab ? 8.5 : 6.5 });
   // BROUGHT OVER (the artist, 2026-11-15: "융합 진행하면 될 것 같고"): the fusion in the block. Its one clock — a
