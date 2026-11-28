@@ -6,7 +6,8 @@
  * where it came, facing the way it went, playing its clip at the original video's pace and fading with its state's
  * afterimage life; between arrivals the body now walks on at the pace and way the last two arrivals gave. Which clip, how
  * tall, what colour flows inside, the distance hierarchy, fading when passing through me or turning edge-on — all as
- * decided on /lab/mobile/frames (read from its saved values, framePeople.ts draws them). A bot standing still leaves a
+ * decided on the frames study's page (taken down 2026-11-28; its group's saved values are still read here, framePeople.ts
+ * draws them). A bot standing still leaves a
  * frame where it stands once an arrival span. By default the body runs one arrival span behind, walking from each to
  * the next in a whole number of steps, both feet down as it arrives.
  */

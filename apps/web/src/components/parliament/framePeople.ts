@@ -1,9 +1,9 @@
 /**
  * framePeople — THE PEOPLE AS STANDING FRAMES, SHARED (the artist, 2026-11-23: "이제 슬슬 봇 랩에 연결해보자"). What the
- * frames study (/lab/mobile/frames, FrameLab.tsx) decided — each clip's set and state, the afterimages by state, the
- * distance hierarchy, the colour flowing inside, frames standing where each arrival came and fading — drawn the same way
- * for its made-up walkers and for the bots of the personal view (PointPeople, mode "frames"). Lengths in the Look are
- * metres; `unit` turns them into the scene's units (1 in the study; 1 / the personal view's scale there).
+ * frames study decided (its page and FrameLab.tsx taken down 2026-11-28; its group's saved values are still read) — each
+ * clip's set and state, the afterimages by state, the distance hierarchy, the colour flowing inside, frames standing
+ * where each arrival came and fading — drawn for the bots of the personal view (PointPeople, mode "frames"). Lengths in
+ * the Look are metres; `unit` turns them into the scene's units (1 / the personal view's scale).
  */
 
 import * as THREE from "three";
