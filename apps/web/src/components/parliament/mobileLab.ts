@@ -69,8 +69,10 @@ export const LAB_INFO: Record<LabPage, LabAssetInfo> = {
   },
   "bot-future": {
     name: "bot (future)",
-    sub: "미래 발굴자 — 몸 모양의 창 · 남는 창 · 가까우면 화면을 채움",
-    query: { botserver: "0", futurefix: "1" },
+    // (the body-shaped windows retired 2026-11-28: the page of the invisible observers — where they are, how many, how
+    // they walk; their crossing shows as the scan residue)
+    sub: "보이지 않는 미래 관찰자 — 지금 어디 있는지 · 수 · 도는 반경 · 걸음",
+    query: { botserver: "0" },
     refs: ["EDEFE77C-4594-4869-B8C2-AEA9C9F0706D.GIF", "IMG_1575.JPG", "IMG_1401 2.JPG", "IMG_1585.JPG"],
   },
   frames: {

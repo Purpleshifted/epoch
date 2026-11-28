@@ -697,3 +697,29 @@ Open (her call): how the observer shows under the lidar. Proposed 11/27:
   decay leaves the smear.
 - **B · a hole in the scan**: no readings where the observer stands; the residue only inside the hole.
 - **C · the cut-out window laid over the scan**: two languages side by side.
+
+(Superseded 2026-11-28: the observers are never drawn — see below.)
+
+#### The page of the invisible observers (2026-11-28)
+
+The artist: "몸 모양 창은 이제 안 쓸 거잖아, 잔류를 왜 따로 계산하고 있지? 어떻게 연결하면 돼 그럼?" — then, to the
+coordinator's plan, "Yes, join them". The future's crossing becomes one: the scan residue's (scan (future),
+`FutureResidue.tsx`). When an observer comes within reach, the residue appears, the guide line shows and the daydream
+sound plays, together.
+- **No encounter of its own**: no lab page mounts `FutureEncounter` any more (ParliamentScene's future gating:
+  `encounterOn` false everywhere; with the 11/27 hold, nowhere at all). So no body windows, no near-fill, no
+  `futureMeet` record, and none of its passing sound (glitter, river, the bell when found) — the residue's daydream cue
+  is the sound now. The code stays, for the old `?future=` trial, which the hold also keeps off.
+- **The observers** are `lib/parliament/excavators` (a pure function of the world's epoch and clock). The residue reads
+  only this group's `관찰자 수`, `도는 땅의 반경` and `한 구간 걷고 서는 시간`. Those three are the only knobs left in
+  the group (folder open). Everything else is hidden, with its saved value kept: `on`, `look`, `마주치는 거리`, the
+  cooldown, the passing sound's level, and the folders 창, 날아오는 판, 그림, 스캔, 점구름, 나타남 · 사라짐.
+- **Where they are** (`ObserverMarkers.tsx`, mounted by RoleField when `mobileLab() === "bot-future"` only — never the
+  experiment address or the action preview):
+  - a ring on the ground for each observer now, a dot at its middle, a tick the way it walks; fainter while it stands;
+  - one faint ring round me at the residue's reach (`residueLook.gateR`): an observer inside it is what makes the
+    residue appear.
+  - On the pictograms' layer (over the finished frame, crisp): black on the white paper, white on the scan's black.
+- The page's line in the lab list: "보이지 않는 미래 관찰자 — 지금 어디 있는지 · 수 · 도는 반경 · 걸음"; its address no
+  longer carries `futurefix=1` (that test scene was the encounter's).
+- Not captured (the machine's load was 90 when it was built); type check clean, the page compiles.

@@ -63,7 +63,8 @@ import {
 } from "@/lib/parliament";
 import { KEY_NAMES, personalSignals, worldKey, type Motif, type WorldKey } from "@/lib/sound";
 import { DitherGround } from "./DitherGround";
-import { newLook } from "./mobileLab";
+import { mobileLab, newLook } from "./mobileLab";
+import { ObserverMarkers } from "./ObserverMarkers";
 import { FuturePresence, futurePeek, type FuturePresenceVisual } from "./FuturePresence";
 import { FutureEncounter, futureMeet } from "./FutureEncounter";
 import { NatureCloud, type GrassReaction } from "./NatureCloud";
@@ -689,6 +690,8 @@ export function RoleField({
       <group ref={present}>
       {grass?.style === "dither" || grass?.style === "field" ? (
         <DitherGround
+      {/* where the invisible observers are — on bot (future)'s own lab page alone (ObserverMarkers.tsx) */}
+      {future && mobileLab() === "bot-future" && <ObserverMarkers getWorldSec={() => (worldNow() - epochMs.current) / 1000} getEpochMs={() => epochMs.current} playerPosRef={playerPosRef} cfg={future} />}
           playerPosRef={playerPosRef}
           getStress={() => stress.current}
           getSnapshot={() => snap.current}

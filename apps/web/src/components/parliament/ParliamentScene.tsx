@@ -548,8 +548,11 @@ export default function ParliamentScene({ lab }: { lab?: LabPage } = {}) {
     // walk only on bot (future)'s own lab page — not on the action preview, the experiment address or a ?future= one
     // (the future's place stays as it was there). Lift the hold by returning futureKnobs here again.
     if (!lab || lab === "preview") return { ...futureKnobs, on: futureKnobs.overlayOn, encounterOn: false };
-    const overlayOn = lab === "scan-future", encounterOn = lab === "bot-future";
-    return { ...futureKnobs, on: overlayOn || encounterOn, overlayOn, encounterOn };
+    // THE BODY-SHAPED WINDOWS RETIRED (the artist, 2026-11-28: "몸 모양 창은 이제 안 쓸 거잖아, 잔류를 왜 따로 계산하고
+    // 있지?"): the future's crossing is the scan residue's alone (FutureResidue.tsx) — no encounter of its own on any lab
+    // page; bot (future)'s page shows where the invisible observers are (ObserverMarkers.tsx, mounted by RoleField)
+    const overlayOn = lab === "scan-future";
+    return { ...futureKnobs, on: overlayOn, overlayOn, encounterOn: false };
   }, [futureKnobs, lab, lidarOn, lookOn, futureAsked]);
   // …and the people only where they are the asset (or everything is)
   const labPeople = !lab || lab === "preview" || lab === "bot-present";

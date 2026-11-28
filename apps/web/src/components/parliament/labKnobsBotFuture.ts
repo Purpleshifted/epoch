@@ -41,23 +41,28 @@ export const LOOKS: Record<string, Look> = {
  */
 export function useBotFutureKnobs(isV2: boolean, bodyUrl: string | null) {
   const hidden = () => false;
-  /** A folder shows only for the looks it belongs to (the knob `방식`). */
-  const when = (looks: readonly Look[]) => (get: (path: string) => unknown) => looks.includes(get(`${GROUP}.look`) as Look);
+  // THE BODY-SHAPED WINDOWS RETIRED (the artist, 2026-11-28: "몸 모양 창은 이제 안 쓸 거잖아, 잔류를 왜 따로 계산하고
+  // 있지?"): no encounter is drawn any more (ParliamentScene mounts none) — the future's crossing is the scan residue's,
+  // which reads only the observers' count, roam and pace from here. Every other knob of this group is hidden; its saved
+  // value is kept (the folders' looks: window, frames, scan, cloud, dream).
+  const when = (_looks: readonly Look[]) => hidden;
   return useControls(
     GROUP,
     savable(GROUP, {
-      on: { value: true, label: "개인뷰에 켜기 (주소의 ?future= 가 우선 · 0 = 끔)" },
-      look: { options: LOOKS, value: "window" as Look, label: "방식" },
+      on: { value: true, label: "개인뷰에 켜기 (주소의 ?future= 가 우선 · 0 = 끔)", render: hidden },
+      look: { options: LOOKS, value: "window" as Look, label: "방식", render: hidden },
+      // the invisible observers (lib/parliament/excavators) — what the residue reads; their places drawn on this page
+      // alone (ObserverMarkers.tsx)
       "관찰자": folder(
         {
           excCount: { value: 7, min: 1, max: 30, step: 1, label: "관찰자 수" },
           excRoam: { value: 44, min: 10, max: 96, step: 1, label: "도는 땅의 반경" },
           excLegSec: { value: 24, min: 6, max: 120, step: 1, label: "한 구간 걷고 서는 시간 (s)" },
-          meetR: { value: 4, min: 1, max: 15, step: 0.5, label: "마주치는 거리" },
-          cooldownSec: { value: 20, min: 2, max: 120, step: 1, label: "같은 관찰자를 다시 만나기까지 (s)" },
-          fxLevel: { value: 0.8, min: 0, max: 1, step: 0.05, label: "스쳐 가는 소리 크기 (0 = 없음)" },
+          meetR: { value: 4, min: 1, max: 15, step: 0.5, label: "마주치는 거리", render: hidden },
+          cooldownSec: { value: 20, min: 2, max: 120, step: 1, label: "같은 관찰자를 다시 만나기까지 (s)", render: hidden },
+          fxLevel: { value: 0.8, min: 0, max: 1, step: 0.05, label: "스쳐 가는 소리 크기 (0 = 없음)", render: hidden },
         },
-        { collapsed: true, render: () => true },
+        { collapsed: false, render: () => true },
       ),
       "창": folder(
         {
