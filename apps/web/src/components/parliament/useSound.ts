@@ -12,7 +12,7 @@ import { savable } from "./levaSave";
 import { useParliamentVersion } from "./version";
 import { newLook } from "./mobileLab";
 import { onFutureCue } from "@/lib/sound/futureCue";
-import { playFuturePassing } from "./futureSound";
+import { playFutureGlance, playFuturePassing } from "./futureSound";
 import { DEFAULT_MOTIF_PRESET, DEFAULT_SIGNALS, DEFAULT_SOUND, MOTIF_PRESETS, MOTIF_PRESET_NAMES, SoundEngine, type SignalConfig, type SoundParams } from "@/lib/sound";
 
 export interface SoundSetup {
@@ -316,6 +316,11 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       onFutureCue((cue) => {
         const s = setupRef.current;
         if (!s || s.muted || !s.params.futureSound) return;
+        // (the future only looking at me from further off: a weak daydream, 4 s in and out — futureSound.ts)
+        if (cue.kind === "glance") {
+          if (!s.params.dead) playFutureGlance(s, { panFrom: cue.panFrom, panTo: cue.panTo, level: s.params.futureLevel });
+          return;
+        }
         if (!s.engine.daydream(cue.kind, cue.panFrom, cue.panTo)) return;
         const P = s.params;
         if (cue.kind === "arrive" && P.futureGlitter > 0)

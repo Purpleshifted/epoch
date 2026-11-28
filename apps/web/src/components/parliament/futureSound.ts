@@ -185,3 +185,69 @@ export function playFuturePassing(sound: SoundSetup | null, o: FuturePassing): b
   }, (end - ctx.currentTime + 0.5) * 1000);
   return true;
 }
+
+/**
+ * A WEAK DAYDREAM — THE FUTURE ONLY LOOKING AT ME (FutureResidue's gaze ring, futureCue `glance` — the artist, 2026-11-28:
+ * "말로만 알려주고 소리 효과는 '약한 백일몽'만 4초정도 페이드 인앤아웃, 비주얼 효과 없음"): the daydream's low haze alone
+ * (the place's lydian — root, fifth, ninth, #11 — as detuned triangle pairs under a lowpass that opens a little and
+ * closes), quiet, faded in over the first half of `dur` s and out over the second, panned across, into the hall as the
+ * daydream is. No melody, no static, no whistle, no glitter: SoundEngine.daydream stays the arrival's. (The engine's
+ * key, place and hall are read through the same narrow view as `busOf`.)
+ */
+export function playFutureGlance(sound: SoundSetup | null, o: { panFrom: number; panTo: number; level: number; dur?: number }): boolean {
+  const bus = busOf(sound);
+  if (!bus || o.level <= 0) return false;
+  const { ctx, into } = bus;
+  const e = sound?.engine as unknown as { placeNow?: { rootClass?: number } | null; key?: { root?: number } | null; rooms?: { hall?: AudioNode } } | undefined;
+  const root = e?.placeNow?.rootClass ?? e?.key?.root ?? 0;
+  const hall = e?.rooms?.hall;
+  const D = Math.max(1, o.dur ?? 4), t0 = ctx.currentTime + 0.05, end = t0 + D;
+  const c1 = (v: number) => Math.max(-1, Math.min(1, v));
+  const pan = ctx.createStereoPanner();
+  pan.pan.setValueAtTime(c1(o.panFrom), t0);
+  pan.pan.linearRampToValueAtTime(c1(o.panTo), end);
+  const out = ctx.createGain();
+  out.gain.setValueAtTime(0, t0);
+  out.gain.linearRampToValueAtTime(0.012 * o.level, t0 + D * 0.5);
+  out.gain.linearRampToValueAtTime(0, end);
+  const lp = ctx.createBiquadFilter();
+  lp.type = "lowpass";
+  lp.Q.value = 0.7;
+  lp.frequency.setValueAtTime(240, t0);
+  lp.frequency.exponentialRampToValueAtTime(800, t0 + D * 0.5);
+  lp.frequency.exponentialRampToValueAtTime(300, end);
+  const dry = ctx.createGain();
+  dry.gain.value = 0.55;
+  lp.connect(out).connect(pan);
+  pan.connect(dry).connect(into);
+  let send: GainNode | null = null;
+  if (hall) {
+    send = ctx.createGain();
+    send.gain.value = 0.9;
+    pan.connect(send).connect(hall);
+  }
+  const midi = (m: number) => 440 * Math.pow(2, (m - 69) / 12);
+  for (const st of [0, 7, 14, 18])
+    for (const dc of [-8, 8]) {
+      const osc = ctx.createOscillator();
+      osc.type = "triangle";
+      osc.frequency.value = midi(48 + root + st);
+      osc.detune.value = dc;
+      osc.connect(lp);
+      osc.start(t0);
+      osc.stop(end + 0.1);
+    }
+  // (the chain goes when its sources have)
+  window.setTimeout(() => {
+    try {
+      lp.disconnect();
+      out.disconnect();
+      pan.disconnect();
+      dry.disconnect();
+      send?.disconnect();
+    } catch {
+      // gone
+    }
+  }, (end - ctx.currentTime + 0.5) * 1000);
+  return true;
+}

@@ -304,15 +304,26 @@ futurePresence itself still runs in one frame (~1–8 ms here; the exhibition's 
 FutureEncounter's crossing, which no longer runs on any page. Now the residue's arrival is the crossing.
 - **When it counts:** the future arrives when nothing is held and an observer comes within `관찰자가 있다고 보는 거리`
   (or F). An overlap again before its 남는 시간 is spent only keeps it, as before.
-- **What it writes:** `FutureResidue.residueMeet` = { id, found }. found = the visitor's own cells within 5 of where they
-  stand (FutureEncounter's rule); else it is the gaze line. RoleField hands it to the witness wherever the residue runs
-  (witness.ts future.found / future.gaze, one line an id); `window.__residueMeet` keeps the last one.
-- **The gap:** `다시 찾아오기까지 최소` (observer mode; 60 s) means no new arrival for that long after one. Readout:
-  `지금 — 다음 도착 (관찰자 모드)`.
+- **What it writes:** `FutureResidue.residueMeet` = { id, kind, found }. RoleField hands it to the witness wherever the
+  residue runs (witness.ts, one line an id; the lines in script.ts); `window.__residueMeet` keeps the last one.
 - **The sound follows:** the daydream's arrive and leave (futureCue.futureFrame) are told the future is held (with me,
   or kept until let go). So the sound arrives once with each arrival, at the same gap as the line.
-- **bot (future):** the lidar and the residue run on that page too (LidarScan.lidarActive, residueActive), so she can
-  watch the observers (bot (future)'s ObserverMarkers) cross and what they bring.
+- (The bot (future) page, where it also ran, was taken down the same day — mobileLab RETIRED_PAGES.)
+
+**Three crossings, not trails (2026-11-28, later):** "60초는 너무 길지 않나; 내가 남긴 흔적(자취) 발견은 조건에서 배제하면
+안 되나?" Then, asked: the found line had come almost always (her own trail is always near), and she set three:
+- **응시, further off:** an observer within `응시 거리` (10; above `관찰자가 있다고 보는 거리`) while nothing is held gives
+  "미래가 당신을 응시합니다..." and a weak daydream only. That is `futureCue` `glance` → `futureSound.playFutureGlance`:
+  the daydream's low lydian haze alone, faded in and out over 4 s, panned from its side. Nothing is drawn, and the
+  daydream's solo (daydreamSolo.ts, arrive only) does not start.
+- **발견, nearer:** within `관찰자가 있다고 보는 거리` (or F) the future arrives, with the residue and the daydream, and
+  "미래가 당신의 삶을 발견했습니다." It no longer looks at the visitor's cells.
+- **흔적, while held:** the scan finds a mound or dark earth on (or one cell by) a cell the visitor built in (their cells
+  at level ≥ 1, read with each reading). That gives "미래가 당신이 남긴 흔적을 주워 듭니다." — words only, once a
+  crossing (`future.trace`; the wording is a first try, hers to change).
+- **The gap:** `다시 찾아오기까지 최소` now 40 s. No arrival within it of the last arrival, and no gaze within it of the
+  last gaze or arrival; a gaze does not hold back the arrival after it. The record's lines come at least 4 s apart, so
+  the witness misses none. None of it in 늘 (always).
 
 **Status (2026-11-23): PAUSED by the coordinator (machine overloaded) after the reference study; nothing built, no
 question put to the artist yet.** Code untouched (`FuturePresence.tsx`, `futurePresence.ts`, `labKnobsScanFuture.ts` =

@@ -14,7 +14,8 @@
  */
 
 export interface FutureCue {
-  kind: "arrive" | "leave";
+  /** (…and `glance`: the future only looking at me from further off — a weak daydream, futureGlance below) */
+  kind: "arrive" | "leave" | "glance";
   /** Where it comes from and goes to, −1 (left) … 1 (right) of where I look. */
   panFrom: number;
   panTo: number;
@@ -79,6 +80,16 @@ export interface FutureFrame {
   /** The observer (or the press's stand-in), where there is one; and the way the wind blows what is let go. */
   obs?: { x: number; z: number } | null;
   blow?: { x: number; z: number } | null;
+}
+
+/**
+ * THE FUTURE LOOKS AT ME FROM FURTHER OFF (FutureResidue's gaze ring — the artist, 2026-11-28: "말로만 알려주고 소리 효과는
+ * '약한 백일몽'만 4초정도 페이드 인앤아웃, 비주얼 효과 없음"): once, when the residue says so — a weak daydream, from the
+ * side it stands on (useSound → futureSound.playFutureGlance). Not an arrival: nothing else answers it.
+ */
+export function futureGlance(f: { me: { x: number; z: number }; fwd: { x: number; z: number }; obs: { x: number; z: number } }): void {
+  const p = panOf(f.obs.x - f.me.x, f.obs.z - f.me.z, f.fwd.x, f.fwd.z);
+  cue({ kind: "glance", panFrom: p, panTo: p * 0.5 });
 }
 
 /** Once a frame, after the residue has decided `present` and `letGo`. */

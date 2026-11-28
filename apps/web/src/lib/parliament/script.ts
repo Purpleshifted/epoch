@@ -364,6 +364,8 @@ export const LOG: Record<Lang, LogTemplates> = {
       "alone.long": (a) => `${secKo(a.sec)}째 혼자입니다. 혼자서는 집을 지을 수 없습니다.`,
       "future.found": () => "미래가 당신의 삶을 발견했습니다.",
       "future.gaze": () => "미래가 당신을 응시합니다...",
+      // (the scan's residue found what my life left — words only; the artist, 2026-11-28: "다른 멘트 고민해보고")
+      "future.trace": () => "미래가 당신이 남긴 흔적을 주워 듭니다.",
     },
     status: (a) => `${a.together ? "합주 중" : a.moving ? "걷는 중" : "머무는 중"} ${fmtClock(a.forSec)} · ${WHERE_KO[a.surface]} · 곁에 ${a.near}명`,
   },
@@ -396,6 +398,7 @@ export const LOG: Record<Lang, LogTemplates> = {
       "alone.long": (a) => `Alone for ${secEn(a.sec)}. A house cannot be built alone.`,
       "future.found": () => "The future has found your life.",
       "future.gaze": () => "The future is looking at you...",
+      "future.trace": () => "The future picks up a trace you left.",
     },
     status: (a) => `${a.together ? "In ensemble" : a.moving ? "Walking" : "Staying"} ${fmtClock(a.forSec)} · ${WHERE_EN[a.surface]} · ${a.near} near`,
   },

@@ -56,7 +56,8 @@ export type LogKey =
   | "sealed.under"
   | "alone.long"
   | "future.found"
-  | "future.gaze";
+  | "future.gaze"
+  | "future.trace";
 
 /** 0 a fact · 1 notable · 2 important (how the HUD colours the line). */
 export type LogLevel = 0 | 1 | 2;
@@ -139,9 +140,11 @@ export interface Observation {
   /**
    * THE FUTURE PASSED (excavators.ts, FuturePresence.tsx — the artist, 2026-11-22): the last time one of the future's
    * archaeologists crossed where the visitor stands — its own id (one line each), and whether it found the visitor's
-   * life there (they stayed there: their cells are in the layer) or only looked. Absent = never.
+   * life there (they stayed there: their cells are in the layer) or only looked. Absent = never. `kind`, where the
+   * scan's residue writes it (components/parliament/FutureResidue.tsx residueMeet — the artist, 2026-11-28): `gaze` it
+   * looked from further off, `found` it came to me, `trace` it found what my life left; it decides the line over `found`.
    */
-  future?: { id: string; found: boolean } | null;
+  future?: { id: string; found: boolean; kind?: "gaze" | "found" | "trace" } | null;
   /** Whom I am really building with (the sound's coBuilders: others' work in the slabs my weight counts on); absent = unknown. */
   building?: string[];
 }
@@ -562,7 +565,8 @@ export class WitnessLog {
     // the future passed where the visitor stands (FuturePresence.tsx): one line a passing, reversed
     if (obs.future && obs.future.id !== this.lastFuture) {
       this.lastFuture = obs.future.id;
-      w(obs.future.found ? "future.found" : "future.gaze", {}, 2);
+      const fk = obs.future.kind ?? (obs.future.found ? "found" : "gaze");
+      w(fk === "trace" ? "future.trace" : fk === "found" ? "future.found" : "future.gaze", {}, 2);
     }
     // someone's word underfoot
     for (const o of obs.wordsNear) {

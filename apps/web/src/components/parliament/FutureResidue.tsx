@@ -40,7 +40,7 @@ import { visitorWorld } from "./useBotServer";
 import { markSpan } from "./usePerfMeter";
 import type { FuturePresenceVisual } from "./FuturePresence";
 import { FUTURE_LAYER, PRESENT_DEPTH_GLSL, futureInk, presentDepth } from "./futureLayer";
-import { futureFrame, noteFind } from "@/lib/sound/futureCue";
+import { futureFrame, futureGlance, noteFind } from "@/lib/sound/futureCue";
 
 /** (futureCue: where I look, reused each frame) */
 const CUE_FWD = new THREE.Vector3();
@@ -101,6 +101,8 @@ export interface ResidueLook {
   pressHold: number;
   /** An observer within this (world) of the visitor makes the future findable. */
   gateR: number;
+  /** An observer within this (world; above gateR) LOOKS at the visitor: words and a weak daydream only (residueMeet). */
+  gazeR: number;
   /** A reading within this (world) of a part finds it. */
   find: number;
   /** Seconds what was found stays AFTER the overlap ends (F, or an observer leaving) before it blows away (0 = at
@@ -109,7 +111,9 @@ export interface ResidueLook {
   /** THE LEAST TIME BETWEEN TWO ARRIVALS (s; observer only — the artist, 2026-11-28, via the coordinator: it came about
    *  every 30 s, too often): after the future has come to the visitor, no observer brings it again for this long. An
    *  overlap again while it is still held (before its 남는 시간 is spent) only keeps it, as before. The guide's line and
-   *  the daydream's sound come with each arrival, so they keep the same gap. */
+   *  the daydream's sound come with each arrival, so they keep the same gap. A gaze (gazeR) keeps it too: none within
+   *  this long of the last gaze or arrival — but a gaze does not hold back the arrival that follows it (40 s: the
+   *  artist, 2026-11-28, "60초는 너무 길지 않나"). */
   gap: number;
   /** How far off the residue shows (world; it fades from about half of it, never past the lidar's reach). */
   reach: number;
@@ -192,9 +196,10 @@ export const DEFAULT_RESIDUE: ResidueLook = {
   showWhen: "always",
   pressHold: 6,
   gateR: 12,
+  gazeR: 10,
   find: 0.6,
   life: 3,
-  gap: 60,
+  gap: 40,
   reach: 14,
   layerSec: 0.5,
   adapt: true,
@@ -254,14 +259,19 @@ export function setResidueLook(v: Partial<ResidueLook>): void {
  *  readout. */
 export const residueTiming = { every: 2, layer: 0.5, load: 0, readMs: 0, layerMs: 0, present: 1, shown: 0, wait: 0 };
 
-/** THE ONE CROSSING (the artist, 2026-11-28: "몸 모양 창은 이제 안 쓸 거잖아, 잔류를 왜 따로 계산하고 있지?"): each time
- *  the future comes to the visitor here (an observer in reach, or F), the meeting for the record — its own id (the
- *  witness writes one line each) and whether it found the visitor's life (their own cells within FOUND_NEAR of where
- *  they stand, as FutureEncounter's rule) or only looked. RoleField reads it wherever the residue runs (the guide's
- *  "미래가 당신을 응시합니다 …" / "… 당신의 삶을 발견했습니다", witness.ts future.gaze / future.found). */
-export const residueMeet: { last: { id: string; found: boolean } | null } = { last: null };
-/** How near (world) one's own cells must be for the future to have found one's life (FutureEncounter's FOUND_NEAR). */
-const FOUND_NEAR = 5;
+/** THE ONE CROSSING (the artist, 2026-11-28: "몸 모양 창은 이제 안 쓸 거잖아, 잔류를 왜 따로 계산하고 있지?"), IN THREE
+ *  (the artist, 2026-11-28: "현재 위치랑 반경 내에서 겹침 -> 발견 / 현재 위치랑 그보다 큰 반경 내에서 겹침 -> 응시 (말로만
+ *  알려주고 소리 효과는 '약한 백일몽'만 4초정도 페이드 인앤아웃, 비주얼 효과 없음): 여기서 더 가까이 오면 발견 / 내 흔적
+ *  발견 -> 다른 멘트 …, 이 경우는 소리/비주얼 효과 둘 다 없고 말로만"):
+ *  - `gaze`  an observer within `gazeR` (not yet `gateR`) — the line, and a weak daydream (futureCue glance) only;
+ *  - `found` it comes within `gateR` (or F): the future arrives — the residue, the daydream, and the line;
+ *  - `trace` while it is held, the scan finds what the visitor's life left (a mound or dark earth on a cell they built
+ *            in) — the line only.
+ *  Each its own id (the witness writes one line each); RoleField reads the latest wherever the residue runs
+ *  (witness.ts future.gaze / future.found / future.trace — script.ts says them). Lines come at least LINE_GAP apart. */
+export const residueMeet: { last: { id: string; found: boolean; kind: "gaze" | "found" | "trace" } | null } = { last: null };
+/** The least time between two of the record's lines (s), so the witness, reading now and then, misses none. */
+const LINE_GAP = 4;
 
 /** F (a phone: FutureResiduePressButton) pressed: each press counts once, read by the residue's frame. */
 export const residuePress = { count: 0 };
@@ -293,10 +303,8 @@ export function FutureResiduePressButton({ coarse }: { coarse: boolean }) {
  *  the place is switched on for the personal view. */
 export function residueActive(): boolean {
   if (!lidarActive()) return false;
-  // (…and on bot (future)'s page, so she watches the observers cross and what their crossing brings — the one crossing,
-  // the artist, 2026-11-28; the lidar runs there for it, LidarScan.lidarActive)
-  const page = mobileLab();
-  return page === "scan-future" || page === "bot-future" || (runsEveryAsset() && residueLook.on);
+  // (bot (future)'s page, where it also ran for a while, was taken down 2026-11-28 — mobileLab RETIRED_PAGES)
+  return mobileLab() === "scan-future" || (runsEveryAsset() && residueLook.on);
 }
 
 /** THE WALL'S DENSITY RULE AS THE ARTIST HAD IT ON 2026-11-20 — until the server's hello says its own (as FuturePresence). */
@@ -1197,7 +1205,7 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
   const streaks = useRef<THREE.Mesh | null>(null);
   const ghosts = useRef<THREE.Points[]>([]);
   const field = useRef<{ f: DensityField; dens: DensityConfig | null; version: unknown; fed: number; drops: number } | null>(null);
-  const st = useRef({ timer: 10, pool: null as Pool | null, states: new Map<string, PartState>(), tapFrame: -1, present: false, obs: null as Excavator | null, pass: null as null | { x: number; z: number; fx: number; fz: number; t0: number }, streakHead: 0, streakFilled: 0, streakUntil: 0, layerT: 0, ghostHead: 0, ghostBorn: new Array<number>(GHOSTS).fill(-1e9), ghostKill: 0, pressSeen: residuePress.count, pressUntil: 0, releaseAt: 0, lastArrive: -1e9, dtAvg: 0, dtBest: 0, readMs: 0, layerMs: 0, every: NaN, layer: NaN, thin: 1, job: null as ReadingJob | null });
+  const st = useRef({ timer: 10, pool: null as Pool | null, states: new Map<string, PartState>(), tapFrame: -1, present: false, obs: null as Excavator | null, pass: null as null | { x: number; z: number; fx: number; fz: number; t0: number }, streakHead: 0, streakFilled: 0, streakUntil: 0, layerT: 0, ghostHead: 0, ghostBorn: new Array<number>(GHOSTS).fill(-1e9), ghostKill: 0, pressSeen: residuePress.count, pressUntil: 0, releaseAt: 0, lastArrive: -1e9, lastGaze: -1e9, traceSaid: false, mine: new Set<number>(), mineAt: -1e9, lines: [] as { kind: "gaze" | "found" | "trace"; id: string }[], lastLine: -1e9, dtAvg: 0, dtBest: 0, readMs: 0, layerMs: 0, every: NaN, layer: NaN, thin: 1, job: null as ReadingJob | null });
   // (the pool's two sets of arrays, and the staged GPU arrays: made the first time a reading runs)
   const bufs = useRef<[PoolBuf, PoolBuf] | null>(null);
   const stage = useRef<Staged | null>(null);
@@ -1334,31 +1342,41 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
     let want = L.showWhen === "always" ? live : L.showWhen === "press" ? pressing : near !== null && nearD <= (wasPresent ? L.gateR * 1.1 : L.gateR);
     // A MINIMUM GAP (observer only; gap): no new arrival within `gap` s of the last — an overlap while it is still held
     // only keeps it
-    const wait = L.showWhen === "observer" && !held ? Math.max(0, (Number.isFinite(L.gap) ? L.gap : 60) - (now - s.lastArrive)) : 0;
+    const gap = Number.isFinite(L.gap) ? L.gap : 40;
+    const wait = L.showWhen === "observer" && !held ? Math.max(0, gap - (now - s.lastArrive)) : 0;
     if (want && wait > 0) want = false;
     residueTiming.wait = wait;
     s.present = want;
     if (near) s.obs = near;
     if (!live) {
-      // (between lives: the record and the gap start again with the next)
+      // (between lives: the record and the gaps start again with the next)
       residueMeet.last = null;
-      s.lastArrive = -1e9;
+      s.lastArrive = s.lastGaze = s.lastLine = -1e9;
+      s.lines.length = 0;
+    }
+    const lineId = (kind: string) => `res:${kind}:${s.obs?.i ?? 0}:${Math.round(getWorldSec() * 10)}`;
+    // THE FUTURE LOOKS AT ME (observer only): within gazeR but not yet gateR, nothing held, not within the gap of the last
+    // gaze or arrival — the line and a weak daydream (futureCue glance), nothing drawn; nearer still, it arrives
+    const gazeR = Number.isFinite(L.gazeR) ? L.gazeR : 10;
+    if (L.showWhen === "observer" && live && near !== null && gazeR > L.gateR && nearD <= gazeR && !held && !s.present && now - s.lastGaze >= gap && now - s.lastArrive >= gap) {
+      s.lastGaze = now;
+      s.lines.push({ kind: "gaze", id: lineId("gaze") });
+      state.camera.getWorldDirection(CUE_FWD);
+      futureGlance({ me: { x: me.x, z: me.z }, fwd: { x: CUE_FWD.x, z: CUE_FWD.z }, obs: { x: near.x, z: near.z } });
     }
     // THE FUTURE ARRIVES (nothing held, now with me): the one crossing — the guide's line (residueMeet, read by
     // RoleField for the witness) and the daydream's sound (futureFrame below, told it is held) come with it
     if (s.present && !held) {
       s.lastArrive = now;
-      if (L.showWhen !== "always") {
-        let found = false;
-        for (const c of h.f.cellsOf(meRef.current.id)) {
-          if (Math.hypot(wrapDelta((c.cx + 0.5) * CELL_SIZE - me.x), wrapDelta((c.cz + 0.5) * CELL_SIZE - me.z)) <= FOUND_NEAR) {
-            found = true;
-            break;
-          }
-        }
-        residueMeet.last = { id: `res:${s.obs?.i ?? 0}:${Math.round(getWorldSec() * 10)}`, found };
-        (window as unknown as { __residueMeet?: unknown }).__residueMeet = { ...residueMeet.last, at: Math.round(now * 10) / 10 };
-      }
+      s.traceSaid = false;
+      if (L.showWhen !== "always") s.lines.push({ kind: "found", id: lineId("found") });
+    }
+    // (the record's lines, one at a time, LINE_GAP apart: the witness reads now and then and keeps the latest)
+    if (s.lines.length && now - s.lastLine >= LINE_GAP) {
+      const l = s.lines.shift()!;
+      s.lastLine = now;
+      residueMeet.last = { id: l.id, kind: l.kind, found: l.kind !== "gaze" };
+      (window as unknown as { __residueMeet?: unknown }).__residueMeet = { ...residueMeet.last, at: Math.round(now * 10) / 10 };
     }
     // LET GO — `life` seconds AFTER the overlap ends (the artist, 2026-11-27: "남는 시간 늘려도 금방금방 사라지지... 진짜
     // 겹칠 때에만 잠깐 생기는 거 같고"; 0 = at once): then everything held blows away the observer's way, the gust
@@ -1539,6 +1557,9 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
       // beyond is never drawn, and the next reading takes it in as one walks closer)
       const pcfg: PresenceConfig = { band: cfg.band, ruin: cfg.ruin, unit: cfg.unit, radius: Math.min(lidarLook.range, Math.max(1, L.reach)) + 4, maxBuildings: cfg.maxBuildings, strip: cfg.strip, lastSteel: cfg.lastSteel, lastPile: cfg.lastPile, traces: false, surface: cfg.surface * dPart, surfaceCap: Math.round(160 * dUp), surfaceMax: Math.round(Math.min(CAP * 0.75, 60000 * dUp)), wild: cfg.wild };
       const r = futurePresence(h.f, meRef.current.id, K, kMe, me, pcfg, box);
+      // (the cells the visitor's life built in — a mound or dark earth found on one is what they left: the `trace` line)
+      s.mine.clear();
+      for (const c of h.f.cellsOf(meRef.current.id)) if (c.level >= 1) s.mine.add((c.cx + 32768) * 65536 + (c.cz + 32768));
       const tFp = performance.now();
       if (!bufs.current) bufs.current = [poolBuf(), poolBuf()];
       const B2 = bufs.current;
@@ -1760,6 +1781,18 @@ export function FutureResidue({ log, meRef, getS, playerPosRef, getEpochMs, getW
           }
           Object.assign(ps, { found: now, rel: 0, hx: x, hy: y, hz: z, died: 0 });
           noteFind(now, x, z); // (the sound's daydream, futureCue.ts)
+          // WHAT MY LIFE LEFT, FOUND: a mound or dark earth on (or by) a cell I built in — the `trace` line, once a
+          // crossing, words only
+          if (!s.traceSaid && L.showWhen !== "always" && (p.key.startsWith("m:") || p.key.startsWith("e:"))) {
+            const cx = Math.floor((b[0] + b[3]) / 2 / CELL_SIZE), cz = Math.floor((b[2] + b[5]) / 2 / CELL_SIZE);
+            for (let ox = -1; ox <= 1 && !s.traceSaid; ox++)
+              for (let oz = -1; oz <= 1; oz++)
+                if (s.mine.has((cx + ox + 32768) * 65536 + (cz + oz + 32768))) {
+                  s.traceSaid = true;
+                  s.lines.push({ kind: "trace", id: lineId("trace") });
+                  break;
+                }
+          }
           for (let i = p.i0; i < p.i1; i++) {
             fFound[i] = now;
             fDelay[i] = Math.hypot(fPos[i * 3] - x, fPos[i * 3 + 1] - y, fPos[i * 3 + 2] - z) / Math.max(0.1, kindOf(L, pool.kind[i]).spread) + 0.08 * fSeed[i];

@@ -88,7 +88,10 @@ export function useScanFutureKnobs(isV2: boolean) {
           resLife: { value: DEFAULT_RESIDUE.life, min: 0, max: 120, step: 0.5, label: "남는 시간 — 겹침이 끝난 뒤 (s, 0 = 바로 흩날림)", render: (get) => get(`${PLACE_GROUP}.잔류 — 공통.resShowWhen`) !== "always" },
           // (the artist, 2026-11-28, via the coordinator: about every 30 s was too often — one arrival, then none for
           // this long; the guide's line and the daydream's sound come with each arrival, so they keep it too)
-          resGap: { value: DEFAULT_RESIDUE.gap, min: 0, max: 300, step: 5, label: "다시 찾아오기까지 최소 (s) — 도착 뒤 이 시간 동안 새 도착 없음 (안내 문구 · 소리 같이)", render: (get) => get(`${PLACE_GROUP}.잔류 — 공통.resShowWhen`) === "observer" },
+          resGap: { value: DEFAULT_RESIDUE.gap, min: 0, max: 300, step: 5, label: "다시 찾아오기까지 최소 (s) — 도착 뒤 이 시간 동안 새 도착 · 응시 없음 (안내 문구 · 소리 같이)", render: (get) => get(`${PLACE_GROUP}.잔류 — 공통.resShowWhen`) === "observer" },
+          // (the artist, 2026-11-28: "현재 위치랑 그보다 큰 반경 내에서 겹침 -> 응시 (말로만 … '약한 백일몽'만 4초정도 …
+          // 비주얼 효과 없음): 여기서 더 가까이 오면 발견")
+          resGazeR: { value: DEFAULT_RESIDUE.gazeR, min: 0, max: 40, step: 0.5, label: "응시 거리 (월드) — 이 안에 오면 말과 약한 백일몽만, 관찰자 거리 안이면 발견 (관찰자 거리보다 커야 함)", render: (get) => get(`${PLACE_GROUP}.잔류 — 공통.resShowWhen`) === "observer" },
           "지금 — 다음 도착 (관찰자 모드)": monitor(() => (residueTiming.wait > 0 ? `${Math.ceil(residueTiming.wait)} s 뒤 다시 올 수 있음` : "지금 올 수 있음"), { graph: false, interval: 500 }),
           resReach: { value: 14, min: 4, max: 40, step: 0.5, label: "보이는 거리 (월드)" },
           // (the artist, 2026-11-27: "미래 다시 읽는 간격이랑 다시 읽어 겹치는 간격 성능 따라 유동적으로 범위 안에서": each
@@ -358,6 +361,7 @@ export function useScanFutureKnobs(isV2: boolean) {
     find: v.resFind,
     life: v.resLife,
     gap: v.resGap,
+    gazeR: v.resGazeR,
     reach: v.resReach,
     layerSec: v.resLayerSec,
     adapt: v.resAdapt,

@@ -126,10 +126,9 @@ export function lidarActive(): boolean {
   // (…and on the experiment address, which runs every asset as the preview does — mobileLab.ts runsEveryAsset; and on
   // the scan (future) page, whose future is the scan's residue — FutureResidue.tsx; and on the bot (present) page, so
   // the pictograms are judged on the ground they will stand on — the artist, 2026-11-27, in bot (present): "bot 페이지에도
-  // 라이다 검정 바탕 깔아줘"); and on the bot (future) page, whose observers' crossing is the scan's residue — it reads
-  // the lidar (FutureResidue.residueActive; the artist, 2026-11-28: "잔류를 왜 따로 계산하고 있지?")
+  // 라이다 검정 바탕 깔아줘")
   const page = mobileLab();
-  return lidarLook.on && (page === "scan-present" || page === "scan-future" || page === "bot-present" || page === "bot-future" || runsEveryAsset());
+  return lidarLook.on && (page === "scan-present" || page === "scan-future" || page === "bot-present" || runsEveryAsset());
 }
 
 /** THIS FRAME'S READINGS, for whoever reads the scan (scan (future)'s residue, FutureResidue.tsx): the ring buffer's
