@@ -17,11 +17,17 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { levaStore, useControls } from "leva";
 import { botGround, currentEpochKey, worldNow, wrapDist, type EventLog } from "@/lib/parliament";
-import { excavatorsAt } from "@/lib/parliament/excavators";
+import { excavatorsAt, type Excavator } from "@/lib/parliament/excavators";
 import { futureOnly } from "@/lib/parliament/futureOnly";
 import { savable } from "./levaSave";
 
 const GROUP = "미래의 발굴자 (벽)";
+
+/** THE WALKERS NOW, for whoever on the wall asks whether the future is with someone (ParliamentSpace MeMark's thread —
+ *  docs/me-future-link.md): this frame's list (empty while this is off) and the reach of a meeting. Read only. */
+export const wallExcavators: { list: Excavator[]; meetR: number } = { list: [], meetR: 4 };
+/** A visitor whose meeting is drawn by someone else (MeMark's thread, for "me"): no pillar of light for it here. */
+export const wallMeetSkip: { id: string | null } = { id: null };
 const MAX_EX = 40;
 const MAX_PILLARS = 16;
 
@@ -57,7 +63,9 @@ export function FutureExcavatorsWall({ log, unit, top, secPerUnit }: { log: Even
     GROUP,
     savable(GROUP, {
       on: { value: true, label: "켜기 (빛기둥은 미래 층이 꺼져 있어도 섬)" },
-      count: { value: 7, min: 1, max: 30, step: 1, label: "발굴자 수 (개인뷰와 같아야 같은 이들)" },
+      // (6: the personal view's saved number — bot (future) · 미래 발굴자, the lab's 관찰자 수 — so the wall's walkers are the
+      // phones' own and a meeting here is one there; was 7)
+      count: { value: 6, min: 1, max: 30, step: 1, label: "발굴자 수 (개인뷰와 같아야 같은 이들)" },
       roam: { value: 44, min: 10, max: 96, step: 1, label: "도는 땅의 반경 (월드)" },
       legSec: { value: 24, min: 6, max: 120, step: 1, label: "한 곳에서 다음 곳까지 (s)" },
       meetR: { value: 4, min: 1, max: 15, step: 0.5, label: "마주치는 거리 (월드)" },
@@ -126,11 +134,14 @@ export function FutureExcavatorsWall({ log, unit, top, secPerUnit }: { log: Even
     // drawn or not: the pillars always; the archaeologists' strokes only where the layer is drawn)
     const layerOn = knob("미래 마을 층.on") === true || futureOnly();
     if (g) g.visible = k.on;
+    wallExcavators.list = [];
+    wallExcavators.meetR = k.meetR;
     if (!k.on) return;
     const epoch = Number(currentEpochKey());
     if (!(epoch > 0)) return;
     const sec = (worldNow() - epoch) / 1000;
     const exs = excavatorsAt(epoch, sec, { count: k.count, roam: k.roam, legSec: k.legSec, stand: 0.35 });
+    wallExcavators.list = exs;
     // THE FUTURE'S GROUND: where FutureVillage stands it — above the window's top, the layer's gap apart
     // (the window's top: the fusion's uniform where it is filled, else the bots' window — botGround.window — as the
     // wall's readout reads it)
@@ -170,7 +181,7 @@ export function FutureExcavatorsWall({ log, unit, top, secPerUnit }: { log: Even
     // A MEETING: a visitor heard from in the last few seconds, an archaeologist within reach — a pillar (once a while
     // per pair)
     for (const [o, p] of people.current) {
-      if (now - p.at > 4000) continue;
+      if (now - p.at > 4000 || o === wallMeetSkip.id) continue;
       for (const ex of exs) {
         if (wrapDist(ex.x, ex.z, p.x, p.z) > k.meetR) continue;
         const key = `${o}:${ex.i}`;
