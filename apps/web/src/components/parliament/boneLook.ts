@@ -71,6 +71,9 @@ export const boneU = {
   uSeeParts: { value: 0 },
   uBoneRim: { value: 0.35 },
   uBonePores: { value: 0.6 },
+  /** how much the pores GATHER in patches (the artist, 2026-11-28: "해면질 텍스처 몰린 정도도 조절할 수 있게 해줘"):
+   *  0 = spread evenly (as before), 1 = all in patches with smooth bone between */
+  uBonePoreClump: { value: 0 },
   uBonePoreSize: { value: 0.35 },
   uBoneFill: { value: 0.25 },
   /** the mass (1 = bone instead of the resin's colour), the pipes and the ways (how much of them turns, 0 … 1) */
@@ -81,7 +84,7 @@ export const boneU = {
 
 /** The bone's colour at a point (GLSL): ivory, its pores dark and stained, more stained the older (0 … 1). */
 export const BONE_GLSL = `
-uniform float uBonePores, uBonePoreSize, uBoneFill, uBoneMass, uBonePipes, uBoneWays, uBoneWrap, uBoneRim;
+uniform float uBonePores, uBonePoreClump, uBonePoreSize, uBoneFill, uBoneMass, uBonePipes, uBoneWays, uBoneWrap, uBoneRim;
 uniform vec3 uBoneWarm;
 uniform float uSeeBase, uSeeParts;
 uniform highp sampler3D uBoneTex;
@@ -89,7 +92,11 @@ uniform highp sampler3D uBoneTex;
 // a fine grain; and where it is \`band\` (0 … 1) near the edge of a hole, porous through and darker)
 float bonePattern( vec3 wp, float band ) {
   vec2 c = texture( uBoneTex, wp / max( 0.02, uBonePoreSize ) * 0.125 ).rg * vec2( 1.2, 0.6 );
-  float open = clamp( uBonePores + 0.6 * band, 0.0, 1.0 );
+  // (the patches: the same cells read about five times coarser — near a coarse cell's point the pores gather, away
+  // from it the bone is smooth; the holes' porous band is not patched)
+  float patchD = texture( uBoneTex, wp / max( 0.02, uBonePoreSize ) * 0.025 + 0.53 ).r * 1.2;
+  float patchM = 1.0 - smoothstep( 0.22, 0.6, patchD );
+  float open = clamp( uBonePores * mix( 1.0, 1.8 * patchM, uBonePoreClump ) + 0.6 * band, 0.0, 1.0 );
   float pore = ( 1.0 - smoothstep( 0.06 + 0.12 * band, 0.3 + 0.2 * band, c.x ) ) * open;
   float fine = texture( uBoneTex, wp / max( 0.02, uBonePoreSize ) * 0.6 + 0.37 ).r;
   return ( 1.0 - 0.6 * pore ) * ( 1.0 - 0.3 * band ) * ( 0.95 + 0.1 * smoothstep( 0.0, 0.1, c.y ) ) * ( 0.96 + 0.08 * fine );
