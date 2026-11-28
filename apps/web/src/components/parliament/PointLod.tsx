@@ -20,7 +20,7 @@
  * How: a few lines at the end of each one's vertex shader (its own onBeforeCompile kept, run first), found by walking the
  * scene once a second; a material its component replaces, or whose hook React sets again, is patched again then. The
  * distance is the eye's depth (gl_Position.w): the hero shot draws with the same camera, only zoomed, so a still at any
- * size clumps as the screen does.
+ * size clumps as the screen does. The same patch keeps the screen's one-pixel floor in a hero shot (setPointMinPx).
  */
 
 import { useRef } from "react";
@@ -32,9 +32,20 @@ import { savable } from "./levaSave";
 const GROUP = "먼 점 뭉치기 (LOD)";
 
 /** Shared by every patched shader: switch, start distance (world), strength, the most a point grows (×). */
-const pointLodU = { uPlodOn: { value: 0 }, uPlodStart: { value: 180 }, uPlodPow: { value: 1 }, uPlodMax: { value: 3 } };
+const pointLodU = { uPlodOn: { value: 0 }, uPlodStart: { value: 180 }, uPlodPow: { value: 1 }, uPlodMax: { value: 3 }, uPlodMinPx: { value: 1 } };
 
-const HEAD = "uniform float uPlodOn, uPlodStart, uPlodPow, uPlodMax;\n";
+/**
+ * THE SCREEN'S ONE-PIXEL FLOOR, KEPT IN A LARGER STILL (the artist, 2026-11-28, of a hero shot: "이것봐, 히어로샷에서 식생 진짜
+ * 안 보여"). A GPU draws no point smaller than a pixel: on the screen the present's finest plant dots (a hundredth of a
+ * world wide) come out under one, are drawn one screen pixel wide, and read as greenery. A hero shot draws the same
+ * frame with `px` times as many pixels, so the same floor is 1/px of a screen pixel there and the dots all but vanish.
+ * While a shot is saved (HeroShot HeroCapture) every patched point is at least `px` pixels — the screen's look, larger.
+ */
+export function setPointMinPx(px: number): void {
+  pointLodU.uPlodMinPx.value = Number.isFinite(px) ? Math.max(1, px) : 1;
+}
+
+const HEAD = "uniform float uPlodOn, uPlodStart, uPlodPow, uPlodMax, uPlodMinPx;\n";
 const TAIL = `
   // FAR POINTS CLUMP (PointLod.tsx): past uPlodStart a point grows g times and is kept with the chance 1 / g^2
   if ( uPlodOn > 0.5 && gl_Position.w > uPlodStart ) {
@@ -45,6 +56,8 @@ const TAIL = `
     if ( float( plodH ) * ( 1.0 / 4294967296.0 ) * plodG * plodG > 1.0 ) gl_Position = vec4( 2.0, 2.0, 2.0, 1.0 );
     else gl_PointSize *= plodG;
   }
+  // (the screen's one-pixel floor, in a hero shot's larger pixels — setPointMinPx)
+  gl_PointSize = max( gl_PointSize, uPlodMinPx );
 `;
 
 type Compile = THREE.Material["onBeforeCompile"];
