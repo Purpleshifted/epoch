@@ -103,6 +103,7 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       // (the artist, 2026-11-27: "같은 음역대에 좀 겹치면 어때 꼭 대위적으로 서로 피해갈 이유는 없음")
       apartness: { value: DEFAULT_SOUND.apartness, min: 0, max: 1, step: 0.05, label: "대화·합주의 선들이 서로 피하는 정도 (0 = 같은 음역·같은 박에 겹쳐도 됨, 1 = 옥타브 벌리고 박 비킴)", render: () => isV2 && newLook() },
       askDuck: { value: DEFAULT_SOUND.askDuck, min: 0, max: 1, step: 0.05, label: "누가 말 걸 때 나머지를 죽이는 정도 (0 = 그대로, 1 = 묻는 이의 멜로디만) — 패드·베이스·풀숲 노이즈·패치·다른 목소리", render: () => isV2 && newLook() },
+      askFloor: { value: DEFAULT_SOUND.askFloor, min: 0, max: 76, step: 1, label: "말 거는 멜로디가 내려가지 않는 높이 (중심 음, 60 = C4 · 0 = 끔) — 낮으면 옥타브씩 올리고, 내 멜로디를 피할 때도 아래로는 안 감", render: () => isV2 && newLook() },
       futureSound: { value: DEFAULT_SOUND.futureSound, label: "미래가 스칠 때 소리 — 엠비언트 백일몽 (개편 개인뷰만): 낮은 안개 화음이 천천히 차오르고, 먼 전파 잡음이 파직거리고 휘파람, 내 멜로디가 느리게 미래에서 들려옴 + 꽃밭의 반짝임 + 패치의 꽃", render: () => isV2 && newLook() },
       futureLevel: { value: DEFAULT_SOUND.futureLevel, min: 0, max: 1.5, step: 0.05, label: "· 크기", render: (get: (path: string) => unknown) => isV2 && newLook() && !!get(`${ROOT}.futureSound`) },
       futureDur: { value: DEFAULT_SOUND.futureDur, min: 2, max: 16, step: 0.5, label: "· 길이 (초, 떠날 땐 절반)", render: (get: (path: string) => unknown) => isV2 && newLook() && !!get(`${ROOT}.futureSound`) },
@@ -270,7 +271,7 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
     master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, sealRadius, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, ncReact, reactTension, reactChange, reactAsk, reactAnswer, reactEnsemble, reactBloom, reactPath, reactFound, bassSpread, bassDub, bassDuck, bassDrop,
     motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb,
     motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb,
-    bassFrom, pathRadius, afterlifeTail, afterglow, foundLevel, askCounterpoint, ensembleCounterpoint, ensembleSwell, apartness, harmonyTurns, turnAmount, colourAmount, tension, crowdFull, buildBars, bondSec, patienceBars, askDuck, futureSound, futureLevel, futureDur, futureHaze, futureRadio, futureCrackle, futureWhistle, futureEcho, futureGlitter, futureBloom,
+    bassFrom, pathRadius, afterlifeTail, afterglow, foundLevel, askCounterpoint, ensembleCounterpoint, ensembleSwell, apartness, harmonyTurns, turnAmount, colourAmount, tension, crowdFull, buildBars, bondSec, patienceBars, askDuck, askFloor, futureSound, futureLevel, futureDur, futureHaze, futureRadio, futureCrackle, futureWhistle, futureEcho, futureGlitter, futureBloom,
   } = c;
   const params = useMemo<SoundParams>(
     () => ({
@@ -292,6 +293,7 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       bondSec,
       patienceBars,
       askDuck: newLook() ? askDuck : 0,
+      askFloor: newLook() ? askFloor : 0,
       futureSound: futureSound && newLook(),
       futureLevel,
       futureDur,
@@ -303,7 +305,7 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       futureGlitter,
       futureBloom,
     }),
-    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, ncReact, reactTension, reactChange, reactAsk, reactAnswer, reactEnsemble, reactBloom, reactPath, reactFound, bassSpread, bassDub, bassDuck, bassDrop, motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb, motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb, bassFrom, afterlifeTail, afterglow, foundLevel, askCounterpoint, ensembleCounterpoint, ensembleSwell, apartness, harmonyTurns, turnAmount, colourAmount, tension, crowdFull, buildBars, bondSec, patienceBars, askDuck, futureSound, futureLevel, futureDur, futureHaze, futureRadio, futureCrackle, futureWhistle, futureEcho, futureGlitter, futureBloom],
+    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, ncReact, reactTension, reactChange, reactAsk, reactAnswer, reactEnsemble, reactBloom, reactPath, reactFound, bassSpread, bassDub, bassDuck, bassDrop, motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb, motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb, bassFrom, afterlifeTail, afterglow, foundLevel, askCounterpoint, ensembleCounterpoint, ensembleSwell, apartness, harmonyTurns, turnAmount, colourAmount, tension, crowdFull, buildBars, bondSec, patienceBars, askDuck, askFloor, futureSound, futureLevel, futureDur, futureHaze, futureRadio, futureCrackle, futureWhistle, futureEcho, futureGlitter, futureBloom],
   );
   const sigCfg = useMemo<SignalConfig>(() => ({ ...DEFAULT_SIGNALS, hearRadius, sealRadius, pathRadius }), [hearRadius, sealRadius, pathRadius]);
   const { record: recordOn, recordKbps } = c;

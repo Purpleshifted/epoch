@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { apartShift, bassUnder, callsOn, endClosed, endOpen, interlock, landWith, octaveToward, placeApart, rotate, shiftNotes } from "./dialogue";
+import { apartShift, bassUnder, callsOn, endClosed, endOpen, interlock, landWith, liftTo, octaveToward, placeApart, rotate, shiftNotes } from "./dialogue";
 import { worldKey } from "./harmony";
 import { makeMotif, midiToHz, realize, type MotifNote } from "./motif";
 
@@ -138,5 +138,18 @@ describe("overlap allowed (the artist, 2026-11-27: \"같은 음역대에 좀 겹
     const half = interlock(mine, theirs, 8, 0.5, 7).map((n) => Math.round(n.at * 8));
     expect(interlock(mine, theirs, 8, 0.5, 7).map((n) => Math.round(n.at * 8))).toEqual(half);
     for (let i = 1; i < half.length; i++) expect(half[i]).toBeGreaterThan(half[i - 1]);
+  });
+});
+
+describe("liftTo (the asker never down low — 2026-11-28)", () => {
+  it("lifts a low line by octaves until its centre reaches the floor", () => {
+    const low = [note(0, 48), note(2, 50), note(4, 52)];
+    expect(liftTo(low, 60)).toBe(12);
+    expect(liftTo([note(0, 38), note(2, 40)], 60)).toBe(24);
+  });
+  it("leaves a line high enough, or with the floor off, as it is; never past the top", () => {
+    expect(liftTo([note(0, 62), note(2, 67)], 60)).toBe(0);
+    expect(liftTo([note(0, 45)], 0)).toBe(0);
+    expect(liftTo([note(0, 50), note(2, 80)], 70)).toBe(0);
   });
 });

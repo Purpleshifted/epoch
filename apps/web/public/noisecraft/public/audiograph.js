@@ -542,6 +542,29 @@ class Scope extends AudioNode
 /**
  * Slide/portamento node
  */
+/**
+ * Knob: its value as a signal, SMOOTHED (epoch, 2026-11-28 — the artist: "자꾸 팍 하고 튀는 소리"). A knob was read
+ * as it stood, so every change sent from outside (the parliament's engine maps a dozen knobs to what happens, four
+ * times a second) stepped a level, a cutoff or a feedback at once on a sounding signal: a click each time. Now the
+ * value glides to where it is set with a one-pole of ~8 ms — a turned knob sounds the same, a sent step is no click.
+ */
+class KnobNode extends AudioNode
+{
+    constructor(id, state, sampleRate, send)
+    {
+        super(id, state, sampleRate, send);
+
+        this.cur = Number(this.params.value) || 0;
+        this.k = 1 - Math.exp(-1 / (0.008 * sampleRate));
+    }
+
+    update()
+    {
+        this.cur += (this.params.value - this.cur) * this.k;
+        return this.cur;
+    }
+}
+
 class Slide extends AudioNode
 {
     constructor(id, state, sampleRate, send)
@@ -1227,6 +1250,7 @@ let NODE_CLASSES =
     Delay: Delay,
     Distort: Distort,
     Hold: Hold,
+    Knob: KnobNode,
     Noise: NoiseOsc,
     Pulse: PulseOsc,
     Saw: SawOsc,

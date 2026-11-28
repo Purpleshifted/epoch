@@ -13,8 +13,10 @@
  * then thins as the signal locks (a few late pops into the tail); leaving, the static breaks up and is gone by the end.
  */
 
-/** Pops per second at their thickest. */
-export const CRACKLE_RATE = 28;
+/** Pops per second at their thickest (28 until the artist heard it, 2026-11-28: "파직거리는 소리가 더 심해"). */
+export const CRACKLE_RATE = 12;
+/** The share of pops that are sparks (a few more within 25 ms). */
+export const SPARK_SHARE = 0.12;
 /** Grains per second at their thickest. */
 export const GRAIN_RATE = 45;
 
@@ -29,8 +31,9 @@ export function crackleDensity(kind: CrackleKind, u: number): number {
     if (u <= 1) return 0.12 + 0.88 * Math.exp(-(u - 0.45) * 5);
     return 0.05;
   }
-  if (u < 0.2) return 0.6 + 1.5 * u;
-  if (u <= 1) return 0.9 * (1 - (u - 0.2) / 0.8);
+  // (leaving it only breaks up a little: the crackle belongs to the meeting)
+  if (u < 0.2) return 0.3 + 0.5 * u;
+  if (u <= 1) return 0.4 * (1 - (u - 0.2) / 0.8);
   return 0;
 }
 
@@ -72,7 +75,8 @@ export function renderCrackle(o: CrackleOptions): CrackleSamples {
   let pops = 0;
   let grainCount = 0;
   const pop = (at: number, amp: number) => {
-    const len = Math.max(8, Math.round((0.0005 + 0.0035 * rand()) * sr));
+    // (1.5–6 ms, softer than a click: a longer pop has less of the very top)
+    const len = Math.max(8, Math.round((0.0015 + 0.0045 * rand()) * sr));
     const i0 = Math.round(at * sr);
     if (i0 >= n) return;
     const k0 = Math.floor(rand() * nl);
@@ -93,11 +97,11 @@ export function renderCrackle(o: CrackleOptions): CrackleSamples {
     }
   };
   // THE CRACKLE: a thinned Poisson stream at the thickest rate, kept where the density says
-  spark(0.02, 1);
+  spark(0.02, 0.6);
   for (let t = -Math.log(1 - rand()) / CRACKLE_RATE; t < total; t += -Math.log(1 - rand()) / CRACKLE_RATE) {
     if (rand() >= crackleDensity(o.kind, t / o.dur)) continue;
     const amp = 0.15 + 0.85 * rand() ** 3;
-    if (rand() < 0.22) spark(t, amp);
+    if (rand() < SPARK_SHARE) spark(t, amp);
     else pop(t, amp);
   }
   // THE GRAINS: windowed noise, a sandy hiss

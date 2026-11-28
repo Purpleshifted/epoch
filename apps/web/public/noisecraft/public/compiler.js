@@ -430,7 +430,8 @@ export function compile(graph)
         if (node.type == 'Knob')
         {
             audioNodes[nodeId] = node;
-            addDef(nodeId, `nodes[${nodeId}].params.value`);
+            // (smoothed: KnobNode in audiograph.js — a value set from outside glides in ~8 ms instead of stepping)
+            addDef(nodeId, `nodes[${nodeId}].update()`);
             continue;
         }
 

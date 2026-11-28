@@ -51,6 +51,21 @@ export function apartShift(mine: readonly MotifNote[], theirs: readonly MotifNot
   return 0;
 }
 
+/**
+ * The octaves (0, +12, +24 …) that lift a line until its centre is at least `floor` (MIDI), its top staying within
+ * `hi` — the one who asks me something is never heard down low (the artist, 2026-11-28: "말 걸 때의 멜로디는 너무 낮지
+ * 않으면"). 0 when `floor` is 0 (off) or the line is already high enough.
+ */
+export function liftTo(ns: readonly MotifNote[], floor: number, hi = DIALOGUE_HI): number {
+  if (!ns.length || floor <= 0) return 0;
+  let top = -Infinity;
+  for (const n of ns) top = Math.max(top, n.pitch);
+  const c = mean(ns);
+  let s = 0;
+  while (c + s < floor && top + s + 12 <= hi) s += 12;
+  return s;
+}
+
 /** The octave beside a line (+12 or −12) on the side of `toward`'s centre, inside lo … hi; 0 when neither fits. */
 export function octaveToward(ns: readonly MotifNote[], toward: number, lo = DIALOGUE_LO, hi = DIALOGUE_HI): number {
   if (!ns.length) return 0;

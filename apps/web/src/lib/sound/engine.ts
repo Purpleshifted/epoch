@@ -21,7 +21,7 @@
 import { chordName, magentaChordName, MODES, type PlaceChord, type WorldKey } from "./harmony";
 import { conduct, resolutionChord, TENSE_BARS, type PhraseLock } from "./colour";
 import { answerArc, ARC_IDLE, arrivalHold, stepArc, type ArcState, type ArcStep } from "./tensionArc";
-import { apartShift, bassUnder, callsOn, endClosed, endOpen, interlock, landWith, octaveToward, placeApart, rotate, shiftNotes } from "./dialogue";
+import { DIALOGUE_HI, apartShift, bassUnder, callsOn, endClosed, endOpen, interlock, landWith, liftTo, octaveToward, placeApart, rotate, shiftNotes } from "./dialogue";
 import { wordMotifOf } from "@/lib/parliament/glyph";
 import { Magenta } from "./magenta";
 import { midiToHz, realize, type Motif, type MotifNote } from "./motif";
@@ -216,6 +216,12 @@ export interface SoundParams {
    */
   askDuck: number;
   /**
+   * HOW HIGH THE ONE WHO ASKS ME STAYS (the artist, 2026-11-28: "말 걸 때의 멜로디는 너무 낮지 않으면 좋을 듯"; the
+   * redesigned view only): the centre (MIDI) below which their line — the question and what they play along while it is
+   * open — is lifted by octaves, and it never steps aside DOWNWARD from mine (0 = off, as before: C4 = 60).
+   */
+  askFloor: number;
+  /**
    * THE FUTURE PASSING AS A DAYDREAM (§13k — the artist, 2026-11-28: "'미래' 찾아왔을 때 … 소리 효과가 없음. 음색이나 화성을
    * 퓨처리스틱 + 원래 하던 꽃 효과 + 뭔가 전파스러운 … 백일몽이 나를 스쳐가는 느낌", then "훨씬 엠비언트 하게 … 삐악 하는
    * 코드 소리? 는 빼는"; the redesigned view only): on, its level and length (s), and each part's share — the haze (the
@@ -335,12 +341,13 @@ export const DEFAULT_SOUND: SoundParams = {
   ncMapDepth: 0.8,
   ncReact: true,
   askDuck: 0.6,
+  askFloor: 60,
   futureSound: true,
   futureLevel: 0.8,
   futureDur: 10,
   futureHaze: 1,
   futureRadio: 1,
-  futureCrackle: 1,
+  futureCrackle: 0.5,
   futureWhistle: 1,
   futureEcho: 1,
   futureGlitter: 1,
@@ -367,6 +374,20 @@ interface Voice {
   blur: number;
   seen: number;
   level: number;
+}
+
+/**
+ * Freezes an AudioParam's automation at `at` where it then stands (cancelAndHoldAtTime; where missing, its value now),
+ * so what follows starts from there instead of jumping — a jump on a sounding signal is a click.
+ */
+function holdParam(prm: AudioParam, at: number): void {
+  const p = prm as AudioParam & { cancelAndHoldAtTime?: (t: number) => AudioParam };
+  if (typeof p.cancelAndHoldAtTime === "function") p.cancelAndHoldAtTime(at);
+  else {
+    const v = prm.value;
+    prm.cancelScheduledValues(at);
+    prm.setValueAtTime(v, at);
+  }
 }
 
 const LOOKAHEAD = 0.3; // s: a bar is scheduled this long before it starts
@@ -533,6 +554,8 @@ export class SoundEngine {
   /** The ask's duck (§13j): the gains it moves (pad, vegetation, bass, patch) and where it stands. */
   private ducks: GainNode[] = [];
   private ncDuck: GainNode | null = null;
+  /** The wave's swell reached its crest on the last bar (a held dominant continues it, §13h). */
+  private waveCrest = false;
   private duckNow = 1;
   /** My answer under way (§13d), for the picture's response (answerPhaseOf): whom to, from when (context s), a bar's length. */
   private answerSpan: { id: string; from: number; cycle: number } | null = null;
@@ -1409,7 +1432,8 @@ export class SoundEngine {
       tidy.push(bp, g);
     }
     // THE CRACKLE (in the chirp's place — the artist, 2026-11-28: "그래뉼러 노이즈나 파직거리는 전파 느낌 … 전에 삐약 대신에"):
-    // pops and sparks between 600 Hz and 2.8 kHz (under the glitter's band), and a sandy hiss of noise grains tuned with
+    // pops and sparks between 600 Hz and 2.2 kHz (under the glitter's band; softer and sparser since the artist heard it:
+    // "파직거리는 소리가 더 심해"), and a sandy hiss of noise grains tuned with
     // the static's band; thickest while tuning in, thinning as it locks (crackle.ts)
     if (p.futureCrackle > 0) {
       const sr = ctx.sampleRate;
@@ -1428,9 +1452,9 @@ export class SoundEngine {
       hp.frequency.value = 600;
       const lp = ctx.createBiquadFilter();
       lp.type = "lowpass";
-      lp.frequency.value = 2800;
+      lp.frequency.value = 2200;
       const cg = ctx.createGain();
-      cg.gain.value = 0.3 * p.futureCrackle;
+      cg.gain.value = 0.16 * p.futureCrackle;
       play(r.crackle).connect(hp).connect(lp).connect(cg).connect(out);
       const gbp = ctx.createBiquadFilter();
       gbp.type = "bandpass";
@@ -1591,7 +1615,13 @@ export class SoundEngine {
     const m = word ?? v.motif;
     this.askAt = at; // (the patch's echo hangs on the question, §8e)
     const call = endOpen(realize(m, key, plan.chord, 1, bar), key);
-    const shift = apartShift(realize(this.me.motif, key, plan.chord, 1, bar), call, this.params.motifTranspose, 12 * this.params.apartness);
+    let shift = apartShift(realize(this.me.motif, key, plan.chord, 1, bar), call, this.params.motifTranspose, 12 * this.params.apartness);
+    // (not down low: aside from mine only upwards, then lifted to the floor — askFloor)
+    const floor = this.params.askFloor;
+    if (floor > 0) {
+      if (shift < 0) shift = call.every((n) => n.pitch + 12 <= DIALOGUE_HI) ? 12 : 0;
+      shift += liftTo(shiftNotes(call, shift), floor);
+    }
     for (const n of shiftNotes(call, shift)) {
       this.note(v.filt, n.freq, at + n.at * barSec, n.len * barSec, 1, m.timbre, 0);
       this.feature(id, at + n.at * barSec);
@@ -2089,14 +2119,27 @@ export class SoundEngine {
    * bar's last tenth the crest eases back a little before it breaks on the downbeat (the artist, 10/31: the reference's
    * wave crested and struck; 11/01: a deep dip and an instant strike were abrupt — the ease is shallow now).
    */
-  private waveSwell(at: number, barSec: number, level: number): void {
+  private waveSwell(at: number, barSec: number, level: number, held = false): void {
     const { filter, gain } = this.wave;
     const hit = this.params.waveHit;
-    filter.frequency.cancelScheduledValues(at);
-    filter.frequency.setValueAtTime(300, at);
+    if (held) {
+      // A HELD DOMINANT (§13h: a stored tension holds the dominant 1–2 bars longer). Until 2026-11-28 every dominant bar
+      // started the swell over: the crest (≈ 0.2) was cut to 0.001 and the filter from 2.4 kHz to 300 Hz at once, on
+      // sounding noise — a POP on the second and third dominant bars (the artist: "자꾸 팍 하고 튀는 소리"). Now the
+      // crest stays where it is, leans up once more and eases back before the break.
+      holdParam(filter.frequency, at);
+      filter.frequency.linearRampToValueAtTime(2400, at + barSec * 0.3);
+      holdParam(gain.gain, at);
+      gain.gain.linearRampToValueAtTime(0.45 * level, at + barSec * 0.5);
+      gain.gain.linearRampToValueAtTime(0.45 * level * (1 - 0.3 * hit), at + barSec);
+      return;
+    }
+    // (a fresh swell: whatever still sounds of the last wave is taken down over 20 ms, never cut)
+    holdParam(filter.frequency, at);
+    filter.frequency.linearRampToValueAtTime(300, at + 0.02);
     filter.frequency.exponentialRampToValueAtTime(2400, at + barSec * 0.85);
-    gain.gain.cancelScheduledValues(at);
-    gain.gain.setValueAtTime(0.001, at);
+    holdParam(gain.gain, at);
+    gain.gain.linearRampToValueAtTime(0.001, at + 0.02);
     gain.gain.exponentialRampToValueAtTime(0.35 * level, at + barSec * 0.7);
     gain.gain.linearRampToValueAtTime(0.45 * level, at + barSec * 0.86);
     gain.gain.linearRampToValueAtTime(0.45 * level * (1 - 0.3 * hit), at + barSec);
@@ -2110,8 +2153,9 @@ export class SoundEngine {
     const ctx = this.ctx!;
     const { filter, gain } = this.wave;
     const hit = this.params.waveHit;
-    gain.gain.cancelScheduledValues(at);
-    gain.gain.setValueAtTime(0.45 * level * (1 - 0.3 * hit), at);
+    // (from wherever the swell left it, never a jump: after a swell it is exactly this value already)
+    holdParam(gain.gain, at);
+    gain.gain.linearRampToValueAtTime(0.45 * level * (1 - 0.3 * hit), at + 0.01);
     gain.gain.linearRampToValueAtTime((0.5 + 0.25 * hit) * level, at + 0.1);
     gain.gain.setTargetAtTime(0, at + 0.3, 1.1);
     filter.frequency.cancelScheduledValues(at);
@@ -2292,15 +2336,19 @@ export class SoundEngine {
       // who speaks to me (the artist, 2026-11-10: heard at once, like a call, plainly the pattern): their melody on the
       // grid's own steps, in the motif's own instrument instead of a bot's blur
       const calls = vb.o === sig.asker;
+      // (the asker's line while the question is open, never down low — askFloor)
+      const lift = calls ? liftTo(vb.notes, p.askFloor) : 0;
+      const up = lift ? Math.pow(2, lift / 12) : 1;
       for (const n of vb.notes) {
         const at = nextStart + n.at * barSec + (calls ? 0 : human() * 0.5);
-        this.note(v.filt, n.freq, at, n.len * barSec, plan.answer || calls ? 1 : 0.8, v.motif.timbre, calls ? 0 : v.blur);
+        this.note(v.filt, n.freq * up, at, n.len * barSec, plan.answer || calls ? 1 : 0.8, v.motif.timbre, calls ? 0 : v.blur);
         if (calls) this.feature(vb.o, at); // (its head hops on what is heard — hopOf)
       }
     }
     // the arrival's wave and breath (v4 A4c): the swell rises through the dominant bar; everything dips for a
     // breath, then the tonic breaks — the contrast the hall alone could not give in a sound already wet
-    if (plan.arrival === "dominant" && p.arrivalWave > 0) this.waveSwell(nextStart, barSec, p.arrivalWave);
+    if (plan.arrival === "dominant" && p.arrivalWave > 0) this.waveSwell(nextStart, barSec, p.arrivalWave, this.waveCrest);
+    this.waveCrest = plan.arrival === "dominant" && p.arrivalWave > 0;
     if (plan.arrival === "tonic") {
       if (p.arrivalWave > 0) this.waveBreak(nextStart, p.arrivalWave);
       if (p.arrivalGapMs > 0) this.breath(nextStart, p.arrivalGapMs / 1000);
