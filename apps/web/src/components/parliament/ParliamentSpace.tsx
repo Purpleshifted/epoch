@@ -4624,18 +4624,19 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   const vg = useLevaControls(
     VEG_GROUP,
     savable(VEG_GROUP, {
-      vegOn: { value: true, label: "켜기" },
+      // (the switch and the motion first, then 먼 식생 (거리 따라 뭉침) — PointLod's folder, order -0.5 — then the rest)
+      vegOn: { value: true, label: "켜기", order: -1 },
       // HOW IT MOVES — ONE WAY (the artist, 2026-11-28: "구름이랑 흐름을 통합해서 하나의 방식으로 만들 수 있나? 단위 구름 12개
       // 정도가 이런저런 지터를 가지고 밀도장 영향을 받도록"): a few unit clouds whose MIDDLES flow through the block on the
       // density's field (vegFlow.ts — 12 places stepped on the GPU, not every point), each cloud with its own wander,
       // breath, turn, size and spread round its middle (VEG_VERT). (The switch 식생 움직임, the re-seating of the clouds
       // and the flow of every point are gone with their knobs; saved values kept.)
-      vegClouds: { value: 12, min: 1, max: 60, step: 1, label: "구름 수 (단위 구름 · 각자 지터를 갖고 밀도장 따라 흐름)" },
-      vegFlowSpeed: { value: 2, min: 0, max: 8, step: 0.1, label: "구름이 흐르는 빠르기 (대략 월드/s · 0 = 멈춤)" },
-      vegFlowSwirl: { value: 14, min: 3, max: 60, step: 1, label: "소용돌이 크기 (월드 · 클수록 큰 물결)" },
-      vegFlowFollow: { value: 1, min: 0, max: 3, step: 0.05, label: "밀도장을 따르는 세기 (구름이 건물·길·물가를 돌아 흐르고 빈 땅으로 몰림 · 범위 밖 구름을 불러옴 · 0 = 소용돌이만)" },
-      vegFlowHerd: { value: 0.5, min: 0, max: 2, step: 0.05, label: "구름끼리 떼로 모이는 세기 (0 = 고르게 퍼져 흐름)" },
-      vegFlowStray: { value: 0, min: 0, max: 190, step: 2, label: "구름이 처음 자리에서 멀어질 수 있는 거리 (월드 · 0 = 제한 없음: 사람 땅 둘레로 다 몰려옴)" },
+      vegClouds: { value: 12, min: 1, max: 60, step: 1, label: "구름 수 (단위 구름 · 각자 지터를 갖고 밀도장 따라 흐름)", order: -1 },
+      vegFlowSpeed: { value: 2, min: 0, max: 8, step: 0.1, label: "구름이 흐르는 빠르기 (대략 월드/s · 0 = 멈춤)", order: -1 },
+      vegFlowSwirl: { value: 14, min: 3, max: 60, step: 1, label: "소용돌이 크기 (월드 · 클수록 큰 물결)", order: -1 },
+      vegFlowFollow: { value: 1, min: 0, max: 3, step: 0.05, label: "밀도장을 따르는 세기 (구름이 건물·길·물가를 돌아 흐르고 빈 땅으로 몰림 · 범위 밖 구름을 불러옴 · 0 = 소용돌이만)", order: -1 },
+      vegFlowHerd: { value: 0.5, min: 0, max: 2, step: 0.05, label: "구름끼리 떼로 모이는 세기 (0 = 고르게 퍼져 흐름)", order: -1 },
+      vegFlowStray: { value: 0, min: 0, max: 190, step: 2, label: "구름이 처음 자리에서 멀어질 수 있는 거리 (월드 · 0 = 제한 없음: 사람 땅 둘레로 다 몰려옴)", order: -1 },
       vegCount: { value: 60000, min: 5000, max: 400000, step: 5000, label: "점 수 (덩어리 전체 · 한 번만 만듦)" },
       // (the artist, 2026-11-15: "식생반경이 알아서 돌아다닌 범위 살짝 바깥에만 마진 두고 생성되게")
       vegMargin: { value: 8, min: -1, max: 60, step: 1, label: "돌아다닌 범위 바깥으로 식생이 옅어지며 나는 폭 (월드 · 이 거리에서 절반, 1.7배에서 없음 · -1 = 땅 전체에)" },

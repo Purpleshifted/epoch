@@ -1,22 +1,27 @@
 "use client";
 /**
- * PointLod — FAR POINTS ON THE WALL: FEWER AND LARGER, AND SOFTER BY DISTANCE, AS THE PERSONAL VIEW'S PHOTOGRAPH (the
- * artist, 2026-11-28: "글로벌 보편에서 먼 점은 뭉쳐보이는 lod 추가해서 레바로 조절할 수 있게 하고, 그게 히어로샷에도 반영되어
- * 그려지도록"; then, of clumps and clouds made by moving the points: "원하던 느낌이라기엔 들어가는 게 너무 적어서 … personal 에서
- * 거리 따라 흐린 정도, 뭉치는 정도 설정한 것처럼 범위만 다르게 해서 안 되나?").
+ * PointLod — THE FAR GREENERY ON THE WALL, BY ONE RULE (the artist, 2026-11-28: "글로벌 보편에서 먼 점은 뭉쳐보이는 lod
+ * 추가해서 레바로 조절할 수 있게 하고, 그게 히어로샷에도 반영되어 그려지도록"; "personal 에서 거리 따라 흐린 정도, 뭉치는 정도
+ * 설정한 것처럼 범위만 다르게 해서 안 되나?"; then, of two clumpings acting apart: "거리 따라 뭉치는 거랑 밀도 따라 뭉치는 거
+ * 따로 적용되는 게 헷갈림, 이 lod 식생 폴더로 옮기면서 알고리즘 통일 검토좀" → one rule, the blur's start the one start).
  *
- * 1 · GROW AND THIN — the phone's rule for its far readings (FutureResidue, LidarScan): past `start` (world, from the
- *     eye) a point is drawn g = (d / start)^strength times larger (at most `max`) and kept with the chance 1 / g² — the
- *     area a cloud covers stays, the points drawn fall as 1 / g².
- * 2 · THE FAR ONES IN A SMALL FRAME OF THEIR OWN, SOFTENED — the photograph's rule of the personal view (InkPaper: a
- *     wide blur by depth, fading with distance), with the wall's own ranges, made light (the artist, 2026-11-28, of
- *     the look: "비주얼은 이 정도가 마음에 드는데 그럼 이건 성능을 별로 안 줄인다는 거야?" → "1번 한 번 해보자"): each point
- *     is drawn ONCE — near ones in the wall's own render as they always were, far ones (a share by distance, 흐림 시작 →
- *     끝 거리, so the change is gradual) in a frame a quarter of the picture's size while PointFrame runs (in the wall's
- *     composer), smaller there by the frame's scale with their light kept, hidden where the wall's depth is nearer,
- *     paler the further (멀수록 옅어짐); that frame is blurred widely (먼 흐림) and laid over the picture. Far greenery
- *     melts into soft masses; near points stay crisp, with no halo of the far blur. (Before, every point went into a frame
- *     of the picture's own size, parted and blurred there: about the same look, at a few full-size passes more.)
+ * DISTANCE DECIDES HOW MUCH GOES FAR; DENSITY DECIDES WHAT IT BECOMES THERE. Before 시작 거리 (world, from the eye) every
+ * point is as it was; from there to 끝 거리 a growing share of them (by a hash of each point, so the change is gradual)
+ * is handed to THE FAR SIDE; past 끝, all of them. A point on the far side, at the share t of the range where it stands:
+ *   1 · FEWER AND LARGER — the phone's rule for its far readings (FutureResidue, LidarScan): drawn g times larger, g = 1 at
+ *       시작 → 멀리서 점이 커지는 정도 at 끝, and kept with the chance 1 / g² — the area a cloud covers stays, the points
+ *       drawn fall (the wall lighter);
+ *   2 · SOFTENED — the photograph's rule of the personal view (InkPaper: a wide blur, fading with distance), made light:
+ *       drawn in a frame a quarter of the picture's size while PointFrame runs (in the wall's composer), smaller there by
+ *       the frame's scale with its light kept, hidden where the wall's depth is nearer, paler by 옅어짐 × t; that frame is
+ *       blurred widely (흐림) and laid over the picture;
+ *   3 · MASS OR FADE BY DENSITY — where the blurred far greenery looks dense (its coverage over 뭉치는 밀도) it closes into
+ *       a solid mass, where sparse it fades, by 뭉침 (0 = as blurred).
+ * A point that stays near is the wall's own render's, as crisp and as fine as ever: it never grows. Without the composer
+ * (no frame) the far side is 1 only. (Before: a growth of its own — 뭉치기 시작 거리 · 세기 — on every point past its start,
+ * near ones too, beside the blur's own range: two clumpings, by distance and by density, acting apart.)
+ *
+ * THE KNOBS stand in 식생 (사람의 반대) › 먼 식생 (거리 따라 뭉침): what they act on is the present's greenery (below).
  *
  * Applied to the PRESENT's point clouds that have a size in the world: a PointsMaterial with size attenuation, or a
  * point shader of its own (a ShaderMaterial on a Points that writes gl_PointSize). That is, as of 2026-11-28:
@@ -39,22 +44,23 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
-import { folder, useControls } from "leva";
+import { useControls } from "leva";
 import { BlendFunction, Effect, EffectAttribute } from "postprocessing";
 import * as THREE from "three";
 import { savable } from "./levaSave";
 
-const GROUP = "먼 점 뭉치기 (LOD)";
+/** Where the knobs are: a folder in the vegetation's (ParliamentSpace VEG_GROUP — they act on the present's greenery
+ *  only), saved with it; what was saved in the group they had before is read until something is saved here. */
+const ROOT = "식생 (사람의 반대).먼 식생 (거리 따라 뭉침)";
+const ROOT_OLD = "먼 점 뭉치기 (LOD)";
 /** The layer the patched points are drawn on while their own frame is drawn (PointFrame): out of the wall's render.
  *  (2 is InkPaper's EXPOSURE_LAYER, 5 PICTO_LAYER, 6 FUTURE_LAYER) */
 const POINT_LAYER = 9;
 
-/** Shared by every patched shader: switch, start distance (world), strength, the most a point grows (×); a hero shot's
- *  pixels per screen pixel and its size; the wall's own depth (to hide the points behind it in their own frame). */
+/** Shared by every patched shader: switch, how much the far side grows at 끝 (×); a hero shot's pixels per screen pixel
+ *  and its size; the wall's own depth (to hide the points behind it in their own frame); the range (시작 → 끝), the fade. */
 const pointLodU = {
   uPlodOn: { value: 0 },
-  uPlodStart: { value: 180 },
-  uPlodPow: { value: 1 },
   uPlodMax: { value: 3 },
   uPlodShot: { value: 1 },
   uPlodView: { value: new THREE.Vector2(1, 1) },
@@ -145,11 +151,23 @@ export function startPointShot(scene: THREE.Object3D, r: number): () => void {
   };
 }
 
-const HEAD = "uniform float uPlodOn, uPlodStart, uPlodPow, uPlodMax, uPlodShot, uPlodCopy, uPlodOccOn, uPlodSplit, uPlodFrom, uPlodTo, uPlodFade, uPlodFrameScale;\nuniform vec2 uPlodView;\nvarying float vPlodLight;\n";
+const HEAD = "uniform float uPlodOn, uPlodMax, uPlodShot, uPlodCopy, uPlodOccOn, uPlodSplit, uPlodFrom, uPlodTo, uPlodFade, uPlodFrameScale;\nuniform vec2 uPlodView;\nvarying float vPlodLight;\n";
 const TAIL = `
-  // FAR POINTS GROW AND THIN (PointLod.tsx): past uPlodStart a point grows g times and is kept with the chance 1 / g^2
-  if ( uPlodOn > 0.5 && gl_Position.w > uPlodStart ) {
-    float plodG = min( uPlodMax, pow( gl_Position.w / uPlodStart, uPlodPow ) );
+  // ONE RULE BY DISTANCE (PointLod.tsx): a share of the points by distance — none before 시작, all past 끝 — is the far
+  // side (by a hash of each point, so the change is gradual); t is where in the range it stands
+  vPlodLight = 1.0;
+  float plodT = 0.0;
+  bool plodFar = false;
+  if ( uPlodOn > 0.5 && abs( gl_Position.x ) < 1.5 * gl_Position.w ) {
+    plodT = smoothstep( uPlodFrom, max( uPlodFrom + 1.0, uPlodTo ), gl_Position.w );
+    uint plodQ = uint( gl_VertexID ) * 3266489917u + 668265263u;
+    plodQ = ( plodQ ^ ( plodQ >> 15u ) ) * 2246822519u;
+    plodQ = plodQ ^ ( plodQ >> 13u );
+    plodFar = float( plodQ >> 8u ) * ( 1.0 / 16777216.0 ) < plodT;
+  }
+  // 1 · THE FAR SIDE FEWER AND LARGER: grown g times (1 at 시작 → uPlodMax at 끝), kept with the chance 1 / g^2
+  if ( plodFar && uPlodMax > 1.0 ) {
+    float plodG = mix( 1.0, uPlodMax, plodT );
     uint plodH = uint( gl_VertexID ) * 747796405u + 2891336453u;
     plodH = ( ( plodH >> ( ( plodH >> 28u ) + 4u ) ) ^ plodH ) * 277803737u;
     plodH = ( plodH >> 22u ) ^ plodH;
@@ -170,16 +188,10 @@ const TAIL = `
       gl_Position.xy += plodR * ( 1.4 * uPlodShot ) * 2.0 / uPlodView * gl_Position.w;
     }
   }
-  // NEAR IN THE WALL'S RENDER, FAR IN THE SMALL FRAME (PointFrame): each point drawn once — a share by distance
-  // (흐림 시작 → 끝) goes to the frame — and there smaller by the frame's scale, its light kept (a point under one of the
-  // frame's pixels is drawn one wide, dimmed by what it covers: the screen's one-pixel floor counted in), paler the further
-  vPlodLight = 1.0;
-  if ( uPlodSplit > 0.5 && abs( gl_Position.x ) < 1.5 * gl_Position.w ) {
-    float plodT = smoothstep( uPlodFrom, max( uPlodFrom + 1.0, uPlodTo ), gl_Position.w );
-    uint plodQ = uint( gl_VertexID ) * 3266489917u + 668265263u;
-    plodQ = ( plodQ ^ ( plodQ >> 15u ) ) * 2246822519u;
-    plodQ = plodQ ^ ( plodQ >> 13u );
-    bool plodFar = float( plodQ >> 8u ) * ( 1.0 / 16777216.0 ) < plodT;
+  // 2 · NEAR IN THE WALL'S RENDER, THE FAR SIDE IN THE SMALL FRAME (PointFrame): each point drawn once, and there smaller
+  // by the frame's scale, its light kept (a point under one of the frame's pixels is drawn one wide, dimmed by what it
+  // covers: the screen's one-pixel floor counted in), paler the further (3 · mass or fade is the frame's, COMPOSE_FRAG)
+  if ( uPlodSplit > 0.5 ) {
     if ( uPlodOccOn < 0.5 ) {
       if ( plodFar ) gl_Position = vec4( 2.0, 2.0, 2.0, 1.0 );
     } else if ( !plodFar || uPlodCopy > 0.5 ) gl_Position = vec4( 2.0, 2.0, 2.0, 1.0 );
@@ -453,28 +465,28 @@ export function PointFrame() {
 }
 
 export function PointLod() {
+  // ONE RULE, ONE SET (the header): the keys of the knobs it keeps are the old ones, so what she saved comes with them —
+  // the one start is the blur's (흐림 시작 거리, her pick); gone, their saved values kept: 뭉치기 시작 거리 · 뭉치기 세기
+  // (the growth follows the one range) and the blur's own switch (one switch for all)
   const k = useControls(
-    GROUP,
-    savable(GROUP, {
-      on: { value: true, label: "켜기 (멀리 있는 점은 성기고 크게 — 덮는 면적은 그대로, 그리는 점은 적게)" },
-      start: { value: 180, min: 20, max: 600, step: 5, label: "뭉치기 시작 거리 (눈에서 · 월드)" },
-      strength: { value: 1, min: 0, max: 3, step: 0.05, label: "뭉치기 세기 (1 = 거리에 비례해 커지고 그 제곱만큼 성겨짐)" },
-      max: { value: 3, min: 1, max: 6, step: 0.1, label: "최대 커짐 (×)" },
-      // THE PHOTOGRAPH'S RULE, THE WALL'S RANGES ("personal 에서 거리 따라 흐린 정도 … 설정한 것처럼 범위만 다르게")
-      "거리 흐림 (개인뷰 사진처럼)": folder({
-        blurOn: { value: true, label: "켜기 (먼 점들을 따로 작게 그려 흐리게 · 렌더 후처리가 켜져 있을 때)" },
-        // (가까운 흐림 is gone: near points are the wall's own render now, as crisp as ever — "1번 한 번 해보자")
-        blurFar: { value: 8, min: 0, max: 40, step: 0.5, label: "먼 흐림 (px)" },
-        blurFrom: { value: 110, min: 0, max: 600, step: 5, label: "흐림 시작 거리 (눈에서 · 월드 · 여기까지는 또렷하게)" },
-        blurTo: { value: 260, min: 10, max: 800, step: 5, label: "흐림 끝 거리 (여기부터 모두 먼 흐림)" },
-        blurFade: { value: 0.3, min: 0, max: 1, step: 0.05, label: "멀수록 옅어짐" },
-        // ("식생 보이는 밀도 따라 뭉치는 가중치" — COMPOSE_FRAG)
-        clump: { value: 0.6, min: 0, max: 1, step: 0.05, label: "밀도 따라 뭉침 (먼 식생이 빽빽해 보이는 곳은 덩어리로, 성긴 곳은 옅게 · 0 = 흐린 그대로)" },
-        clumpAt: { value: 0.12, min: 0.01, max: 0.6, step: 0.01, label: "뭉치는 밀도 (흐린 먼 식생이 이보다 짙으면 덩어리)" },
-      }),
-    }),
-    { collapsed: true },
-  ) as unknown as { on: boolean; start: number; strength: number; max: number; blurOn: boolean; blurFar: number; blurFrom: number; blurTo: number; blurFade: number; clump: number; clumpAt: number };
+    ROOT,
+    savable(
+      ROOT,
+      {
+        on: { value: true, label: "켜기 (먼 식생: 거리만큼 먼 쪽으로 넘어가 성기고 크게 · 흐리게 · 옅게, 빽빽해 보이는 곳은 덩어리로)" },
+        blurFrom: { value: 110, min: 0, max: 600, step: 5, label: "시작 거리 (눈에서 · 월드 · 여기까지는 그대로 또렷하게)" },
+        blurTo: { value: 260, min: 10, max: 800, step: 5, label: "끝 거리 (여기부터 전부 먼 쪽 · 그 사이는 점점 더 많이)" },
+        max: { value: 3, min: 1, max: 6, step: 0.1, label: "멀리서 점이 커지는 정도 (× · 끝 거리에서 · 그 제곱만큼 성겨져 가벼워짐 · 덮는 면적은 그대로)" },
+        blurFar: { value: 8, min: 0, max: 40, step: 0.5, label: "흐림 (px · 먼 쪽만 · 렌더 후처리가 켜져 있을 때)" },
+        blurFade: { value: 0.3, min: 0, max: 1, step: 0.05, label: "옅어짐 (먼 쪽이 멀수록)" },
+        clump: { value: 0.6, min: 0, max: 1, step: 0.05, label: "뭉침 (먼 쪽이 빽빽해 보이는 곳은 덩어리로, 성긴 곳은 옅게 · 0 = 흐린 그대로)" },
+        clumpAt: { value: 0.12, min: 0.01, max: 0.6, step: 0.01, label: "뭉치는 밀도 (흐린 먼 쪽이 이보다 짙으면 덩어리)" },
+      },
+      [ROOT_OLD],
+    ),
+    // (right under the vegetation's own switch and its motion: ParliamentSpace gives those order -1)
+    { collapsed: true, order: -0.5 },
+  ) as unknown as { on: boolean; max: number; blurFar: number; blurFrom: number; blurTo: number; blurFade: number; clump: number; clumpAt: number };
   const scene = useThree((s) => s.scene);
   const last = useRef(-Infinity);
   /** Every patched Points, and the layers it had of its own (the frame's layer is added while the frame is drawn). */
@@ -489,10 +501,8 @@ export function PointLod() {
   );
   useFrame((state) => {
     pointLodU.uPlodOn.value = k.on ? 1 : 0;
-    pointLodU.uPlodStart.value = Math.max(1, k.start);
-    pointLodU.uPlodPow.value = Math.max(0, k.strength);
     pointLodU.uPlodMax.value = Math.max(1, k.max);
-    Object.assign(frame, { want: k.blurOn, far: k.blurFar, from: k.blurFrom, to: k.blurTo, fade: k.blurFade, clump: k.clump, clumpAt: k.clumpAt });
+    Object.assign(frame, { want: k.on, far: k.blurFar, from: k.blurFrom, to: k.blurTo, fade: k.blurFade, clump: k.clump, clumpAt: k.clumpAt });
     state.gl.getDrawingBufferSize(drawSize.current);
     pointShotView(drawSize.current.x, drawSize.current.y);
     // (while the small frame is drawn: each point on its own layers — the wall's render, the near ones — and on the
