@@ -24,6 +24,9 @@ export class AudioGraph
 
         // Stateful audio processing nodes, indexed by nodeId
         this.nodes = [];
+
+        // Knobs gliding toward a value just set (KnobNode): only these are stepped each sample
+        this.moving = new Set();
     }
 
     /**
@@ -58,6 +61,7 @@ export class AudioGraph
 
                 // Update the node's state
                 node.setState(nodeState);
+                if (node instanceof KnobNode) this.moving.add(node);
             }
             else
             {
@@ -94,10 +98,12 @@ export class AudioGraph
 
             case 'SET_PARAM':
             node.setParam(msg.paramName, msg.value);
+            if (node instanceof KnobNode) this.moving.add(node);
             break;
 
             case 'SET_STATE':
             node.setState(msg.state);
+            if (node instanceof KnobNode) this.moving.add(node);
             break;
 
             case 'SET_CELL':
@@ -138,6 +144,12 @@ export class AudioGraph
             return [0, 0];
 
         this.playPos += 1 / 44100;
+        // (the knobs still gliding: a check per sample, a step only for those few — KnobNode)
+        if (this.moving.size)
+        {
+            for (let knob of this.moving)
+                if (knob.step()) this.moving.delete(knob);
+        }
         return this._genSample(this.playPos, this.nodes);
     }
 }
@@ -547,6 +559,8 @@ class Scope extends AudioNode
  * as it stood, so every change sent from outside (the parliament's engine maps a dozen knobs to what happens, four
  * times a second) stepped a level, a cutoff or a feedback at once on a sounding signal: a click each time. Now the
  * value glides to where it is set with a one-pole of ~8 ms — a turned knob sounds the same, a sent step is no click.
+ * The compiled code reads `cur` as it read the value; only a knob just set is stepped (AudioGraph.moving), so a
+ * standing knob costs nothing more than before (the artist, the same night: "화면이 좀 느려졌네").
  */
 class KnobNode extends AudioNode
 {
@@ -558,10 +572,18 @@ class KnobNode extends AudioNode
         this.k = 1 - Math.exp(-1 / (0.008 * sampleRate));
     }
 
-    update()
+    /** One sample toward the value; true once it is there. */
+    step()
     {
-        this.cur += (this.params.value - this.cur) * this.k;
-        return this.cur;
+        const v = this.params.value;
+        const d = v - this.cur;
+        if (d < 1e-6 && d > -1e-6)
+        {
+            this.cur = v;
+            return true;
+        }
+        this.cur += d * this.k;
+        return false;
     }
 }
 

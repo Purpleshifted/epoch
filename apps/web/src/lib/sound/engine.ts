@@ -556,6 +556,8 @@ export class SoundEngine {
   private ncDuck: GainNode | null = null;
   /** The wave's swell reached its crest on the last bar (a held dominant continues it, §13h). */
   private waveCrest = false;
+  /** The future's crackle as written (crackle.ts): two takes per kind and length, kept (§13k). */
+  private crackles = new Map<string, { crackle: AudioBuffer; grains: AudioBuffer }[]>();
   private duckNow = 1;
   /** My answer under way (§13d), for the picture's response (answerPhaseOf): whom to, from when (context s), a bar's length. */
   private answerSpan: { id: string; from: number; cycle: number } | null = null;
@@ -1333,6 +1335,26 @@ export class SoundEngine {
     return this.myId;
   }
 
+  /** One take of the future's crackle for `kind` and length `D` (s): written the first two times, then one of the two. */
+  private crackleTake(kind: "arrive" | "leave", D: number, tail: number): { crackle: AudioBuffer; grains: AudioBuffer } {
+    const ctx = this.ctx!;
+    const key = `${kind}:${D.toFixed(1)}`;
+    const takes = this.crackles.get(key) ?? [];
+    if (takes.length >= 2) return takes[Math.floor(Math.random() * takes.length)];
+    const SR = 16000;
+    const r = renderCrackle({ sampleRate: SR, dur: D, tail, kind, noise: this.noise.getChannelData(0) });
+    const buf = (d: Float32Array) => {
+      const b = ctx.createBuffer(1, d.length, SR);
+      b.getChannelData(0).set(d);
+      return b;
+    };
+    const t = { crackle: buf(r.crackle), grains: buf(r.grains) };
+    // (a length changed on the knob: the old takes go)
+    for (const k of this.crackles.keys()) if (k.startsWith(`${kind}:`) && k !== key) this.crackles.delete(k);
+    this.crackles.set(key, [...takes, t]);
+    return t;
+  }
+
   /**
    * THE FUTURE PASSING AS A DAYDREAM (§13k), AMBIENT (the artist, 2026-11-28: "미래 소리 효과 훨씬 엠비언트 하게 넣고 삐악
    * 하는 코드 소리? 는 빼는 게 나을 듯"): `arrive` — a HAZE rising low (the place's lydian: root, fifth, ninth, #11 as
@@ -1436,17 +1458,19 @@ export class SoundEngine {
     // "파직거리는 소리가 더 심해"), and a sandy hiss of noise grains tuned with
     // the static's band; thickest while tuning in, thinning as it locks (crackle.ts)
     if (p.futureCrackle > 0) {
-      const sr = ctx.sampleRate;
-      const r = renderCrackle({ sampleRate: sr, dur: D, tail: TAIL, kind, noise: this.noise.getChannelData(0) });
-      const play = (data: Float32Array) => {
-        const b = ctx.createBuffer(1, data.length, sr);
-        b.getChannelData(0).set(data);
+      // (written once per kind and length, two takes each, at 16 kHz — all of it lies under 2.2 kHz — and kept: each
+      // meeting wrote ~10 MB at the context's rate before, garbage a few seconds later — the artist, 2026-11-28:
+      // "화면이 좀 느려졌네")
+      const take = this.crackleTake(kind, D, TAIL);
+      const play = (b: AudioBuffer) => {
         const s = ctx.createBufferSource();
         s.buffer = b;
+        s.playbackRate.value = 0.94 + 0.12 * Math.random();
         s.start(t0);
         s.stop(stop);
         return s;
       };
+      const r = take;
       const hp = ctx.createBiquadFilter();
       hp.type = "highpass";
       hp.frequency.value = 600;

@@ -431,7 +431,7 @@ export function compile(graph)
         {
             audioNodes[nodeId] = node;
             // (smoothed: KnobNode in audiograph.js — a value set from outside glides in ~8 ms instead of stepping)
-            addDef(nodeId, `nodes[${nodeId}].update()`);
+            addDef(nodeId, `nodes[${nodeId}].cur`);
             continue;
         }
 
