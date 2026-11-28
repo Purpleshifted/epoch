@@ -5,7 +5,9 @@
  *
  * The phone's rule for its far readings (FutureResidue, LidarScan): past `start` (world, from the eye) a point is drawn
  * g = (d / start)^strength times larger (at most `max`) and kept with the chance 1 / g² — the area a cloud covers stays,
- * the points drawn fall as 1 / g², so far off there are fewer, larger, merged points, and fewer pixels to fill.
+ * the points drawn fall as 1 / g², so far off there are fewer, larger, merged points, and fewer pixels to fill. And they
+ * GATHER (뭉침, 덩어리 크기 — "유기적으로 뭉쳐보이진 않음 그냥 점이 커지고 줄어들었다 정도"): toward the centres of a jittered
+ * lattice fixed in the world, into irregular clumps with lumpy, soft-rimmed outlines (GATHER below).
  *
  * Applied to every point cloud of the wall's scene that has a size in the world: a PointsMaterial with size attenuation,
  * or a point shader of its own (a ShaderMaterial on a Points that writes gl_PointSize). That is, as of 2026-11-28:
@@ -33,7 +35,7 @@ import { savable } from "./levaSave";
 const GROUP = "먼 점 뭉치기 (LOD)";
 
 /** Shared by every patched shader: switch, start distance (world), strength, the most a point grows (×). */
-const pointLodU = { uPlodOn: { value: 0 }, uPlodStart: { value: 180 }, uPlodPow: { value: 1 }, uPlodMax: { value: 3 }, uPlodShot: { value: 1 }, uPlodView: { value: new THREE.Vector2(1, 1) } };
+const pointLodU = { uPlodOn: { value: 0 }, uPlodStart: { value: 180 }, uPlodPow: { value: 1 }, uPlodMax: { value: 3 }, uPlodGather: { value: 0.5 }, uPlodCell: { value: 4 }, uPlodShot: { value: 1 }, uPlodView: { value: new THREE.Vector2(1, 1) } };
 
 /**
  * A HERO SHOT'S FINER PIXELS (the artist, 2026-11-28, of a hero shot: "이것봐, 히어로샷에서 식생 진짜 안 보여", then, of a
@@ -102,7 +104,67 @@ export function startPointShot(scene: THREE.Object3D, r: number): () => void {
   };
 }
 
-const HEAD = "uniform float uPlodOn, uPlodStart, uPlodPow, uPlodMax, uPlodShot, uPlodCopy;\nuniform vec2 uPlodView;\n";
+/** (a cell's own three numbers, 0 … 1 — the jittered lattice of the clumps' centres) */
+const HASH3 =
+  "vec3 plodHash3( vec3 c ) {\n  uvec3 q = uvec3( ivec3( c ) ) * uvec3( 1597334673u, 3812015801u, 2798796415u );\n  uint n = ( q.x ^ q.y ^ q.z ) * 1597334673u;\n  return vec3( n, n * 16807u, n * 48271u ) * ( 1.0 / 4294967296.0 );\n}\n";
+const HEAD = "uniform float uPlodOn, uPlodStart, uPlodPow, uPlodMax, uPlodGather, uPlodCell, uPlodShot, uPlodCopy;\nuniform vec2 uPlodView;\nvarying float vPlodSoft;\n" + HASH3;
+/**
+ * FAR POINTS GATHER INTO CLUMPS (the artist, 2026-11-28, of the first far-point LOD in a hero shot: "lod 적용은 좋은데,
+ * 유기적으로 뭉쳐보이진 않음 그냥 점이 커지고 줄어들었다 정도"): past the start a point moves toward the nearest of a
+ * jittered lattice of centres fixed in the world (덩어리 크기 apart; the nearest of the 27 round it, so the clumps are
+ * irregular and stay put as the eye turns), the further the more (뭉침, in full at twice the start) — neighbours merge
+ * into one mass and the gaps between masses open. Those points also take sizes of their own and a round outline, the
+ * larger ones a soft (dithered) rim: a clump's edge is lumpy, not a row of squares. A hero shot's four averaged
+ * renders turn the dither into a soft edge.
+ */
+const GATHER = `
+  vPlodSoft = 0.0;
+  // FAR POINTS GATHER (PointLod.tsx): toward the nearest centre of a jittered lattice fixed in the world
+  float plodF = 0.0;
+  if ( uPlodOn > 0.5 && uPlodGather > 0.0 && gl_Position.w > uPlodStart && abs( gl_Position.x ) < 1.5 * gl_Position.w ) {
+    plodF = clamp( ( gl_Position.w - uPlodStart ) / uPlodStart, 0.0, 1.0 );
+    // (where it is in the world, from where it is drawn: the eye's space by the projection, then the view undone)
+    float plodVz = -gl_Position.w;
+    vec3 plodV = vec3( ( gl_Position.x - projectionMatrix[2][0] * plodVz ) / projectionMatrix[0][0], ( gl_Position.y - projectionMatrix[2][1] * plodVz ) / projectionMatrix[1][1], plodVz );
+    vec3 plodW = transpose( mat3( viewMatrix ) ) * ( plodV - viewMatrix[3].xyz );
+    float plodCs = max( 0.1, uPlodCell );
+    vec3 plodG = plodW / plodCs;
+    vec3 plodB = floor( plodG );
+    vec3 plodC = plodG;
+    float plodBest = 1e9;
+    for ( int plodI = -1; plodI <= 1; plodI++ ) {
+      for ( int plodJ = -1; plodJ <= 1; plodJ++ ) {
+        for ( int plodK = -1; plodK <= 1; plodK++ ) {
+          vec3 plodE = plodB + vec3( float( plodI ), float( plodJ ), float( plodK ) );
+          vec3 plodQ = plodE + 0.5 + ( plodHash3( plodE ) - 0.5 ) * 0.9 - plodG;
+          float plodD = dot( plodQ, plodQ );
+          if ( plodD < plodBest ) {
+            plodBest = plodD;
+            plodC = plodQ + plodG;
+          }
+        }
+      }
+    }
+    gl_Position = projectionMatrix * viewMatrix * vec4( mix( plodW, plodC * plodCs, uPlodGather * plodF ), 1.0 );
+  }
+`;
+const LUMPS = `
+  // (gathered: a size of its own and a round, soft-rimmed outline — the clump's edge lumpy, no squares)
+  if ( plodF > 0.0 && abs( gl_Position.x ) < 1.5 * gl_Position.w ) {
+    float plodL = float( ( uint( gl_VertexID ) * 2246822519u ) >> 8u ) * ( 1.0 / 16777216.0 );
+    gl_PointSize *= mix( 1.0, 0.55 + 0.9 * plodL, plodF * uPlodGather );
+    vPlodSoft = 0.65 * plodF * smoothstep( 3.0, 8.0, gl_PointSize / max( 1.0, uPlodShot ) );
+  }
+`;
+/** The round, soft-rimmed outline, in the fragment shader (only where the vertex side above was patched in). */
+const FRAG_HEAD = "varying float vPlodSoft;\n";
+const FRAG_BODY = `
+  if ( vPlodSoft > 0.001 ) {
+    float plodR = length( gl_PointCoord - 0.5 ) * 2.0;
+    if ( plodR > 1.0 ) discard;
+    if ( fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) ) > 1.0 - smoothstep( 1.0 - vPlodSoft, 1.0, plodR ) ) discard;
+  }
+`;
 const TAIL = `
   // FAR POINTS CLUMP (PointLod.tsx): past uPlodStart a point grows g times and is kept with the chance 1 / g^2
   if ( uPlodOn > 0.5 && gl_Position.w > uPlodStart ) {
@@ -113,6 +175,7 @@ const TAIL = `
     if ( float( plodH ) * ( 1.0 / 4294967296.0 ) * plodG * plodG > 1.0 ) gl_Position = vec4( 2.0, 2.0, 2.0, 1.0 );
     else gl_PointSize *= plodG;
   }
+${LUMPS}
   // A HERO SHOT'S FINER PIXELS (startPointShot): at its own size, in as many scattered copies as it takes to cover what the
   // screen's pixel covered (copy 0 where it is; the rest within about that pixel's width; the ones not needed left out)
   if ( uPlodShot > 1.0 && abs( gl_Position.x ) < 1.5 * gl_Position.w ) {
@@ -139,7 +202,14 @@ function lodShader(shader: Shader, m: THREE.Material): void {
   Object.assign(shader.uniforms, pointLodU);
   // (each material its own copy's number — a hero shot's copies are materials of their own: startPointShot)
   shader.uniforms.uPlodCopy = copyU(m);
-  shader.vertexShader = HEAD + vs.slice(0, end) + TAIL + vs.slice(end);
+  shader.vertexShader = HEAD + vs.slice(0, end) + GATHER + TAIL + vs.slice(end);
+  // (the gathered points' round, soft rim)
+  const fs = shader.fragmentShader;
+  const main = /void\s+main\s*\(\s*\)\s*\{/.exec(fs);
+  if (main) {
+    const at = main.index + main[0].length;
+    shader.fragmentShader = FRAG_HEAD + fs.slice(0, at) + FRAG_BODY + fs.slice(at);
+  }
 }
 
 /** What was put on a material — to know when its component has put its own hook or key back (React sets the props
@@ -197,6 +267,9 @@ export function PointLod() {
       start: { value: 180, min: 20, max: 600, step: 5, label: "시작 거리 (눈에서 · 월드)" },
       strength: { value: 1, min: 0, max: 3, step: 0.05, label: "세기 (1 = 거리에 비례해 커지고 그 제곱만큼 성겨짐)" },
       max: { value: 3, min: 1, max: 6, step: 0.1, label: "최대 커짐 (×)" },
+      // ("그냥 점이 커지고 줄어들었다 정도" → gathered into clumps: GATHER above)
+      gather: { value: 0.5, min: 0, max: 1, step: 0.05, label: "뭉침 (먼 점이 가까운 덩어리 중심으로 모이는 정도 · 시작 거리의 두 배에서 다 · 0 = 커지고 성겨지기만)" },
+      cell: { value: 4, min: 1, max: 20, step: 0.5, label: "덩어리 크기 (월드 · 덩어리 중심 사이의 거리)" },
     }),
     { collapsed: true },
   );
@@ -207,6 +280,8 @@ export function PointLod() {
     pointLodU.uPlodStart.value = Math.max(1, k.start);
     pointLodU.uPlodPow.value = Math.max(0, k.strength);
     pointLodU.uPlodMax.value = Math.max(1, k.max);
+    pointLodU.uPlodGather.value = Math.max(0, Math.min(1, k.gather));
+    pointLodU.uPlodCell.value = Math.max(0.1, k.cell);
     const now = performance.now();
     if (now - last.current < 1000) return;
     last.current = now;
