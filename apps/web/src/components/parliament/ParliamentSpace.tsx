@@ -1748,7 +1748,7 @@ function SpaceWorld({
     // (what was set again before its turn holds nothing any more: out of the queue, while it waits for frames)
     if (q.length > 256) chunkOps.current = q.filter((op) => op.kind !== "set" || op.mesh);
     chunkClockAt.current = m.clock0;
-    fuseStats.current = { ...fuseStats.current, fuseSide: m.stats };
+    if (m.stats) fuseStats.current = { ...fuseStats.current, fuseSide: m.stats };
     if (last.current) live.current.onStats({ ...last.current, ...focus.current, ...fuseStats.current, stages: stageMax.current, build: workerBuild.current });
     if (!(uploadBudget.current > 0)) drainChunks(Infinity);
   };
@@ -1801,6 +1801,9 @@ function SpaceWorld({
     }
     q.splice(0, i);
     chunkClock0.current = map.size ? chunkClockAt.current : null;
+    // (readable from DevTools / a headless check, as `__fuseGrow`: which chunks of the mass are on the screen — "b:" a
+    // building of whole stages, "l:" one melting away)
+    if (typeof window !== "undefined") (window as unknown as { __fuseChunkIds?: string[] }).__fuseChunkIds = [...map.keys()];
     if (i > 0) tallyScene();
   };
   /**
@@ -1951,6 +1954,8 @@ function SpaceWorld({
       botGround.shown = r.parts.cells;
       botGround.shownAt = performance.now();
     }
+    // (WHOLE STAGES: the buildings' masses, one chunk each — only those that changed: spaceModel takeChunks)
+    if (r.fuseChunks) applyChunksNow.current(r.fuseChunks);
     if (r.fuse) {
       // (the model's worker sends its one mesh EMPTY when the worker beside takes the mass over: nothing to fade
       // from, and the growing stays as that worker's chunks have set it)
@@ -1962,6 +1967,8 @@ function SpaceWorld({
     if (r.fuse) fuseStats.current = { ...fuseStats.current, fuseTris: r.fuse.index.length / 3, fuseResin: (r.fuse.index.length - r.fuse.resinStart) / 3 };
     // where the worker's time went: the slowest request of the last few is kept, so a heavy one can be read
     if (r.stages && (r.ms >= stageMax.current.ms || performance.now() - stageMax.current.at > 8000)) stageMax.current = { ms: r.ms, at: performance.now(), stages: r.stages };
+    // (the latest result's numbers, whatever its time — readable from DevTools / a headless check)
+    if (r.stages && typeof window !== "undefined") (window as unknown as { __stagesLast?: Record<string, number> }).__stagesLast = r.stages;
     workerBuild.current = r.build ?? "?";
     if (last.current) report({ ...last.current, ...focus.current, ...fuseStats.current, workerMs: r.ms, stages: stageMax.current, build: workerBuild.current });
   };
@@ -5236,7 +5243,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           },
           stageN: { value: 3, min: 2, max: 5, step: 1, label: "단계 수 (2 = 거칠게 · 5 = 촘촘히)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && (get(`${FU}.화석이 생기는 과정.fuseStages`) === "stages" || get(`${FU}.화석이 생기는 과정.fuseStages`) === "whole") },
           // (WHOLE STAGES: how long a building melts from one stage into the next — the same knob as the cross-fade's, fuseFade)
-          stageMelt: { value: "위 「덩어리가 바뀔 때 녹아드는 시간」 · 다시 만드는 기준은 「건물 상태가 이만큼 달라지면」", editable: false, label: "녹아드는 시간은", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && get(`${FU}.화석이 생기는 과정.fuseStages`) === "whole" },
+          stageMeltWhen: { value: "위 「덩어리가 바뀔 때 녹아드는 시간」 · 다시 만드는 때: 부재 하나라도 단계가 바뀌면 (역치 없음)", editable: false, label: "녹아드는 시간은", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && get(`${FU}.화석이 생기는 과정.fuseStages`) === "whole" },
           stageSweep: { value: 4, min: 0, max: 20, step: 0.5, label: "단계가 바뀌는 시간 (초 · 아래부터 한 단씩 · 0 = 한꺼번에)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && get(`${FU}.화석이 생기는 과정.fuseStages`) === "stages" },
           // (ROUND — fuse.ts roundness; "내 말은 둥글게 하라고 둥글게")
           stageRound: { value: 1, min: 0, max: 1.5, step: 0.05, label: "둥글기 (0 = 각진 그대로 · 높을수록 둥글고 구멍이 메워짐)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && get(`${FU}.화석이 생기는 과정.fuseStages`) === "stages" },
@@ -5284,7 +5291,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           growDieRag: { value: 0.6, min: 0, max: 1.5, step: 0.05, label: "삭는 경계의 얼룩 (0 = 한 층에서 한꺼번에 — 가로로 잘림 · 클수록 자리마다 먼저 · 나중에)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.화석의 수명 (다 나온 뒤 삭아 사라짐).growDie`) },
           growDiePatch: { value: 9, min: 1, max: 60, step: 0.5, label: "삭는 얼룩의 크기 (월드)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.화석의 수명 (다 나온 뒤 삭아 사라짐).growDie`) },
         },
-        { collapsed: true, render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && get(`${FU}.화석이 생기는 과정.fuseStages`) !== "exhibition" && get(`${FU}.화석이 생기는 과정.fuseStages`) !== "whole" },
+        { collapsed: true, render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && get(`${FU}.화석이 생기는 과정.fuseStages`) !== "exhibition" },
       ),
       // THE MASS GROWS ON WHAT HAS BEEN SIMPLIFIED (fuse.ts assetsOnly; the artist, 2026-11-16: "융합!!!!! 일단 해보자")
       fuseFrom: {
@@ -5303,7 +5310,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         label: "덩어리를 만드는 단위 (예전 방식에서만)",
         render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) !== "seed",
       },
-      unitChange: { value: 0.15, min: 0.03, max: 0.5, step: 0.01, label: "건물 상태가 이만큼 달라지면 덩어리를 다시 만듦 (전시판 방식 · 작을수록 자주 바뀌고 무거움)", render: (get: (path: string) => unknown) => REDESIGN && (get(`${FU}.fuseGrow`) !== "seed" ? get(`${FU}.fuseUnit`) === "building" : ["exhibition", "whole"].includes(String(get(`${FU}.화석이 생기는 과정.fuseStages`)))) },
+      unitChange: { value: 0.15, min: 0.03, max: 0.5, step: 0.01, label: "건물 상태가 이만큼 달라지면 덩어리를 다시 만듦 (전시판 방식 · 작을수록 자주 바뀌고 무거움)", render: (get: (path: string) => unknown) => REDESIGN && (get(`${FU}.fuseGrow`) !== "seed" ? get(`${FU}.fuseUnit`) === "building" : ["exhibition"].includes(String(get(`${FU}.화석이 생기는 과정.fuseStages`)))) },
       // ONE CLOCK: what happens to a part is read off its corrosion (0 = new … 1 = gone), the same for every stage
       [FU_WHEN]: folder({
         // THREE BANDS (the artist, 2026-10-31 night): the present (풍화 · 지층 › 현재 두께), the layer where the processes

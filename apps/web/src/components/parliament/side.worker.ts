@@ -20,7 +20,7 @@
  * One file for all: an instance is only ever sent one kind of work.
  */
 
-import { FuseUnits, lookFn, makePiece, type PieceCtx, type PieceDone, type PieceTask, type UnitFused, type UnitRequest } from "@/lib/parliament/fuseUnits";
+import { FuseUnits, lookFn, makePiece, type PieceCtx, type PieceDone, type PieceTask, type UnitFused, type UnitRequest, type WholePieceBack, type WholePieces } from "@/lib/parliament/fuseUnits";
 import type { FuseMesh } from "@/lib/parliament/fuse";
 import { MeshoptSimplifier } from "three/examples/jsm/libs/meshopt_simplifier.module.js";
 import { walkways, type WalkRequest, type WalkResult } from "@/lib/parliament/walkways";
@@ -84,6 +84,17 @@ function hand(hp: Helper, d: { ctx: PieceCtx; task: PieceTask }): void {
 function onHelper(hp: Helper, ev: MessageEvent<PieceDone | { type: "piece-lost"; ticket: number }>): void {
   const m = ev.data;
   hp.busy = false;
+  // (a piece of the model's building: back to the model — or, the helper not knowing its job, handed again)
+  const r = relayOut.get(m.ticket);
+  if (r) {
+    relayOut.delete(m.ticket);
+    if (m.type === "piece-lost") {
+      hp.told = [];
+      if (r.serial === relaySerial) relayQ.unshift({ ctx: r.ctx, task: r.task, key: r.key, serial: r.serial });
+    } else if (r.serial === relaySerial) relayBack(r.serial, r.key, m.mesh, m.ms);
+    schedule();
+    return;
+  }
   if (m.type === "piece-lost") {
     // (it did not know the job — it is told again)
     hp.told = [];
@@ -92,8 +103,62 @@ function onHelper(hp: Helper, ev: MessageEvent<PieceDone | { type: "piece-lost";
   schedule();
 }
 
+// ── WHOLE STAGES: A BUILDING'S PIECES, MADE HERE FOR THE MODEL'S WORKER (spaceModel fuseBuildings, 2026-11-28) ──
+// The model's worker hands over the pieces of the building it is making (WholePieces); they go before this side's
+// own, one to each idle helper (or made here, with none), and each is sent back to the model as it is done. A new
+// serial replaces what was handed before; what comes back of an older one is let go.
+/** Tickets of these pieces: far above this side's own (FuseUnits counts from 1). */
+let relayTicket = 1_000_000_000;
+let relaySerial = -1;
+const relayQ: { ctx: PieceCtx; task: PieceTask; key: string; serial: number }[] = [];
+const relayOut = new Map<number, { ctx: PieceCtx; task: PieceTask; key: string; serial: number; hid?: number }>();
+let relayLook: { serial: number; fn: ((k: number) => number) | undefined } | null = null;
+
+function relayBack(serial: number, key: string, mesh: FuseMesh, ms: number): void {
+  port?.postMessage({ type: "whole-piece", serial, key, mesh, ms } satisfies WholePieceBack, buffersOf(mesh));
+}
+
+function relayTake(m: WholePieces): void {
+  relaySerial = m.serial;
+  relayQ.length = 0;
+  if (!m.ctx) return;
+  for (const t of m.tasks) relayQ.push({ ctx: m.ctx, task: { ...t, ticket: relayTicket++ }, key: t.key, serial: m.serial });
+}
+
+/** One piece of the model's building: to an idle helper each, or made here (no helpers). Whether any was. */
+function relayWork(): boolean {
+  if (!relayQ.length) return false;
+  if (!helpers.length) {
+    const r = relayQ.shift()!;
+    if (relayLook?.serial !== r.serial) relayLook = { serial: r.serial, fn: r.ctx.look ? lookFn(r.ctx.look) : undefined };
+    const t0 = performance.now();
+    const mesh = makePiece(r.ctx, relayLook.fn, r.task, [], {}, false);
+    relayBack(r.serial, r.key, mesh, performance.now() - t0);
+    return true;
+  }
+  let out = false;
+  for (const hp of helpers) {
+    if (hp.busy || !relayQ.length) continue;
+    const r = relayQ.shift()!;
+    relayOut.set(r.task.ticket, { ...r, hid: hp.id });
+    hand(hp, { ctx: r.ctx, task: r.task });
+    out = true;
+  }
+  return out;
+}
+
 /** Make a piece (no helpers) or hand one to every idle helper. Whether anything was made or handed out. */
 function work(): boolean {
+  // (the model's building first: it waits for all of its pieces)
+  if (relayQ.length) {
+    const did = relayWork();
+    if (!helpers.length || !helpers.some((h) => !h.busy)) return did;
+    return (helpers.length ? workUnits() : false) || did;
+  }
+  return workUnits();
+}
+
+function workUnits(): boolean {
   if (!helpers.length) return units.step() !== null;
   let out = false;
   for (const hp of helpers) {
@@ -130,6 +195,8 @@ function turn(): void {
   else if (units.hasDirty()) schedule(EMIT_MS);
   else if (left && units.waitMs < Infinity) schedule(Math.min(units.waitMs + 20, wake + 20, 5000));
   else if (wake < Infinity) schedule(Math.min(wake + 20, 5000));
+  // (the model's building has pieces still to hand out, and there is someone to make them)
+  if (relayQ.length && (!helpers.length || helpers.some((h) => !h.busy))) schedule();
 }
 
 // ── the ways ──
@@ -142,10 +209,15 @@ function walk(m: WalkRequest): void {
   port?.postMessage({ type: "walks", serial: m.serial, walks, ms: performance.now() - t0 } satisfies WalkResult);
 }
 
-function onPort(ev: MessageEvent<UnitRequest | WalkRequest>): void {
+function onPort(ev: MessageEvent<UnitRequest | WalkRequest | WholePieces>): void {
   const m = ev.data;
   if (m.type === "walk") {
     walk(m);
+    return;
+  }
+  if (m.type === "whole-pieces") {
+    relayTake(m);
+    schedule();
     return;
   }
   units.request(m);
@@ -220,6 +292,11 @@ self.onmessage = (ev: MessageEvent<FromView>) => {
       hp.port.onmessage = null;
       hp.port.close();
       units.cancel(id);
+      // (the model's pieces it had: handed again)
+      for (const [t, r] of [...relayOut]) if (r.hid === id) {
+        relayOut.delete(t);
+        if (r.serial === relaySerial) relayQ.unshift({ ctx: r.ctx, task: r.task, key: r.key, serial: r.serial });
+      }
     }
     helpers = helpers.filter((q) => !(m.remove ?? []).includes(q.id));
     for (const { id, port: p } of m.add ?? []) {

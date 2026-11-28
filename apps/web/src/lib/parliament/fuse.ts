@@ -1812,13 +1812,35 @@ export function compactFuseMesh(mesh: FuseMesh): FuseMesh {
  * back into them). Written as a surface coming in (`going` false: it starts on the other and moves to its own) or one
  * going (it moves from its own onto the other and is not drawn once there), from `clock` (seconds). Nearest over the
  * 27 cells about the vertex first, wider only when nothing is that near: a shape that changed a little costs little.
+ *
+ * ONLY WHAT CHANGED (2026-11-28: one big building's melt took 1.3 s in the model's worker): `only` — vertex ranges of
+ * `mesh` that are to melt (the pieces made anew); every other vertex is the same in both masses and does not move — one
+ * coming is simply there, one going is gone at once (its twin in the other mass stands in its place). `otherOnly` —
+ * the ranges of `other` its points are taken from (the pieces that were replaced). Both undefined = all, as before.
  */
-export function meltMorph(mesh: FuseMesh, other: FuseMesh | null, clock: number, going: boolean, reach = 2.4, sink = 0.6): void {
+export function meltMorph(mesh: FuseMesh, other: FuseMesh | null, clock: number, going: boolean, reach = 2.4, sink = 0.6, only?: readonly (readonly [number, number])[], otherOnly?: readonly (readonly [number, number])[]): void {
   const P = mesh.position, N = mesh.normal, nv = P.length / 3;
   const out = new Float32Array(nv * 4);
   const w = going ? -clock - 1 : clock;
+  if (only) {
+    // (the unchanged: no offset — coming, no morph at all; going, already over: hidden at once)
+    const still = going ? -(clock - 1e4) - 1 : -1e9;
+    for (let v = 0; v < nv; v++) out[v * 4 + 3] = still;
+  }
   // (the other's points in a dense grid of cells over its bounds — a few a cell, kept in order of the cells)
-  const Q = other?.position ?? new Float32Array(0), nq = Q.length / 3, PER = 6;
+  const Qall = other?.position ?? new Float32Array(0);
+  let Q = Qall;
+  if (other && otherOnly) {
+    let n = 0;
+    for (const [a, b] of otherOnly) n += Math.max(0, b - a);
+    Q = new Float32Array(n * 3);
+    let o = 0;
+    for (const [a, b] of otherOnly) {
+      Q.set(Qall.subarray(a * 3, b * 3), o);
+      o += Math.max(0, b - a) * 3;
+    }
+  }
+  const nq = Q.length / 3, PER = 6;
   let cell = Math.max(0.25, reach / 4);
   let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
   for (let i = 0; i < Q.length; i += 3) {
@@ -1846,7 +1868,8 @@ export function meltMorph(mesh: FuseMesh, other: FuseMesh | null, clock: number,
     pts[o] = Q[i * 3]; pts[o + 1] = Q[i * 3 + 1]; pts[o + 2] = Q[i * 3 + 2];
   }
   const R = Math.ceil(reach / cell), reach2 = reach * reach;
-  for (let v = 0; v < nv; v++) {
+  const spans: readonly (readonly [number, number])[] = only ?? [[0, nv]];
+  for (const [va, vb] of spans) for (let v = va; v < vb; v++) {
     const x = P[v * 3], y = P[v * 3 + 1], z = P[v * 3 + 2];
     let best = reach2, bx = 0, by = 0, bz = 0, found = false;
     if (nc) {

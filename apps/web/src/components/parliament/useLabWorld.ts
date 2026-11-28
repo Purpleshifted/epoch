@@ -20,7 +20,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { currentEpochKey, loadEvents, tailField, worldNow, type EventLog, type LocalClock, type PEvent } from "@/lib/parliament";
 import { LS_RISE, risePause } from "@/lib/parliament/rise";
-import { BOT_SERVER, BOT_WORLD, botServerOn } from "./useBotServer";
+import { BOT_SERVER, BOT_WORLD, botServerOn, watchExhibition } from "./useBotServer";
 
 type Rise = { at: number | null; lost: number; epoch: number };
 
@@ -78,7 +78,8 @@ function takeFromServer(): Promise<Taken> {
     let done = false;
     let head: { epochMs: number; nowMs: number; rise: Rise | null; held: number } | null = null;
     const events: PEvent[] = [];
-    const ws = new WebSocket(`${BOT_SERVER}/${BOT_WORLD}`);
+    // (`?watch=1`: the exhibition's world, wherever the page runs — useBotServer watchExhibition; it sends nothing either way)
+    const ws = new WebSocket(`${BOT_SERVER}/${watchExhibition() ? "redesign" : BOT_WORLD}`);
     const end = (err?: string) => {
       if (done) return;
       done = true;
