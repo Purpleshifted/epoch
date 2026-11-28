@@ -272,7 +272,7 @@ function ensure(m: THREE.Material): boolean {
 }
 
 /** THE FRAME'S LOOK (the knobs of PointLod, read by PointFrameEffect) and whether the effect is in the composer now. */
-const frame = { mounted: false, want: false, far: 8, from: 110, to: 260, fade: 0.3 };
+const frame = { mounted: false, want: false, far: 8, from: 110, to: 260, fade: 0.3, clump: 0.6, clumpAt: 0.12 };
 const frameOn = (): boolean => frame.mounted && frame.want;
 /** The small frame's size against the picture's (each way). */
 const FRAME_SCALE = 0.25;
@@ -294,16 +294,31 @@ void main() {
   c += (texture2D(uTex, vUv + uStep * 3.2307692308) + texture2D(uTex, vUv - uStep * 3.2307692308)) * 0.0702702703;
   gl_FragColor = c;
 }`;
-/** The far points' frame, softened, laid over the picture (premultiplied). */
+/**
+ * The far points' frame, softened, laid over the picture (premultiplied) — and CLUMPED BY HOW DENSE THEY LOOK (the
+ * artist, 2026-11-28: "특정 거리 이상은 식생 보이는 밀도 따라 뭉치는 가중치 넣도록 하면 …" → "1번 해보자"): the blurred
+ * frame's coverage IS how dense the far greenery looks there, so a soft threshold on it (뭉치는 밀도) closes what is
+ * denser into a solid mass and lets what is sparser fade, by 밀도 따라 뭉침 (0 = as blurred). A curve in this pass, no
+ * pass more.
+ */
 const COMPOSE_FRAG = /* glsl */ `
 uniform sampler2D uFarTex;
 uniform float uOn;
+uniform float uClump;
+uniform float uClumpAt;
 void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor) {
   if (uOn < 0.5) {
     outputColor = inputColor;
     return;
   }
   vec4 c = texture2D(uFarTex, uv);
+  if (uClump > 0.0 && c.a > 1e-4) {
+    float a = min(c.a, 1.0);
+    float t = max(uClumpAt, 1e-3);
+    float clumped = smoothstep(t * 0.5, t * 1.5, a);
+    float a2 = mix(a, clumped, uClump);
+    c = vec4(c.rgb / c.a * a2, a2);
+  }
   outputColor = vec4(inputColor.rgb * (1.0 - min(c.a, 1.0)) + c.rgb, inputColor.a);
 }`;
 
@@ -342,6 +357,8 @@ class PointFrameEffect extends Effect {
       uniforms: new Map<string, THREE.Uniform>([
         ["uFarTex", new THREE.Uniform(null)],
         ["uOn", new THREE.Uniform(0)],
+        ["uClump", new THREE.Uniform(0.6)],
+        ["uClumpAt", new THREE.Uniform(0.12)],
       ]),
     });
     this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.blur);
@@ -405,6 +422,8 @@ class PointFrameEffect extends Effect {
     renderer.autoClear = auto;
     // 3 · laid over the picture (mainImage)
     (this.uniforms.get("uFarTex") as THREE.Uniform<THREE.Texture | null>).value = far;
+    (this.uniforms.get("uClump") as THREE.Uniform<number>).value = Math.max(0, Math.min(1, frame.clump));
+    (this.uniforms.get("uClumpAt") as THREE.Uniform<number>).value = Math.max(0.001, frame.clumpAt);
   }
 
   dispose(): void {
@@ -449,10 +468,13 @@ export function PointLod() {
         blurFrom: { value: 110, min: 0, max: 600, step: 5, label: "흐림 시작 거리 (눈에서 · 월드 · 여기까지는 또렷하게)" },
         blurTo: { value: 260, min: 10, max: 800, step: 5, label: "흐림 끝 거리 (여기부터 모두 먼 흐림)" },
         blurFade: { value: 0.3, min: 0, max: 1, step: 0.05, label: "멀수록 옅어짐" },
+        // ("식생 보이는 밀도 따라 뭉치는 가중치" — COMPOSE_FRAG)
+        clump: { value: 0.6, min: 0, max: 1, step: 0.05, label: "밀도 따라 뭉침 (먼 식생이 빽빽해 보이는 곳은 덩어리로, 성긴 곳은 옅게 · 0 = 흐린 그대로)" },
+        clumpAt: { value: 0.12, min: 0.01, max: 0.6, step: 0.01, label: "뭉치는 밀도 (흐린 먼 식생이 이보다 짙으면 덩어리)" },
       }),
     }),
     { collapsed: true },
-  ) as unknown as { on: boolean; start: number; strength: number; max: number; blurOn: boolean; blurFar: number; blurFrom: number; blurTo: number; blurFade: number };
+  ) as unknown as { on: boolean; start: number; strength: number; max: number; blurOn: boolean; blurFar: number; blurFrom: number; blurTo: number; blurFade: number; clump: number; clumpAt: number };
   const scene = useThree((s) => s.scene);
   const last = useRef(-Infinity);
   /** Every patched Points, and the layers it had of its own (the frame's layer is added while the frame is drawn). */
@@ -470,7 +492,7 @@ export function PointLod() {
     pointLodU.uPlodStart.value = Math.max(1, k.start);
     pointLodU.uPlodPow.value = Math.max(0, k.strength);
     pointLodU.uPlodMax.value = Math.max(1, k.max);
-    Object.assign(frame, { want: k.blurOn, far: k.blurFar, from: k.blurFrom, to: k.blurTo, fade: k.blurFade });
+    Object.assign(frame, { want: k.blurOn, far: k.blurFar, from: k.blurFrom, to: k.blurTo, fade: k.blurFade, clump: k.clump, clumpAt: k.clumpAt });
     state.gl.getDrawingBufferSize(drawSize.current);
     pointShotView(drawSize.current.x, drawSize.current.y);
     // (while the small frame is drawn: each point on its own layers — the wall's render, the near ones — and on the
