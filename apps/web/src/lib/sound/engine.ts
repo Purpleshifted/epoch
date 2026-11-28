@@ -29,6 +29,7 @@ import { ARRIVAL_COOLDOWN, ARRIVAL_IDLE, barClock, lockOf, nextArrival, planBar,
 import { bestKey, keyName, zoneChord, zoneOf } from "./tonality";
 import type { KnobSources } from "./noisecraftKnobs";
 import { applyOutput, makeLimiter, onOutputChange } from "./output";
+import { renderCrackle } from "./crackle";
 import type { PersonalSignals } from "./signals";
 import { CYCLES_PER_PHRASE, PHRASE_STEPS, STEPS_PER_CYCLE, cycleToSteps, type Phrase } from "./variation";
 
@@ -218,14 +219,16 @@ export interface SoundParams {
    * THE FUTURE PASSING AS A DAYDREAM (§13k — the artist, 2026-11-28: "'미래' 찾아왔을 때 … 소리 효과가 없음. 음색이나 화성을
    * 퓨처리스틱 + 원래 하던 꽃 효과 + 뭔가 전파스러운 … 백일몽이 나를 스쳐가는 느낌", then "훨씬 엠비언트 하게 … 삐악 하는
    * 코드 소리? 는 빼는"; the redesigned view only): on, its level and length (s), and each part's share — the haze (the
-   * place's lydian, low and slow), the radio far off (a dark band of static), its whistle, my own melody as if from the
-   * future, the old meadow's glitter (futureSound.ts), the patch's bloom.
+   * place's lydian, low and slow), the radio far off (a dark band of static), its crackle (pops, sparks and noise grains
+   * — "파직거리는 전파", crackle.ts), its whistle, my own melody as if from the future, the old meadow's glitter
+   * (futureSound.ts), the patch's bloom.
    */
   futureSound: boolean;
   futureLevel: number;
   futureDur: number;
   futureHaze: number;
   futureRadio: number;
+  futureCrackle: number;
   futureWhistle: number;
   futureEcho: number;
   futureGlitter: number;
@@ -337,6 +340,7 @@ export const DEFAULT_SOUND: SoundParams = {
   futureDur: 10,
   futureHaze: 1,
   futureRadio: 1,
+  futureCrackle: 1,
   futureWhistle: 1,
   futureEcho: 1,
   futureGlitter: 1,
@@ -1403,6 +1407,46 @@ export class SoundEngine {
       src.start(t0);
       src.stop(stop);
       tidy.push(bp, g);
+    }
+    // THE CRACKLE (in the chirp's place — the artist, 2026-11-28: "그래뉼러 노이즈나 파직거리는 전파 느낌 … 전에 삐약 대신에"):
+    // pops and sparks between 600 Hz and 2.8 kHz (under the glitter's band), and a sandy hiss of noise grains tuned with
+    // the static's band; thickest while tuning in, thinning as it locks (crackle.ts)
+    if (p.futureCrackle > 0) {
+      const sr = ctx.sampleRate;
+      const r = renderCrackle({ sampleRate: sr, dur: D, tail: TAIL, kind, noise: this.noise.getChannelData(0) });
+      const play = (data: Float32Array) => {
+        const b = ctx.createBuffer(1, data.length, sr);
+        b.getChannelData(0).set(data);
+        const s = ctx.createBufferSource();
+        s.buffer = b;
+        s.start(t0);
+        s.stop(stop);
+        return s;
+      };
+      const hp = ctx.createBiquadFilter();
+      hp.type = "highpass";
+      hp.frequency.value = 600;
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 2800;
+      const cg = ctx.createGain();
+      cg.gain.value = 0.3 * p.futureCrackle;
+      play(r.crackle).connect(hp).connect(lp).connect(cg).connect(out);
+      const gbp = ctx.createBiquadFilter();
+      gbp.type = "bandpass";
+      gbp.Q.value = 1.2;
+      if (kind === "arrive") {
+        gbp.frequency.setValueAtTime(500, t0);
+        gbp.frequency.exponentialRampToValueAtTime(1600, t0 + D * 0.45);
+        gbp.frequency.exponentialRampToValueAtTime(800, end);
+      } else {
+        gbp.frequency.setValueAtTime(1200, t0);
+        gbp.frequency.exponentialRampToValueAtTime(300, end);
+      }
+      const gg = ctx.createGain();
+      gg.gain.value = 0.12 * p.futureCrackle;
+      play(r.grains).connect(gbp).connect(gg).connect(out);
+      tidy.push(hp, lp, cg, gbp, gg);
     }
     // THE WHISTLE: a thin tone gliding down until it locks (kept — the artist, 2026-11-28: "휘파람은 괜찮음")
     if (p.futureWhistle > 0) {
