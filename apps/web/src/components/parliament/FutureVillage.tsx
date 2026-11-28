@@ -171,7 +171,7 @@ const BEAM_FRAGMENT = [
   "    sum += 1.0 - smoothstep( 1.0 - uSoft, 1.0, m );",
   // (how far inside the square's rim, in the world: the samples lie where the light is, so their mean is the rim's
   // share of what this line of sight sees)
-  "    float dRim = 0.5 * uSize.x - max( abs( q.x * uSize.x ), abs( q.z * uSize.z ) );",
+  "    float dRim = 0.5 * uSize.x - length( vec2( q.x * uSize.x, q.z * uSize.z ) );",
   "    rimSum += uRim > 0.0 ? smoothstep( 0.0, uRim, dRim ) : 1.0;",
   "  }",
   "  float lit = uGlow * fallSum * ( sum / 3.0 ) * ( tf - tn ) / uSize.x;",
@@ -185,20 +185,23 @@ const BEAM_FRAGMENT = [
   "}",
 ].join("\n");
 
-/** THE BRIGHT SQUARE (the lid): its colour, and — as the eye looks up — its rim going out over `uRim` (world) into whatever is
- *  behind it (the same rim as the light's under it, BEAM_FRAGMENT). Blended in the opaque pass, so it can still be drawn
- *  first, as a background. */
+/** THE BRIGHT SQUARE (the lid): its colour, and its rim going out over `uRim` (world) into whatever is behind it — ROUND
+ *  (the artist, 2026-11-28, of the square rim's fade: "그래도 사각형 티가 남 ㅠㅠ"; her shot was from below and to the side,
+ *  where the black square stood out against the background with straight edges): as the background under the layer
+ *  (uAll 1) from every side, otherwise only as the eye looks up. The light under it goes out on the same circle
+ *  (BEAM_FRAGMENT). Blended in the opaque pass, so it can still be drawn first, as a background. */
 const LID_VERTEX = "varying vec3 vW;\nvarying vec3 vC;\nvoid main() {\n  vec4 w = modelMatrix * vec4( position, 1.0 );\n  vW = w.xyz;\n  vC = modelMatrix[ 3 ].xyz;\n  gl_Position = projectionMatrix * viewMatrix * w;\n}";
 const LID_FRAGMENT = [
   "uniform vec3 uColor;",
   "uniform float uHalf;",
   "uniform float uRim;",
+  "uniform float uAll;",
   "varying vec3 vW;",
   "varying vec3 vC;",
   "void main() {",
   "  vec3 rd = normalize( vW - cameraPosition );",
-  "  float d = uHalf - max( abs( vW.x - vC.x ), abs( vW.z - vC.z ) );",
-  "  float a = uRim > 0.0 ? mix( 1.0, smoothstep( 0.0, uRim, d ), smoothstep( 0.25, 0.7, rd.y ) ) : 1.0;",
+  "  float d = uHalf - length( vW.xz - vC.xz );",
+  "  float a = uRim > 0.0 ? mix( 1.0, smoothstep( 0.0, uRim, d ), max( uAll, smoothstep( 0.25, 0.7, rd.y ) ) ) : 1.0;",
   "  gl_FragColor = vec4( uColor, a );",
   "  #include <colorspace_fragment>",
   "}",
@@ -257,7 +260,7 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
       beamSoft: { value: 0.8, min: 0.05, max: 1, step: 0.05, label: "빛기둥 옆 가장자리의 번짐 (작으면 또렷한 네모 기둥 … 1 = 가운데부터 옅어짐)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
       // (the artist, 2026-11-28: "지금같은 '아래 조명 느낌'은 유지하되 아래서 올려다봤을 때의 밑면 테두리는 부드럽게 블렌드
       // 아웃 되거나 안 보이게"): the bright square and its light go out towards the square's edge, as the eye looks up
-      beamRim: { value: 30, min: 0, max: 80, step: 1, label: "올려다볼 때 밑면 테두리가 사라지는 폭 (칸 · 네모 천장과 그 빛 · 옆에서 볼 때는 그대로 · 0 = 잘린 그대로)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
+      beamRim: { value: 30, min: 0, max: 80, step: 1, label: "밑면 테두리가 둥글게 사라지는 폭 (칸 · 아래에 깔린 네모 천장은 어느 쪽에서 봐도 · 그 아래 빛은 올려다볼 때만 · 0 = 잘린 네모 그대로)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
       beamDeep: { value: 120, min: 5, max: 400, step: 5, label: "빛기둥의 길이 (단 · 천장에서 아래로 — 좁아짐은 이 끝에서 다함)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
       pitDepth: { value: 160, min: 10, max: 400, step: 5, label: "상자의 깊이 (단 · 미래 땅에서 아래로 — 위에서 볼 때의 버전들)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
       pitWide: { value: 6, min: 1.5, max: 20, step: 0.5, label: "바깥 땅의 넓이 (상자 한 변의 몇 배)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
@@ -325,7 +328,7 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
         blending: THREE.CustomBlending,
         blendSrc: THREE.SrcAlphaFactor,
         blendDst: THREE.OneMinusSrcAlphaFactor,
-        uniforms: { uColor: { value: new THREE.Color() }, uHalf: { value: WORLD_SIZE / 2 }, uRim: { value: 0 } },
+        uniforms: { uColor: { value: new THREE.Color() }, uHalf: { value: WORLD_SIZE / 2 }, uRim: { value: 0 }, uAll: { value: 0 } },
         vertexShader: LID_VERTEX,
         fragmentShader: LID_FRAGMENT,
       }),
@@ -451,6 +454,8 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
       lidMat.depthWrite = !back;
       (lidMat.uniforms.uColor.value as THREE.Color).set(k.pitLight);
       lidMat.uniforms.uRim.value = Math.max(0, k.beamRim) * CELL_SIZE;
+      // (as the background under the layer, its rim goes out from every side — not only as the eye looks up)
+      lidMat.uniforms.uAll.value = back ? 1 : 0;
     }
     // 6: under that ceiling nothing but its light — a body of it, strongest under the ceiling, narrowing and gone with
     // depth (the shader reads where the box stands from the box's own matrix)
