@@ -11,7 +11,7 @@
  * 2 · ITS OWN FRAME, SOFTENED BY DISTANCE — the photograph's rule of the personal view (InkPaper: a narrow blur
  *     everywhere, a wide one by depth, fading with distance), with the wall's own ranges: while PointFrame runs (in the
  *     wall's composer), these points are left out of the wall's own render (POINT_LAYER) and drawn into a frame of their
- *     own at half the size, hidden where the wall's picture is nearer (its depth); that frame is parted by distance into
+ *     own at the picture's size, hidden where the wall's picture is nearer (its depth); that frame is parted by distance into
  *     what is near and what is far (흐림 시작 → 끝 거리), the near part blurred narrowly (가까운 흐림), the far part widely
  *     (먼 흐림) and paler (멀수록 옅어짐), and laid over the picture. Far greenery melts into soft masses, and near points
  *     keep no halo of the far blur (each part is blurred on its own).
@@ -280,17 +280,32 @@ void main() {
   float t = smoothstep(uFrom, max(uFrom + 1.0, uTo), linDepth(texture2D(uDepth, vUv).r));
   gl_FragColor = uPart < 0.5 ? c * (1.0 - t) : c * t * (1.0 - uFade * t);
 }`;
-/** Laid over the picture (premultiplied): the near part, softened narrowly, and the far part, widely. */
+/** Laid over the picture (premultiplied): the near part — as drawn, at the picture's own size, or softened narrowly —
+ *  and the far part, softened widely (at half the size). */
 const COMPOSE_FRAG = /* glsl */ `
+uniform sampler2D uFull;
+uniform sampler2D uFullDepth;
 uniform sampler2D uNearTex;
 uniform sampler2D uFarTex;
 uniform float uOn;
+uniform float uNearBlur;
+uniform float uCamNear;
+uniform float uCamFar;
+uniform float uFrom;
+uniform float uTo;
+float plodLinDepth(float z) {
+  float zn = z * 2.0 - 1.0;
+  return (2.0 * uCamNear * uCamFar) / (uCamFar + uCamNear - zn * (uCamFar - uCamNear));
+}
 void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor) {
   if (uOn < 0.5) {
     outputColor = inputColor;
     return;
   }
-  vec4 c = texture2D(uNearTex, uv) + texture2D(uFarTex, uv);
+  vec4 n;
+  if (uNearBlur > 0.5) n = texture2D(uNearTex, uv);
+  else n = texture2D(uFull, uv) * (1.0 - smoothstep(uFrom, max(uFrom + 1.0, uTo), plodLinDepth(texture2D(uFullDepth, uv).r)));
+  vec4 c = n + texture2D(uFarTex, uv);
   outputColor = vec4(inputColor.rgb * (1.0 - min(c.a, 1.0)) + c.rgb, inputColor.a);
 }`;
 
@@ -305,14 +320,18 @@ const target = (w: number, h: number, depth = false): THREE.WebGLRenderTarget =>
 
 /**
  * THE POINTS' OWN FRAME, IN THE WALL'S COMPOSER: each frame (update) the points of POINT_LAYER alone into a frame of
- * their own at half the picture's size — hidden where the wall's depth is nearer — parted by distance, the parts
- * blurred (narrow: once each way; wide: twice each way, as InkPaper), and laid over the picture (mainImage).
+ * their own AT THE PICTURE'S OWN SIZE — hidden where the wall's depth is nearer — parted by distance: the near part laid
+ * over as drawn (or blurred narrowly, at that size), the far part at half the size, blurred widely (twice each way, as
+ * InkPaper), and laid over the picture (mainImage). (At first the whole frame was half the size — "뭉치기 꺼도 너무
+ * 투박해": three sizes points by the screen's height, so in a frame half as high every point came out twice as large, and
+ * coarse.)
  */
 class PointFrameEffect extends Effect {
   scene: THREE.Scene | null = null;
   cam: THREE.Camera | null = null;
   private depthTex: THREE.Texture | null = null;
   private rt = target(1, 1, true);
+  // (the near part's, at the picture's size — made only while 가까운 흐림 is above 0)
   private nA = target(1, 1);
   private nB = target(1, 1);
   private fA = target(1, 1);
@@ -335,9 +354,16 @@ class PointFrameEffect extends Effect {
       attributes: EffectAttribute.DEPTH,
       blendFunction: BlendFunction.SRC,
       uniforms: new Map<string, THREE.Uniform>([
+        ["uFull", new THREE.Uniform(null)],
+        ["uFullDepth", new THREE.Uniform(null)],
         ["uNearTex", new THREE.Uniform(null)],
         ["uFarTex", new THREE.Uniform(null)],
         ["uOn", new THREE.Uniform(0)],
+        ["uNearBlur", new THREE.Uniform(0)],
+        ["uCamNear", new THREE.Uniform(0.1)],
+        ["uCamFar", new THREE.Uniform(1000)],
+        ["uFrom", new THREE.Uniform(110)],
+        ["uTo", new THREE.Uniform(260)],
       ]),
     });
     this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.blur);
@@ -366,9 +392,12 @@ class PointFrameEffect extends Effect {
     const on = frameOn() && !!scene && !!cam;
     (this.uniforms.get("uOn") as THREE.Uniform<number>).value = on ? 1 : 0;
     if (!on || !scene || !cam) return;
-    // (half the picture's size: what is blurred hides it, and the wall is bound by its pixels)
-    const w = Math.max(1, Math.round(inputBuffer.width / 2)), h = Math.max(1, Math.round(inputBuffer.height / 2));
-    if (this.rt.width !== w || this.rt.height !== h) for (const t of [this.rt, this.nA, this.nB, this.fA, this.fB]) t.setSize(w, h);
+    // (the points at the picture's own size — as fine and as large as the wall draws them; only the far part, blurred
+    // widely, at half: what is blurred hides it, and the wall is bound by its pixels)
+    const W = Math.max(1, inputBuffer.width), H = Math.max(1, inputBuffer.height);
+    const w = Math.max(1, Math.round(W / 2)), h = Math.max(1, Math.round(H / 2));
+    if (this.rt.width !== W || this.rt.height !== H) this.rt.setSize(W, H);
+    if (this.fA.width !== w || this.fA.height !== h) for (const t of [this.fA, this.fB]) t.setSize(w, h);
     // 1 · THE POINTS ALONE, hidden where the wall stands nearer (its depth, from the composer)
     const mask = cam.layers.mask, bg = scene.background, auto = renderer.autoClear;
     const shadowAuto = renderer.shadowMap.autoUpdate, shadowNeed = renderer.shadowMap.needsUpdate;
@@ -385,7 +414,7 @@ class PointFrameEffect extends Effect {
     renderer.clear(true, true, false);
     pointLodU.uPlodOccTex.value = this.depthTex;
     pointLodU.uPlodOccOn.value = this.depthTex ? 1 : 0;
-    pointLodU.uPlodOccRes.value.set(w, h);
+    pointLodU.uPlodOccRes.value.set(W, H);
     renderer.render(scene, cam);
     pointLodU.uPlodOccOn.value = 0;
     cam.layers.mask = mask;
@@ -393,7 +422,7 @@ class PointFrameEffect extends Effect {
     renderer.shadowMap.autoUpdate = shadowAuto;
     renderer.shadowMap.needsUpdate = shadowNeed;
     renderer.setClearColor(this.clear, clearA);
-    // 2 · PARTED BY DISTANCE (near → nA, far → fA)
+    // 2 · PARTED BY DISTANCE, AND SOFTENED (radii in the screen's pixels; a hero shot's still has more: uPlodShot)
     const su = this.split.uniforms;
     su.uTex.value = this.rt.texture;
     su.uDepth.value = this.rt.depthTexture;
@@ -402,19 +431,20 @@ class PointFrameEffect extends Effect {
     su.uFrom.value = frame.from;
     su.uTo.value = frame.to;
     su.uFade.value = Math.max(0, Math.min(1, frame.fade));
-    su.uPart.value = 0;
-    this.draw(renderer, this.split, this.nA);
-    su.uPart.value = 1;
-    this.draw(renderer, this.split, this.fA);
-    // 3 · SOFTENED (radii in the screen's pixels, the frame is half as many; a hero shot's still has more: uPlodShot)
-    const k = pointLodU.uPlodShot.value / 2;
-    const rN = Math.max(0, frame.near) * 0.5 * k, rW = Math.max(0, frame.far) * 0.25 * k;
-    let near: THREE.Texture = this.nA.texture;
-    if (rN > 0.01) {
+    const shot = pointLodU.uPlodShot.value;
+    const rN = Math.max(0, frame.near) * 0.5 * shot, rW = Math.max(0, frame.far) * 0.25 * (shot / 2);
+    // the near part: as drawn (read in mainImage), or blurred narrowly at the picture's own size
+    const nearBlur = rN > 0.01;
+    if (nearBlur) {
+      if (this.nA.width !== W || this.nA.height !== H) for (const t of [this.nA, this.nB]) t.setSize(W, H);
+      su.uPart.value = 0;
+      this.draw(renderer, this.split, this.nA);
       this.pass(renderer, this.nA.texture, this.nB, 1, 0, rN);
       this.pass(renderer, this.nB.texture, this.nA, 0, 1, rN);
-      near = this.nA.texture;
     }
+    // the far part, at half the size
+    su.uPart.value = 1;
+    this.draw(renderer, this.split, this.fA);
     let far: THREE.Texture = this.fA.texture;
     if (rW > 0.01) {
       this.pass(renderer, this.fA.texture, this.fB, 1, 0, rW);
@@ -424,9 +454,17 @@ class PointFrameEffect extends Effect {
       far = this.fA.texture;
     }
     renderer.autoClear = auto;
-    // 4 · laid over the picture (mainImage)
-    (this.uniforms.get("uNearTex") as THREE.Uniform<THREE.Texture | null>).value = near;
-    (this.uniforms.get("uFarTex") as THREE.Uniform<THREE.Texture | null>).value = far;
+    // 3 · laid over the picture (mainImage)
+    const set = (name: string, v: unknown) => void ((this.uniforms.get(name) as THREE.Uniform).value = v);
+    set("uFull", this.rt.texture);
+    set("uFullDepth", this.rt.depthTexture);
+    set("uNearTex", nearBlur ? this.nA.texture : this.rt.texture);
+    set("uFarTex", far);
+    set("uNearBlur", nearBlur ? 1 : 0);
+    set("uCamNear", cam.near);
+    set("uCamFar", cam.far);
+    set("uFrom", frame.from);
+    set("uTo", frame.to);
   }
 
   dispose(): void {
