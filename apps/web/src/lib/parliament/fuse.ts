@@ -184,6 +184,12 @@ export interface FuseConfig {
    * the old one over `meltSec` seconds (FuseMesh.morph) instead of a cross-fade.
    */
   wholeStages?: boolean;
+  /** WHOLE STAGES' LIFE (2026-11-28, the artist: "늘 닫힌면이도록" — A): how many steps the going is carved in, and how
+   *  it looks — `holes` 0 thins the mass, 1 eats holes through it; `grain` the holes' size, `rag`/`patch` how far
+   *  patches of the world go ahead of or behind (as the shader's going). Carved into the field (FuseChunkInput.gone),
+   *  so every hole has a rim and every wall its thickness. Absent = no life. */
+  dieSteps?: number;
+  dieLook?: { holes: number; grain: number; rag: number; patch: number };
   /** WHOLE STAGES: the seconds a building's mass takes to melt from one stage into the next (0 = at once). */
   meltSec?: number;
   /**
@@ -811,6 +817,8 @@ export interface FuseChunkInput {
   parts: readonly Box[];
   /** Per part: decay = 1 − survival (0 fresh … 1 gone). Absent = 1 (all fully decayed). */
   decay?: ArrayLike<number>;
+  /** Per part (whole stages' life): the share of its fossil gone, carved out of the field (FuseConfig.dieLook). Absent = none. */
+  gone?: ArrayLike<number>;
 
   /** Per part: still standing (accretion only grows on standing parts). Absent = all standing. */
   standing?: ArrayLike<boolean>;
@@ -1491,6 +1499,54 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   }
 
   lap("ms shell");
+  // THE GOING, CARVED (FuseConfig.dieLook, FuseChunkInput.gone — whole stages; the artist, 2026-11-28: "삭거나 뚫린다
+  // 해도 벽 자체에 두께가 있어서 늘 닫힌면이도록"). The shader's going was a discard: through its holes the mass was a
+  // skin with nothing behind. Here the going is taken out of the FIELD before its surface is — about each part, by
+  // the share of its life gone (its step): thinned (the field drawn down towards below the iso) or eaten in holes (a
+  // noise of the world, as the shader's, the patches of the world ahead or behind) — so the surface wraps every hole's
+  // rim and every wall keeps a body. In world coordinates: the pieces and tiles meet without a seam.
+  {
+    const goneIn = input.gone, dl = cfg.dieLook;
+    let anyGone = false;
+    if (goneIn && dl) for (let pi = 0; pi < input.parts.length; pi++) if (goneIn[pi] > 0) { anyGone = true; break; }
+    if (goneIn && dl && anyGone) {
+      const G = new Float32Array(n);
+      const m = partReach(cfg) + vs;
+      for (let pi = 0; pi < input.parts.length; pi++) {
+        const g = goneIn[pi];
+        if (!(g > 0)) continue;
+        const b = input.parts[pi];
+        const hh = halfHeight(b), hx = Math.max(b.sx, vs) / 2 + m, hz = Math.max(b.sz, vs) / 2 + m, hy = Math.max(2 * hh, vs) / 2 + m;
+        fill(G, b.x - hx, b.x + hx, b.y - hy, b.y + hy, b.z - hz, b.z + hz, g);
+      }
+      const holes = Math.max(0, Math.min(1, dl.holes)), grain = Math.max(0.05, dl.grain), patch = Math.max(0.5, dl.patch), rag = Math.max(0, dl.rag);
+      const low = iso - 0.5;
+      for (let k = 0; k < nz; k++) {
+        for (let j = 0; j < ny; j++) {
+          for (let i = 0; i < nx; i++) {
+            const p = idx(i, j, k), g = G[p];
+            if (!(g > 0) || F[p] <= low) continue;
+            const x = (I0 + i) * vs, y = (J0 + j) * vs, z = (K0 + k) * vs;
+            // (the going's edge wanders patch by patch — as FUSE_GONE_FRAG_BODY's goneAt)
+            const at = Math.max(0, Math.min(1, g + (noise3(x / patch + 7.7, y / patch + 7.7, z / patch + 7.7, 77) - 0.5) * 3 * rag));
+            if (!(at > 0)) continue;
+            let f = F[p];
+            // thinned: the body drawn in towards nothing
+            const thin = at * (1 - holes);
+            if (thin > 0) f -= thin * 0.9 * (f - low);
+            // eaten in holes: an even spread of the noise, so the first holes come early and the last late
+            if (holes > 0) {
+              const nn = Math.max(0, Math.min(0.999, (0.65 * noise3(x / grain, y / grain, z / grain, 91) + 0.35 * noise3((x / grain) * 2.7 + 11.3, (y / grain) * 2.7 + 11.3, (z / grain) * 2.7 + 11.3, 93) - 0.5) * 1.9 + 0.5));
+              const c = Math.max(0, Math.min(1, (at * holes - nn) / 0.08));
+              if (c > 0) f += (Math.min(f, low) - f) * c;
+            }
+            F[p] = f;
+          }
+        }
+      }
+      lap("ms gone");
+    }
+  }
   // ── naive surface nets ──
   const cubeVert = new Int32Array((nx - 1) * (ny - 1) * (nz - 1)).fill(-1);
   const cidx = (i: number, j: number, k: number) => (k * (ny - 1) + j) * (nx - 1) + i;

@@ -472,7 +472,7 @@ export interface FuseInput {
    * without it, in batches. Not part of the fusion's settings: moving the life's knobs makes nothing again but the
    * pieces whose parts are other than they were. Absent = nothing is let go (no life, or one that never ends).
    */
-  dead?: { deep: number; at: number; after: number };
+  dead?: { deep: number; at: number; after: number; dieAfter?: number; dieSpan?: number; steps?: number };
   /**
    * THE FOSSIL IN STAGES (the artist, 2026-11-21 night, asked how the exhibition did it — its mass was made again as the
    * parts' clocks went — and whether to try the way between: "시험해 / 표면 뾰족한 거 진짜 싫어..."). With this the
@@ -858,7 +858,7 @@ export class SpaceModel {
     parts: { b: Box; grow?: number[] }[];
     h: NatureHistory | null;
     look: ((k: number) => number) | undefined;
-    todo: { key: string; sig: string; k0: number; k1: number; tx: number; tz: number; ps: { b: Box; d: number; up: boolean; sk: boolean }[] }[];
+    todo: { key: string; sig: string; k0: number; k1: number; tx: number; tz: number; ps: { b: Box; d: number; up: boolean; sk: boolean; g?: number }[] }[];
     done: Map<string, { sig: string; mesh: FuseMesh }>;
     /** The building's mass as it was when the job began (undefined: its first) — what the new one replaces. */
     base: SpaceModel["units"] extends Map<string, infer V> ? V | undefined : never;
@@ -883,6 +883,10 @@ export class SpaceModel {
   private leaveKey = 0;
   /** WHOLE STAGES BESIDE: the serial of the last building whose pieces were handed to the worker beside (fuseBuildings). */
   private wholeSerial = 1_000_000_000;
+  /** WHOLE STAGES' LIFE: per part, how late (ruler slots) its building first came on the screen — its life is set back by it. */
+  private dieLag = new Map<number, number>();
+  /** …and, this call, every part's lateness if it were seen now (computeFuse; read when a building is shown). */
+  private dieSeenNow = new Map<number, number>();
   // ── WHOLE STAGES: THE BUILDINGS' MASSES SENT ONE BY ONE (the artist, 2026-11-28: "시간 지날수록 무거워지면서 딜레이
   // 커짐") — a building made again sent every building's mass, merged anew into one mesh and put on the screen whole:
   // the more there was, the more each change cost. Now each building is a chunk of its own on the screen (the view's
@@ -1773,7 +1777,7 @@ export class SpaceModel {
    * parts stand exactly as they did is kept as it was.
    */
   private fuseBuildings(
-    bySlot: ReadonlyMap<number, { b: Box; d: number; up: boolean; sk: boolean; ang: number; grow?: number[]; st?: number }[]>,
+    bySlot: ReadonlyMap<number, { b: Box; d: number; up: boolean; sk: boolean; ang: number; grow?: number[]; st?: number; g?: number }[]>,
     h: NatureHistory | null,
     u: number,
     sed: NonNullable<ReturnType<typeof sedimentOf>>,
@@ -1782,7 +1786,7 @@ export class SpaceModel {
     padSlots: number,
     box: BoxConfig,
   ): FuseMesh | null {
-    type P = { b: Box; d: number; up: boolean; sk: boolean; ang: number; grow?: number[]; st?: number };
+    type P = { b: Box; d: number; up: boolean; sk: boolean; ang: number; grow?: number[]; st?: number; g?: number };
     const SEG = NATURE_CHUNK, T = BLOCK_TILE, PAD = 4;
     // (SEEDED: the mass is the building's whole mass, whatever its progress — it is made again only when its parts
     // are other than they were, and not more often than every so long: its assets come one by one)
@@ -1990,7 +1994,7 @@ export class SpaceModel {
             // (nothing comes of a place where no part is fusing: fuseTiled)
             if (!fusing(mine)) continue;
             let sg = 0;
-            for (const e of mine) sg += e.b.x * 3 + e.b.y * 7 + e.b.z * 11 + e.b.sx * 0.7 + e.b.sy * 1.3 + e.b.sz * 1.9 + Math.round(e.d * 20) * 0.9 + (e.up ? 19 : 0) + (e.sk ? 23 : 0);
+            for (const e of mine) sg += e.b.x * 3 + e.b.y * 7 + e.b.z * 11 + e.b.sx * 0.7 + e.b.sy * 1.3 + e.b.sz * 1.9 + Math.round(e.d * 20) * 0.9 + (e.up ? 19 : 0) + (e.sk ? 23 : 0) + (e.g ?? 0) * 29;
             todo.push({ key: `${k0}:${tx}:${tz}`, sig: `${mine.length}:${sg.toFixed(3)}`, k0, k1, tx, tz, ps: mine });
           }
         }
@@ -1998,7 +2002,7 @@ export class SpaceModel {
       const snap = new Map<number, number>();
       for (const e of list) snap.set(key(e.b), e.d);
       const steps = byStep ? new Map(list.map((e) => [key(e.b), e.st ?? 0] as const)) : undefined;
-      return { id, cfg, snap, steps, ang, parts: seeded || byStep ? list.map((e) => ({ b: e.b, grow: e.grow })) : [], h: h && ang ? SpaceModel.turnedHistory(h, c, sn, ext, ka - 12, kb + 12) : h, look: lookOf(list), todo, done: new Map(), fresh: new Set(), base: this.units.get(id), ...(byStep && this.fusePort ? { ctxH: h ? SpaceModel.turnedHistory(h, c, sn, ext, ka - 12, kb + 12) : null, lookData: layered ? unitLook(list) : null } : {}) };
+      return { id, cfg, snap, steps, ang, parts: seeded ? list.map((e) => ({ b: e.b, grow: e.grow })) : [], h: h && ang ? SpaceModel.turnedHistory(h, c, sn, ext, ka - 12, kb + 12) : h, look: lookOf(list), todo, done: new Map(), fresh: new Set(), base: this.units.get(id), ...(byStep && this.fusePort ? { ctxH: h ? SpaceModel.turnedHistory(h, c, sn, ext, ka - 12, kb + 12) : null, lookData: layered ? unitLook(list) : null } : {}) };
     };
 
     const deadline = performance.now() + FUSE_BUDGET_MS;
@@ -2110,9 +2114,13 @@ export class SpaceModel {
       // parts stand whole under it — a building's new mass costs the parts nothing)
       if ((fuse.absorb ?? 1) > 0) this.fuseBuilt++;
       // SEEDED: every vertex is given the part it grows from
-      // (WHOLE STAGES: the same — the shader reads each vertex's part's age and depth for the fossil's LIFE only: the
-      // mass is drawn whole as made, and its going eats holes in it by its own ruler — deep and old first, 2026-11-28)
-      if ((seeded || byStep) && job.parts.length) growData(mesh, job.parts, u);
+      // (WHOLE STAGES carry none: their life is carved into the mass — fuse.ts dieLook — not drawn by the shader)
+      if (seeded && job.parts.length) growData(mesh, job.parts, u);
+      // (WHOLE STAGES' LIFE: from now on these parts' lives are set back by how late their building came on the screen)
+      if (byStep) for (const k of job.snap.keys()) if (!this.dieLag.has(k)) {
+        const l = this.dieSeenNow.get(k);
+        if (l !== undefined) this.dieLag.set(k, l);
+      }
       // WHOLE STAGES: the new mass comes out of the old (or, the building's first, out of its parts) and the old goes
       // onto the new — both drawn while it melts, one body
       if (melt) {
@@ -2493,7 +2501,7 @@ export class SpaceModel {
 
   /** A chunk's parts (all square to the grid) fused tile by tile (fuseUnits.ts fuseTilesOf). */
   private fuseTiles(
-    w: { c0: number; c1: number; ps: { b: Box; d: number; up: boolean; sk: boolean }[]; tubes: BakedTube[]; x0: number; z0: number; nx: number; nz: number },
+    w: { c0: number; c1: number; ps: { b: Box; d: number; up: boolean; sk: boolean; g?: number }[]; tubes: BakedTube[]; x0: number; z0: number; nx: number; nz: number },
     h: NatureHistory | null,
     u: number,
     sed: NonNullable<ReturnType<typeof sedimentOf>>,
@@ -3892,7 +3900,7 @@ export class SpaceModel {
     const gone = bc ? Math.max(0, Math.min(1, fuse.goneMass ?? 0)) : 1;
     const skCfg = fuse;
     const q20 = (v: number) => Math.round(v * 20) / 20;
-    type P = { b: Box; d: number; up: boolean; sk: boolean; ang: number; grow?: number[]; st?: number };
+    type P = { b: Box; d: number; up: boolean; sk: boolean; ang: number; grow?: number[]; st?: number; g?: number };
     // the angle each seed's district is turned by (fuseTiled)
     const angleOf = new Map<number, number>();
     if (box.variety) for (const sd of this.seeds) angleOf.set(sd.id, districtOf(sd.x, sd.z, box.variety).angle);
@@ -3951,6 +3959,10 @@ export class SpaceModel {
     const meltKey = `${mv > 0 ? 1 : 0}:${mFrame}:${mLump}:${mSteer}`;
     // (how many parts were let go this time — for the readout)
     let letGo = 0;
+    // (WHOLE STAGES' LIFE, CARVED: the going in steps — fuse.ts dieLook; each part's lateness on the screen, as of now)
+    const carved = staged && !!fuse.dieLook && !!input.dead?.dieSpan;
+    const dieSeen = this.dieSeenNow;
+    dieSeen.clear();
     const fuseOf = unitsOn ? [...this.built.filter((b) => !(b.kind === "mass" && this.assetClock.has(b))), ...this.fossilUnits] : this.built;
     for (const b of fuseOf) {
       if (STEEL_KINDS.has(b.kind) || b.kind === "drip") continue; // too thin to carry mass or growths
@@ -3985,18 +3997,40 @@ export class SpaceModel {
           b.melt = ml[1];
         } else if (b.melt !== undefined) b.melt = undefined;
         // (its fossil's life is over — the wall's shader draws none of it any more: not made)
-        if (dead && (deadNow - bornAge - dead.after) * Math.max(0.2, own) * (1 - dead.deep * (1 - Math.max(0, Math.min(1, (bc.top - (b.slot + 0.5)) / deadH)))) >= dead.at) {
+        // (WHOLE STAGES: the life is carved, in steps, below — on the stages' own ruler)
+        if (dead && !carved && (deadNow - bornAge - dead.after) * Math.max(0.2, own) * (1 - dead.deep * (1 - Math.max(0, Math.min(1, (bc.top - (b.slot + 0.5)) / deadH)))) >= dead.at) {
           letGo++;
           continue;
         }
         // THE FOSSIL IN STAGES (FuseInput.stages): the part goes in at the step its progress has reached — none yet, no mass
-        let stageD = 1, stageAt = 0;
+        let stageD = 1, stageAt = 0, goneStep = 0, goneShare = 0;
         if (stg && bc) {
           const ruler = (stgNow - bornAge - stg.after) * Math.max(0.2, own) * (1 - stg.deep * (1 - Math.max(0, Math.min(1, (bc.top - (b.slot + 0.5)) / deadH))));
           const step = Math.min(stg.n, Math.floor((ruler / Math.max(1, stg.span)) * stg.n));
           if (step <= 0) continue;
           stageD = step / stg.n;
           stageAt = step;
+          // THE GOING IN STEPS, ON THE SAME RULER — FROM WHEN IT WAS SEEN (the artist, 2026-11-28: "cpu 성능 따라서 안 생긴
+          // 것도 삭을 수 있다는 거임?"): the ruler is set back by how late the part's building first came on the screen
+          // past the moment it should have been whole (kept per part once it has been seen; until then it counts as seen
+          // now) — so every fossil lives its whole life on the screen, whatever the machine, and within a building the
+          // deep and old still go first. Its step of the going is carved into its mass (fuse.ts FuseChunkInput.gone);
+          // the last step is its end: let go.
+          if (carved && dead) {
+            const pk = SpaceModel.partKey(b);
+            const lagNow = Math.max(0, ruler - stg.span);
+            const lag = this.dieLag.get(pk) ?? lagNow;
+            dieSeen.set(pk, lagNow);
+            const die = (ruler - lag - (dead.dieAfter ?? 0)) / Math.max(1, dead.dieSpan ?? 1);
+            const steps = Math.max(1, dead.steps ?? 3);
+            goneStep = die <= 0 ? 0 : Math.min(steps, Math.floor(die * steps) + 1);
+            if (goneStep >= steps && die >= 1) {
+              letGo++;
+              continue;
+            }
+            goneStep = Math.min(goneStep, steps - 1);
+            goneShare = goneStep / steps;
+          }
         }
         // A PART THAT GOES BEFORE ITS FOSSIL BEGINS LEAVES NONE (the wall's shader lets the fossil out by the layer's
         // depth: FUSE_GROW_VERT_BODY): how deep the part lies when the erosion takes it — its progress summed slot by
@@ -4027,7 +4061,7 @@ export class SpaceModel {
         // (WHOLE STAGES: nothing in the shader lets the mass out — what the vegetation makes of it is in its progress,
         // as the exhibition's was: d × the share the vegetation gathered there)
         const e: P = staged
-          ? { b, d: q20(stageD * most), up: true, sk: isSkeleton(b, q20(stageD * most), skCfg), ang: angleOf.get(b.seed) ?? 0, st: stg ? stageAt : undefined, grow: [b.slot, bornAge, g, own, nEff, most] }
+          ? { b, d: q20(stageD * most), up: true, sk: isSkeleton(b, q20(stageD * most), skCfg), ang: angleOf.get(b.seed) ?? 0, st: stg ? stageAt + (stg.n + 1) * goneStep : undefined, ...(goneShare > 0 ? { g: goneShare } : {}), grow: [b.slot, bornAge, g, own, nEff, most] }
           : { b, d: stageD, up: true, sk: isSkeleton(b, 0, fuse), ang: angleOf.get(b.seed) ?? 0, grow: [b.slot, bornAge, g, own, nEff, most] };
         const l = bySlot.get(b.slot);
         if (l) l.push(e);
@@ -4050,6 +4084,8 @@ export class SpaceModel {
     const pad = fusePad(fuse);
     const padSlots = Math.ceil((Math.max(pad.above, pad.below) * fuse.voxel + fuse.accDepth) / u) + 1 + (fuse.study?.fill ? FILL_MAX_GAP : 0);
     if (dead) this.stages["fossil parts let go, their life over (n)"] = letGo;
+    // (the lateness of parts no more in the world is let go too)
+    if (carved && this.dieLag.size > dieSeen.size + 500) for (const k of [...this.dieLag.keys()]) if (!dieSeen.has(k)) this.dieLag.delete(k);
     // BUILDING BY BUILDING (fuse.ts perBuilding): each building's mass from a state kept — fuseBuildings
     if (bc && fuse.perBuilding) {
       if (this.fuseChunks.size || this.districtMass.size) {
