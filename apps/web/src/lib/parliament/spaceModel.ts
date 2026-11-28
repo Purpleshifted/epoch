@@ -1966,7 +1966,7 @@ export class SpaceModel {
       const snap = new Map<number, number>();
       for (const e of list) snap.set(key(e.b), e.d);
       const steps = byStep ? new Map(list.map((e) => [key(e.b), e.st ?? 0] as const)) : undefined;
-      return { id, cfg, snap, steps, ang, parts: seeded ? list.map((e) => ({ b: e.b, grow: e.grow })) : [], h: h && ang ? SpaceModel.turnedHistory(h, c, sn, ext, ka - 12, kb + 12) : h, look: lookOf(list), todo, done: new Map(), base: this.units.get(id) };
+      return { id, cfg, snap, steps, ang, parts: seeded || byStep ? list.map((e) => ({ b: e.b, grow: e.grow })) : [], h: h && ang ? SpaceModel.turnedHistory(h, c, sn, ext, ka - 12, kb + 12) : h, look: lookOf(list), todo, done: new Map(), base: this.units.get(id) };
     };
 
     const deadline = performance.now() + FUSE_BUDGET_MS;
@@ -2032,7 +2032,9 @@ export class SpaceModel {
       // parts stand whole under it — a building's new mass costs the parts nothing)
       if ((fuse.absorb ?? 1) > 0) this.fuseBuilt++;
       // SEEDED: every vertex is given the part it grows from
-      if (seeded && job.parts.length) growData(mesh, job.parts, u);
+      // (WHOLE STAGES: the same — the shader reads each vertex's part's age and depth for the fossil's LIFE only: the
+      // mass is drawn whole as made, and its going eats holes in it by its own ruler — deep and old first, 2026-11-28)
+      if ((seeded || byStep) && job.parts.length) growData(mesh, job.parts, u);
       // WHOLE STAGES: the new mass comes out of the old (or, the building's first, out of its parts) and the old goes
       // onto the new — both drawn while it melts, one body
       if (melt) {
@@ -2130,7 +2132,7 @@ export class SpaceModel {
     const set: UnitChunks["set"] = [];
     for (const [id, mesh] of co.set) {
       set.push({ id, mesh });
-      for (const a of [mesh.position, mesh.normal, mesh.color, mesh.extra, mesh.index, mesh.morph]) if (a) transfer.push(a.buffer as ArrayBuffer);
+      for (const a of [mesh.position, mesh.normal, mesh.color, mesh.extra, mesh.index, mesh.morph, mesh.anchor, mesh.growA, mesh.growB, mesh.late]) if (a) transfer.push(a.buffer as ArrayBuffer);
     }
     return { out: { type: "fuse-chunks", set, drop: [...co.drop], clock0: this.morphT0, sentAt: performance.timeOrigin + performance.now() }, transfer };
   }
@@ -3847,7 +3849,9 @@ export class SpaceModel {
     const unitsOn = seeded && this.fossilUnits.length > 0;
     // (the fossil that has gone — FuseInput.dead: read on a clock that moves in steps, so the parts of a piece are
     // let go together and the piece is made again once for them, not once for each)
-    const dead = seeded && bc && input.dead && input.dead.at > 0 ? input.dead : null;
+    // (WHOLE STAGES too, 2026-11-28 — the artist: "삭아 없어짐이 있어야 이게 해결이 되겠네", "창이 안 올라가도록 우리 이미
+    // 정했잖아, 그래서 삭혀 없애야 하는 거라고": with the window standing, nothing ever left the fossil but this)
+    const dead = ruled && bc && input.dead && input.dead.at > 0 ? input.dead : null;
     const deadStep = dead ? Math.max(1, dead.at / 10) : 1;
     const deadNow = dead && bc ? Math.floor((bc.top + Math.max(0, bc.erode.stood ?? 0)) / deadStep) * deadStep : 0;
     const deadH = bc ? Math.max(1, bc.erode.height ?? bc.top) : 1;
@@ -3938,7 +3942,7 @@ export class SpaceModel {
         // (WHOLE STAGES: nothing in the shader lets the mass out — what the vegetation makes of it is in its progress,
         // as the exhibition's was: d × the share the vegetation gathered there)
         const e: P = staged
-          ? { b, d: q20(stageD * most), up: true, sk: isSkeleton(b, q20(stageD * most), skCfg), ang: angleOf.get(b.seed) ?? 0, st: stg ? stageAt : undefined }
+          ? { b, d: q20(stageD * most), up: true, sk: isSkeleton(b, q20(stageD * most), skCfg), ang: angleOf.get(b.seed) ?? 0, st: stg ? stageAt : undefined, grow: [b.slot, bornAge, g, own, nEff, most] }
           : { b, d: stageD, up: true, sk: isSkeleton(b, 0, fuse), ang: angleOf.get(b.seed) ?? 0, grow: [b.slot, bornAge, g, own, nEff, most] };
         const l = bySlot.get(b.slot);
         if (l) l.push(e);
